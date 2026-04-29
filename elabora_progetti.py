@@ -654,18 +654,33 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
     ultima_riga_ws = ultima_riga_dr + 2
     col_rif_src    = 'Riferimento tabella 1'
 
-    # Rimuove green_fill dalla colonna settimana corrente e aggiunge bordo blu spesso
+    # Rimuove green_fill dalla colonna settimana corrente e aggiunge bordi blu spessi
     if current_week_col_dr is not None:
         blue_thick = Side(style='thick', color='0070C0')
+        first_week_col = num_idx + 1
         for r in range(2, ultima_riga_ws + 2):
+            # Bordo sinistro e destro sulla settimana corrente
             cw = ws_dr.cell(row=r, column=current_week_col_dr)
             cw.fill = no_fill
             eb = cw.border
-            cw.border = Border(top=eb.top, bottom=eb.bottom, left=blue_thick, right=eb.right)
+            cw.border = Border(top=eb.top, bottom=eb.bottom, left=blue_thick, right=blue_thick)
+            # Bordo destro sulla colonna prima della settimana corrente
             if current_week_col_dr > 1:
                 cp = ws_dr.cell(row=r, column=current_week_col_dr - 1)
                 ep = cp.border
                 cp.border = Border(top=ep.top, bottom=ep.bottom, left=ep.left, right=blue_thick)
+            # Bordo sinistro sulla colonna dopo la settimana corrente
+            cn = ws_dr.cell(row=r, column=current_week_col_dr + 1)
+            en = cn.border
+            cn.border = Border(top=en.top, bottom=en.bottom, left=blue_thick, right=en.right)
+            # Bordo prima della prima colonna settimana (se diversa dalla corrente)
+            if first_week_col != current_week_col_dr:
+                cf = ws_dr.cell(row=r, column=first_week_col)
+                ef = cf.border
+                cf.border = Border(top=ef.top, bottom=ef.bottom, left=blue_thick, right=ef.right)
+                ci = ws_dr.cell(row=r, column=first_week_col - 1)
+                ei = ci.border
+                ci.border = Border(top=ei.top, bottom=ei.bottom, left=ei.left, right=blue_thick)
 
     # Colorazione pastello dalla settimana corrente in poi (inclusa)
     if current_week_col_dr is not None:
