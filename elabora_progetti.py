@@ -952,7 +952,7 @@ def elabora_dati(file_excel_input, file_config, file_output):
 
         try:
             git_date = subprocess.check_output(
-                ['git', 'log', '--format=%cd', '--date=format:%Y-%m-%d', '-1'],
+                ['git', 'log', '--format=%cd %h', '--date=format:%Y-%m-%d', '-1'],
                 cwd=os.path.dirname(os.path.abspath(__file__)),
                 stderr=subprocess.DEVNULL
             ).decode().strip()
