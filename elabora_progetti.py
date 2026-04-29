@@ -21,6 +21,7 @@ import os
 import re
 import sys
 import logging
+import subprocess
 import traceback
 from datetime import datetime, timedelta
 from openpyxl import load_workbook
@@ -346,7 +347,7 @@ def scrivi_fogli_base(file_output, df_dati_comp, rows_progetti):
         rows_progetti:  lista di dict prodotta da prepara_righe_progetti.
     """
     with pd.ExcelWriter(file_output, engine='openpyxl') as writer:
-        df_dati_comp.drop(columns=['sett_calc']).to_excel(writer, sheet_name='dati', index=False, startrow=3)
+        df_dati_comp.drop(columns=['sett_calc']).to_excel(writer, sheet_name='dati', index=False, startrow=0)
         pd.DataFrame(rows_progetti).to_excel(writer, sheet_name='progetti', index=False, startrow=10, header=False)
         pd.DataFrame().to_excel(writer, sheet_name='Riepilogo Settimanale', index=False)
         pd.DataFrame().to_excel(writer, sheet_name='Dettaglio Ruoli', index=False)
@@ -948,8 +949,19 @@ def elabora_dati(file_excel_input, file_config, file_output):
         wb = load_workbook(file_output)
 
         ws_d = wb['dati']
-        ws_d['A1'] = f"Versione script: {config.get('VERSIONE', '')}"
-        ws_d['A2'] = f"Data: {datetime.now().strftime('%d/%m/%Y')}"
+
+        try:
+            git_date = subprocess.check_output(
+                ['git', 'log', '--format=%cd', '--date=format:%Y-%m-%d', '-1'],
+                cwd=os.path.dirname(os.path.abspath(__file__)),
+                stderr=subprocess.DEVNULL
+            ).decode().strip()
+        except Exception:
+            git_date = ""
+        # startrow=0 → header a riga 1, dati da riga 2 fino a riga 1+n
+        ultima_riga_dati = 1 + len(df_dati_comp)
+        versione_row = ultima_riga_dati + 2
+        ws_d.cell(row=versione_row, column=1).value = f"Versione script: {git_date}"
 
         bold = Font(bold=True)
         center = Alignment(horizontal='center', vertical='center')
