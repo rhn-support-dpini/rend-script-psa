@@ -311,7 +311,10 @@ def prepara_righe_progetti(df_src, df_dati_comp, df_per_calc, col_proj, col_actu
 
         red_s = trova_valore_config(proj, contratti_idx, config, "DaysRedempted")
         if red_s and "," in red_s:
-            giorni_pm_red, giorni_cons_red = red_s.split(",")[0].strip(), red_s.split(",")[1].strip()
+            try: giorni_pm_red   = float(red_s.split(",")[0].strip())
+            except ValueError:   giorni_pm_red   = 0.0
+            try: giorni_cons_red = float(red_s.split(",")[1].strip())
+            except ValueError:   giorni_cons_red = 0.0
         else:
             giorni_pm_red, giorni_cons_red = 0.0, 0.0
 
