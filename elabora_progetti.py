@@ -26,8 +26,7 @@ import traceback
 from datetime import datetime, timedelta
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-from openpyxl.chart import BarChart, LineChart, DoughnutChart, Reference
-from openpyxl.chart.series import DataPoint
+from openpyxl.chart import BarChart, LineChart, Reference
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 log = logging.getLogger(__name__)
@@ -439,10 +438,8 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
                         ws_p.cell(row=r, column=4).fill = yellow_fill
                 except ValueError:
                     pass
-            # Formula giorni residui solo se il filtro settimane non è attivo
-            if not weeks_limit_active:
-                ws_p[f'I{r}'] = f"=E{r}-G{r}"
-                ws_p[f'J{r}'] = f"=F{r}-H{r}"
+            ws_p[f'I{r}'] = f"=E{r}-G{r}"
+            ws_p[f'J{r}'] = f"=F{r}-H{r}"
             ws_p.cell(row=r, column=2).alignment = center
             for col in range(6, 11):
                 ws_p.cell(row=r, column=col).alignment = center
@@ -1169,10 +1166,6 @@ def crea_tab_grafici(wb, df_per_calc, rows_progetti, col_proj, col_period, col_a
     trend = df_per_calc.groupby(col_period)[col_actual].sum() / 8.0
     trend = trend.loc[sorted(trend.index, key=_sort_key)]
 
-    pm_mask   = df_per_calc['OPA@profilo'].str.contains('@pm|@pc', case=False, na=False)
-    mix_data  = [('PM / PC',    float(df_per_calc.loc[pm_mask,  col_actual].sum()) / 8.0),
-                 ('Consulting', float(df_per_calc.loc[~pm_mask, col_actual].sum()) / 8.0)]
-
     risorse_s = (
         df_per_calc[df_per_calc['Nome risorsa'].astype(str).str.strip().ne('') &
                     df_per_calc['Nome risorsa'].notna()]
@@ -1204,16 +1197,8 @@ def crea_tab_grafici(wb, df_per_calc, rows_progetti, col_proj, col_period, col_a
         ws.cell(row=T2+1+i, column=2).value = round(float(val), 2)
     T2_END = T2 + len(trend)
 
-    # Tabella 3: mix profili
-    T3 = T2_END + 2
-    hdr(T3, 'Profilo', 'Giornate')
-    for i, (lbl, val) in enumerate(mix_data):
-        ws.cell(row=T3+1+i, column=1).value = lbl
-        ws.cell(row=T3+1+i, column=2).value = round(val, 2)
-    T3_END = T3 + len(mix_data)
-
     # Tabella 4: top risorse
-    T4 = T3_END + 2
+    T4 = T2_END + 2
     hdr(T4, 'Risorsa', 'Giornate Actual')
     for i, (risorsa, val) in enumerate(risorse_s.items()):
         ws.cell(row=T4+1+i, column=1).value = risorsa
@@ -1297,21 +1282,6 @@ def crea_tab_grafici(wb, df_per_calc, rows_progetti, col_proj, col_period, col_a
         c5.series[i].graphicalProperties.solidFill = color
     ws.add_chart(c5, "T30")
 
-    # ── grafico 3: mix profili donut (col H, riga 58) ────────────────────────
-    c3 = DoughnutChart()
-    c3.title    = "Ripartizione per Profilo"
-    c3.style    = 10
-    c3.width    = CW
-    c3.height   = CH
-    c3.holeSize = 40
-    ref3 = Reference(ws, min_col=2, min_row=T3,   max_row=T3_END)
-    cat3 = Reference(ws, min_col=1, min_row=T3+1, max_row=T3_END)
-    c3.add_data(ref3, titles_from_data=True)
-    c3.set_categories(cat3)
-    pt0 = DataPoint(idx=0); pt0.graphicalProperties.solidFill = PALETTE[0]
-    pt1 = DataPoint(idx=1); pt1.graphicalProperties.solidFill = PALETTE[1]
-    c3.series[0].dPt = [pt0, pt1]
-    ws.add_chart(c3, "H58")
 
 
 # --- FUNZIONE PRINCIPALE ---
