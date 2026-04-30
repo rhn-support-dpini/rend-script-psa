@@ -910,6 +910,234 @@ def aggiungi_note(ws_p, ws_e, anno_corrente, start_w, end_w, rows_progetti, riga
         ws_t[f'A{lr_t + 3}'] = nota2
         ws_t[f'A{lr_t + 3}'].font = bold
 
+# --- GENERAZIONE HTML ---
+
+def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
+                pivot_role_est, df_per_calc, config, col_rif, col_actual, file_output):
+    """Genera un file HTML navigabile con tutte le tabelle del report.
+
+    Il file ha lo stesso nome del file Excel con estensione .html e viene
+    scritto nella stessa directory. Include una barra laterale fissa con
+    indice e link ancorati a ciascuna sezione.
+    """
+    html_path = os.path.splitext(file_output)[0] + '.html'
+    now_str   = datetime.now().strftime('%d/%m/%Y %H:%M')
+    titolo    = config.get('Intestazione5', 'Report Settimanale Risorse')
+
+    df_dati = df_dati_comp.drop(columns=['sett_calc'], errors='ignore')
+
+    # ── DataFrame progetti ───────────────────────────────────────────────────
+    def _f(v):
+        try:    return round(float(v), 2)
+        except: return v or ''
+
+    df_proj = pd.DataFrame([{
+        'Contract Name': r['A'],
+        'OPA Number':    r['B'],
+        'Opportunity':   r['C'],
+        'End Date':      r['D'],
+        'Risc. PM':      _f(r['E']),
+        'Risc. Cons.':   _f(r['F']),
+        'Usati PM':      _f(r['G']),
+        'Usati Cons.':   _f(r['H']),
+        'Riferimento':   r['K'],
+    } for r in rows_progetti])
+
+    # ── DataFrame export ─────────────────────────────────────────────────────
+    somme_rif = {str(k).strip(): round(v / 8.0, 2)
+                 for k, v in df_per_calc.groupby(col_rif)[col_actual].sum().items()}
+    hdr_exp   = [h.strip() for h in config.get('Export2', '').split(',')]
+    righe_exp = []
+    i_e = 3
+    while f"Export{i_e}" in config:
+        vals = [v.strip() for v in config[f"Export{i_e}"].split(',')]
+        gg   = next((somme_rif[v] for v in vals if v in somme_rif), 0.0)
+        while len(vals) < 10:
+            vals.append('')
+        righe_exp.append(vals[:9] + [round(gg, 2)] + vals[10:])
+        i_e += 1
+
+    if righe_exp:
+        nc      = max(len(r) for r in righe_exp)
+        df_exp  = pd.DataFrame(
+            [r + [''] * (nc - len(r)) for r in righe_exp],
+            columns=(hdr_exp + [''] * nc)[:nc]
+        )
+    else:
+        df_exp = pd.DataFrame()
+
+    pv_ruoli = pivot_role_est.rename(columns={'Riferimento tabella 1': 'Riferimento'})
+
+    # ── CSS ─────────────────────────────────────────────────────────────────
+    css = """
+:root{--pri:#1a56db;--pri-l:#dbeafe;--pri-d:#1e40af;--sid:#0f172a;
+  --bg:#f1f5f9;--srf:#fff;--brd:#e2e8f0;--txt:#1e293b;--mut:#64748b}
+*,::before,::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  background:var(--bg);color:var(--txt);display:flex;min-height:100vh;font-size:14px}
+.sidebar{width:215px;min-width:215px;background:var(--sid);padding:1.25rem 1rem;
+  position:sticky;top:0;height:100vh;overflow-y:auto;
+  display:flex;flex-direction:column;gap:1.25rem}
+.sb-title{color:#fff;font-size:.9rem;font-weight:700;padding-bottom:.875rem;
+  border-bottom:1px solid rgba(255,255,255,.1)}
+.sb-meta{color:#475569;font-size:.73rem;line-height:1.65}
+.nav-list{list-style:none;display:flex;flex-direction:column;gap:1px}
+.nav-sep{color:#374151;font-size:.65rem;font-weight:700;letter-spacing:.09em;
+  text-transform:uppercase;padding:.75rem .5rem .2rem;margin-top:.25rem}
+.nav-list a{color:#94a3b8;text-decoration:none;display:block;padding:.37rem .65rem;
+  border-radius:4px;font-size:.83rem;transition:background .15s,color .15s}
+.nav-list a:hover{background:rgba(255,255,255,.08);color:#e2e8f0}
+.nav-list a.sub{padding-left:1.15rem;font-size:.79rem;color:#64748b}
+.nav-list a.sub:hover{color:#94a3b8}
+main{flex:1;padding:1.75rem 2rem;overflow-x:hidden;min-width:0}
+.pg-hdr{margin-bottom:1.75rem}
+.pg-hdr h1{font-size:1.45rem;font-weight:700;color:var(--pri-d);margin-bottom:.3rem}
+.pg-hdr p{color:var(--mut);font-size:.82rem}
+.sec{background:var(--srf);border-radius:8px;
+  box-shadow:0 1px 4px rgba(0,0,0,.09);margin-bottom:1.75rem;overflow:hidden}
+.sec-hdr{background:var(--pri);color:#fff;padding:.7rem 1.2rem;
+  display:flex;align-items:center;justify-content:space-between}
+.sec-hdr h2{font-size:.95rem;font-weight:600;letter-spacing:.01em}
+.badge{background:rgba(255,255,255,.22);border-radius:20px;
+  padding:.1rem .55rem;font-size:.72rem}
+.sub-sec{padding:.875rem 1.2rem;border-bottom:1px solid var(--brd)}
+.sub-sec:last-child{border-bottom:none}
+.sub-sec h3{font-size:.85rem;font-weight:600;color:var(--pri-d);margin-bottom:.65rem;
+  display:flex;align-items:center;gap:.45rem}
+.sub-sec h3::before{content:'';display:inline-block;width:3px;height:.9em;
+  background:var(--pri);border-radius:2px}
+.tbl-wrap{overflow:auto;max-height:520px;border-top:1px solid var(--brd)}
+table{border-collapse:collapse;width:100%;font-size:.8rem}
+thead th{background:var(--pri-l);color:var(--pri-d);font-weight:600;padding:.5rem .72rem;
+  text-align:left;white-space:nowrap;position:sticky;top:0;
+  border-bottom:2px solid var(--pri);z-index:1}
+tbody tr:nth-child(even){background:#f8fafc}
+tbody tr:hover{background:#eff6ff}
+td{padding:.38rem .72rem;border-bottom:1px solid var(--brd);white-space:nowrap}
+td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
+.row-count{padding:.35rem 1.2rem;font-size:.72rem;color:var(--mut);
+  border-top:1px solid var(--brd);background:#f8fafc}
+.empty{padding:1.25rem;color:var(--mut);font-style:italic}
+.btt{position:fixed;bottom:1.25rem;right:1.25rem;background:var(--pri);color:#fff;
+  border:none;border-radius:50%;width:2.25rem;height:2.25rem;font-size:1.1rem;
+  cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25);transition:background .15s;
+  display:flex;align-items:center;justify-content:center}
+.btt:hover{background:var(--pri-d)}
+"""
+
+    # ── Helper: DataFrame → tabella HTML ────────────────────────────────────
+    def _cell(val):
+        if pd.isna(val):
+            return '<td></td>'
+        if isinstance(val, float):
+            return f'<td class="num">{val:,.2f}</td>'
+        return f'<td>{val}</td>'
+
+    def _tbl(df):
+        if df is None or df.empty:
+            return '<p class="empty">Nessun dato disponibile.</p>'
+        out = ['<div class="tbl-wrap"><table><thead><tr>']
+        for col in df.columns:
+            out.append(f'<th>{col}</th>')
+        out.append('</tr></thead><tbody>')
+        for _, row in df.iterrows():
+            out.append('<tr>')
+            out.extend(_cell(v) for v in row)
+            out.append('</tr>')
+        out.append('</tbody></table></div>')
+        out.append(f'<p class="row-count">{len(df):,} record</p>')
+        return ''.join(out)
+
+    # ── Sezioni ─────────────────────────────────────────────────────────────
+    sec_dati = f"""
+<section class="sec" id="dati">
+  <div class="sec-hdr"><h2>Dati</h2><span class="badge">{len(df_dati):,} righe</span></div>
+  <div class="sub-sec">{_tbl(df_dati)}</div>
+</section>"""
+
+    sec_proj = f"""
+<section class="sec" id="progetti">
+  <div class="sec-hdr"><h2>Progetti</h2><span class="badge">{len(df_proj)} contratti</span></div>
+  <div class="sub-sec">{_tbl(df_proj)}</div>
+</section>"""
+
+    sec_riep = f"""
+<section class="sec" id="riepilogo">
+  <div class="sec-hdr"><h2>Riepilogo Settimanale</h2></div>
+  <div class="sub-sec" id="actual">
+    <h3>Actual Hours (Giornate)</h3>
+    {_tbl(pivot_actual)}
+  </div>
+  <div class="sub-sec" id="estimated">
+    <h3>Estimated Hours (Giornate)</h3>
+    {_tbl(pivot_estimated)}
+  </div>
+</section>"""
+
+    sec_ruoli = f"""
+<section class="sec" id="dettaglio-ruoli">
+  <div class="sec-hdr"><h2>Dettaglio Ruoli</h2></div>
+  <div class="sub-sec">{_tbl(pv_ruoli)}</div>
+</section>"""
+
+    exp_title = config.get('Export1', 'Tabella di Export')
+    sec_exp = f"""
+<section class="sec" id="export">
+  <div class="sec-hdr"><h2>Tabella di Export</h2></div>
+  <div class="sub-sec">
+    <h3>{exp_title}</h3>
+    {_tbl(df_exp)}
+  </div>
+</section>"""
+
+    # ── Navigazione laterale ─────────────────────────────────────────────────
+    nav = f"""<nav class="sidebar">
+  <div class="sb-title">Report Risorse</div>
+  <div class="sb-meta">Generato il<br>{now_str}</div>
+  <ul class="nav-list">
+    <li class="nav-sep">Indice</li>
+    <li><a href="#dati">Dati</a></li>
+    <li><a href="#progetti">Progetti</a></li>
+    <li><a href="#riepilogo">Riepilogo Settimanale</a></li>
+    <li><a href="#actual" class="sub">&#x2937; Actual</a></li>
+    <li><a href="#estimated" class="sub">&#x2937; Estimated</a></li>
+    <li><a href="#dettaglio-ruoli">Dettaglio Ruoli</a></li>
+    <li><a href="#export">Tabella Export</a></li>
+  </ul>
+</nav>"""
+
+    # ── Assemblaggio finale ──────────────────────────────────────────────────
+    html = f"""<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{titolo}</title>
+  <style>{css}</style>
+</head>
+<body>
+{nav}
+<main>
+  <div class="pg-hdr">
+    <h1>{titolo}</h1>
+    <p>Generato il {now_str}</p>
+  </div>
+{sec_dati}
+{sec_proj}
+{sec_riep}
+{sec_ruoli}
+{sec_exp}
+</main>
+<button class="btt" onclick="window.scrollTo({{top:0,behavior:'smooth'}})" title="Torna in cima">&#8679;</button>
+</body>
+</html>"""
+
+    with open(html_path, 'w', encoding='utf-8') as f:
+        f.write(html)
+    log.info("HTML generato: %s", html_path)
+
+
 # --- TAB GRAFICI ---
 
 def crea_tab_grafici(wb, df_per_calc, rows_progetti, col_proj, col_period, col_actual, col_estimated):
@@ -1186,6 +1414,10 @@ def elabora_dati(file_excel_input, file_config, file_output):
 
         log.info("4. Creazione tab grafici...")
         crea_tab_grafici(wb, df_per_calc, rows_progetti, col_proj, col_period, col_actual, col_estimated)
+
+        log.info("5. Generazione file HTML...")
+        genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
+                    pivot_role_est, df_per_calc, config, col_rif, col_actual, file_output)
 
         wb.save(file_output)
         log.info("SUCCESSO: File generato con tutte le intestazioni e dati Export.")
