@@ -874,7 +874,12 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_actual,
             ws_e.cell(row=r, column=9).alignment = right_align
             j_val = round(valore_match) if arrotonda else valore_match
             ws_e.cell(row=r, column=10).value = j_val
-            ws_e.cell(row=r, column=11).value = f"=I{r}-J{r}"
+            try:
+                i_num = float(str(ws_e.cell(row=r, column=9).value or 0).replace(',', '.'))
+                k_val = round(i_num - j_val) if arrotonda else round(i_num - j_val, 2)
+                ws_e.cell(row=r, column=11).value = k_val
+            except (ValueError, TypeError):
+                ws_e.cell(row=r, column=11).value = ''
         return start_row + len(righe_export)
 
     scrivi_titolo(1)
@@ -1231,20 +1236,18 @@ def crea_tab_grafici(wb, df_per_calc, rows_progetti, col_proj, col_period, col_a
 
     CW, CH = 18, 12  # larghezza e altezza grafici in cm
 
-    def _bar(title, y_title=None, x_title=None, horiz=False, stacked=False):
+    def _bar(title, horiz=False, stacked=False):
         c = BarChart()
-        c.type      = "bar" if horiz else "col"
-        c.grouping  = "stacked" if stacked else "clustered"
-        c.title     = title
-        c.style     = 10
-        c.width     = CW
-        c.height    = CH
-        if y_title: c.y_axis.title = y_title
-        if x_title: c.x_axis.title = x_title
+        c.type   = "bar" if horiz else "col"
+        c.title  = title
+        c.width  = CW
+        c.height = CH
+        if stacked:
+            c.grouping = "stacked"
         return c
 
     # ── grafico 1: actual vs estimated (col H, riga 2) ───────────────────────
-    c1   = _bar("Actual vs Estimated per Progetto (giornate)", y_title="Giornate")
+    c1   = _bar("Actual vs Estimated per Progetto (giornate)")
     ref1 = Reference(ws, min_col=2, min_row=T1,     max_col=3, max_row=T1_END)
     cat1 = Reference(ws, min_col=1, min_row=T1+1,              max_row=T1_END)
     c1.add_data(ref1, titles_from_data=True)
@@ -1252,7 +1255,7 @@ def crea_tab_grafici(wb, df_per_calc, rows_progetti, col_proj, col_period, col_a
     ws.add_chart(c1, "H2")
 
     # ── grafico 4: top risorse orizzontale (col T, riga 2) ───────────────────
-    c4   = _bar("Top Risorse per Giornate Actual", x_title="Giornate", horiz=True)
+    c4   = _bar("Top Risorse per Giornate Actual", horiz=True)
     ref4 = Reference(ws, min_col=2, min_row=T4,     max_row=T4_END)
     cat4 = Reference(ws, min_col=1, min_row=T4+1,   max_row=T4_END)
     c4.add_data(ref4, titles_from_data=True)
@@ -1261,11 +1264,9 @@ def crea_tab_grafici(wb, df_per_calc, rows_progetti, col_proj, col_period, col_a
 
     # ── grafico 2: trend settimanale (col H, riga 30) ────────────────────────
     c2 = LineChart()
-    c2.title          = "Trend Settimanale Giornate Actual"
-    c2.y_axis.title   = "Giornate"
-    c2.style          = 10
-    c2.width          = CW
-    c2.height         = CH
+    c2.title  = "Trend Settimanale Giornate Actual"
+    c2.width  = CW
+    c2.height = CH
     ref2 = Reference(ws, min_col=2, min_row=T2,   max_row=T2_END)
     cat2 = Reference(ws, min_col=1, min_row=T2+1, max_row=T2_END)
     c2.add_data(ref2, titles_from_data=True)
@@ -1273,8 +1274,7 @@ def crea_tab_grafici(wb, df_per_calc, rows_progetti, col_proj, col_period, col_a
     ws.add_chart(c2, "H30")
 
     # ── grafico 5: stato contratti impilato (col T, riga 30) ─────────────────
-    c5   = _bar("Stato Contratti: Giorni Riscattati vs Utilizzati",
-                y_title="Giornate", stacked=True)
+    c5   = _bar("Stato Contratti: Giorni Riscattati vs Utilizzati", stacked=True)
     ref5 = Reference(ws, min_col=2, min_row=T5,   max_col=5, max_row=T5_END)
     cat5 = Reference(ws, min_col=1, min_row=T5+1, max_row=T5_END)
     c5.add_data(ref5, titles_from_data=True)
