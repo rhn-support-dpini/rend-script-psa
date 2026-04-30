@@ -26,6 +26,8 @@ import traceback
 from datetime import datetime, timedelta
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.chart import BarChart, LineChart, DoughnutChart, Reference
+from openpyxl.chart.series import DataPoint
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 log = logging.getLogger(__name__)
@@ -908,6 +910,182 @@ def aggiungi_note(ws_p, ws_e, anno_corrente, start_w, end_w, rows_progetti, riga
         ws_t[f'A{lr_t + 3}'] = nota2
         ws_t[f'A{lr_t + 3}'].font = bold
 
+# --- TAB GRAFICI ---
+
+def crea_tab_grafici(wb, df_per_calc, rows_progetti, col_proj, col_period, col_actual, col_estimated):
+    """Crea il foglio 'grafici' con 5 grafici su dati aggregati.
+
+    Grafici prodotti:
+      1. Actual vs Estimated per progetto (barre raggruppate)
+      2. Trend settimanale giornate actual (linea con marcatori)
+      3. Ripartizione per profilo PM/Consulting (ciambella)
+      4. Top risorse per giornate actual (barre orizzontali)
+      5. Stato contratti: giorni riscattati vs usati (barre sovrapposte)
+
+    Le tabelle dati di supporto vengono scritte in colonna A del foglio;
+    i grafici sono disposti in una griglia 2×2 + 1 a partire da colonna H.
+    """
+    ws = wb.create_sheet('grafici')
+    hdr_font = Font(bold=True)
+
+    # ── aggregazioni ──────────────────────────────────────────────────────────
+
+    actual_pp     = df_per_calc.groupby(col_proj)[col_actual].sum() / 8.0
+    estimated_pp  = df_per_calc.groupby(col_proj)[col_estimated].sum() / 8.0
+    progetti      = list(actual_pp.index)
+
+    def _sort_key(s):
+        m = re.search(r'(\d{4}).*W(\d+)', str(s), re.IGNORECASE)
+        return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+
+    trend = df_per_calc.groupby(col_period)[col_actual].sum() / 8.0
+    trend = trend.loc[sorted(trend.index, key=_sort_key)]
+
+    pm_mask   = df_per_calc['OPA@profilo'].str.contains('@pm|@pc', case=False, na=False)
+    mix_data  = [('PM / PC',    float(df_per_calc.loc[pm_mask,  col_actual].sum()) / 8.0),
+                 ('Consulting', float(df_per_calc.loc[~pm_mask, col_actual].sum()) / 8.0)]
+
+    risorse_s = (
+        df_per_calc[df_per_calc['Nome risorsa'].astype(str).str.strip().ne('') &
+                    df_per_calc['Nome risorsa'].notna()]
+        .groupby('Nome risorsa')[col_actual].sum() / 8.0
+    ).sort_values(ascending=False).head(10)
+
+    # ── scrittura tabelle dati (col A–E) ──────────────────────────────────────
+
+    def hdr(row, *labels):
+        for i, lbl in enumerate(labels):
+            c = ws.cell(row=row, column=1 + i)
+            c.value = lbl
+            c.font  = hdr_font
+
+    # Tabella 1: actual vs estimated per progetto
+    T1 = 2
+    hdr(T1, 'Progetto', 'Actual (gg)', 'Estimated (gg)')
+    for i, proj in enumerate(progetti):
+        ws.cell(row=T1+1+i, column=1).value = proj
+        ws.cell(row=T1+1+i, column=2).value = round(float(actual_pp[proj]),    2)
+        ws.cell(row=T1+1+i, column=3).value = round(float(estimated_pp[proj]), 2)
+    T1_END = T1 + len(progetti)
+
+    # Tabella 2: trend settimanale
+    T2 = T1_END + 2
+    hdr(T2, 'Settimana', 'Giornate Actual')
+    for i, (week, val) in enumerate(trend.items()):
+        ws.cell(row=T2+1+i, column=1).value = str(week)
+        ws.cell(row=T2+1+i, column=2).value = round(float(val), 2)
+    T2_END = T2 + len(trend)
+
+    # Tabella 3: mix profili
+    T3 = T2_END + 2
+    hdr(T3, 'Profilo', 'Giornate')
+    for i, (lbl, val) in enumerate(mix_data):
+        ws.cell(row=T3+1+i, column=1).value = lbl
+        ws.cell(row=T3+1+i, column=2).value = round(val, 2)
+    T3_END = T3 + len(mix_data)
+
+    # Tabella 4: top risorse
+    T4 = T3_END + 2
+    hdr(T4, 'Risorsa', 'Giornate Actual')
+    for i, (risorsa, val) in enumerate(risorse_s.items()):
+        ws.cell(row=T4+1+i, column=1).value = risorsa
+        ws.cell(row=T4+1+i, column=2).value = round(float(val), 2)
+    T4_END = T4 + len(risorse_s)
+
+    # Tabella 5: stato contratti
+    T5 = T4_END + 2
+    hdr(T5, 'Contratto', 'Risc. PM', 'Risc. Cons.', 'Usati PM', 'Usati Cons.')
+    for i, r in enumerate(rows_progetti):
+        row = T5 + 1 + i
+        ws.cell(row=row, column=1).value = r['A']
+        for j, key in enumerate(['E', 'F', 'G', 'H'], start=2):
+            try:
+                ws.cell(row=row, column=j).value = round(float(r[key]), 2)
+            except (ValueError, TypeError):
+                ws.cell(row=row, column=j).value = 0.0
+    T5_END = T5 + len(rows_progetti)
+
+    # ── helper grafici ────────────────────────────────────────────────────────
+
+    PALETTE = ["4472C4", "ED7D31", "70AD47", "FFC000", "A9D18E", "9DC3E6"]
+    CW, CH  = 18, 12  # larghezza e altezza grafici in cm
+
+    def _bar(title, y_title=None, x_title=None, horiz=False, stacked=False):
+        c = BarChart()
+        c.type      = "bar" if horiz else "col"
+        c.grouping  = "stacked" if stacked else "clustered"
+        c.title     = title
+        c.style     = 10
+        c.width     = CW
+        c.height    = CH
+        if y_title: c.y_axis.title = y_title
+        if x_title: c.x_axis.title = x_title
+        return c
+
+    # ── grafico 1: actual vs estimated (col H, riga 2) ───────────────────────
+    c1   = _bar("Actual vs Estimated per Progetto (giornate)", y_title="Giornate")
+    ref1 = Reference(ws, min_col=2, min_row=T1,     max_col=3, max_row=T1_END)
+    cat1 = Reference(ws, min_col=1, min_row=T1+1,              max_row=T1_END)
+    c1.add_data(ref1, titles_from_data=True)
+    c1.set_categories(cat1)
+    c1.series[0].graphicalProperties.solidFill = PALETTE[0]
+    c1.series[1].graphicalProperties.solidFill = PALETTE[1]
+    ws.add_chart(c1, "H2")
+
+    # ── grafico 4: top risorse orizzontale (col T, riga 2) ───────────────────
+    c4   = _bar("Top Risorse per Giornate Actual", x_title="Giornate", horiz=True)
+    ref4 = Reference(ws, min_col=2, min_row=T4,     max_row=T4_END)
+    cat4 = Reference(ws, min_col=1, min_row=T4+1,   max_row=T4_END)
+    c4.add_data(ref4, titles_from_data=True)
+    c4.set_categories(cat4)
+    c4.series[0].graphicalProperties.solidFill = PALETTE[2]
+    ws.add_chart(c4, "T2")
+
+    # ── grafico 2: trend settimanale (col H, riga 30) ────────────────────────
+    c2 = LineChart()
+    c2.title          = "Trend Settimanale Giornate Actual"
+    c2.y_axis.title   = "Giornate"
+    c2.style          = 10
+    c2.width          = CW
+    c2.height         = CH
+    ref2 = Reference(ws, min_col=2, min_row=T2,   max_row=T2_END)
+    cat2 = Reference(ws, min_col=1, min_row=T2+1, max_row=T2_END)
+    c2.add_data(ref2, titles_from_data=True)
+    c2.set_categories(cat2)
+    c2.series[0].graphicalProperties.line.solidFill = PALETTE[0]
+    c2.series[0].graphicalProperties.line.width     = 25400   # 2 pt
+    c2.series[0].marker.symbol = "circle"
+    c2.series[0].marker.size   = 5
+    ws.add_chart(c2, "H30")
+
+    # ── grafico 5: stato contratti impilato (col T, riga 30) ─────────────────
+    c5   = _bar("Stato Contratti: Giorni Riscattati vs Utilizzati",
+                y_title="Giornate", stacked=True)
+    ref5 = Reference(ws, min_col=2, min_row=T5,   max_col=5, max_row=T5_END)
+    cat5 = Reference(ws, min_col=1, min_row=T5+1, max_row=T5_END)
+    c5.add_data(ref5, titles_from_data=True)
+    c5.set_categories(cat5)
+    for i, color in enumerate(["A9D18E", "70AD47", "9DC3E6", PALETTE[0]]):
+        c5.series[i].graphicalProperties.solidFill = color
+    ws.add_chart(c5, "T30")
+
+    # ── grafico 3: mix profili donut (col H, riga 58) ────────────────────────
+    c3 = DoughnutChart()
+    c3.title    = "Ripartizione per Profilo"
+    c3.style    = 10
+    c3.width    = CW
+    c3.height   = CH
+    c3.holeSize = 40
+    ref3 = Reference(ws, min_col=2, min_row=T3,   max_row=T3_END)
+    cat3 = Reference(ws, min_col=1, min_row=T3+1, max_row=T3_END)
+    c3.add_data(ref3, titles_from_data=True)
+    c3.set_categories(cat3)
+    pt0 = DataPoint(idx=0); pt0.graphicalProperties.solidFill = PALETTE[0]
+    pt1 = DataPoint(idx=1); pt1.graphicalProperties.solidFill = PALETTE[1]
+    c3.series[0].dPt = [pt0, pt1]
+    ws.add_chart(c3, "H58")
+
+
 # --- FUNZIONE PRINCIPALE ---
 
 def elabora_dati(file_excel_input, file_config, file_output):
@@ -1005,6 +1183,9 @@ def elabora_dati(file_excel_input, file_config, file_output):
         if weeks_limit_active:
             aggiungi_note(wb['progetti'], wb['Tabella di Export'], anno_corrente,
                           start_w, end_w, rows_progetti, riga_export, bold)
+
+        log.info("4. Creazione tab grafici...")
+        crea_tab_grafici(wb, df_per_calc, rows_progetti, col_proj, col_period, col_actual, col_estimated)
 
         wb.save(file_output)
         log.info("SUCCESSO: File generato con tutte le intestazioni e dati Export.")
