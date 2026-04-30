@@ -441,8 +441,14 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
                         ws_p.cell(row=r, column=4).fill = yellow_fill
                 except ValueError:
                     pass
-            ws_p[f'I{r}'] = f"=E{r}-G{r}"
-            ws_p[f'J{r}'] = f"=F{r}-H{r}"
+            try:
+                ws_p.cell(row=r, column=9).value  = float(row['E']) - float(g_val)
+            except (ValueError, TypeError):
+                ws_p.cell(row=r, column=9).value  = 0.0
+            try:
+                ws_p.cell(row=r, column=10).value = float(row['F']) - float(h_val)
+            except (ValueError, TypeError):
+                ws_p.cell(row=r, column=10).value = 0.0
             ws_p.cell(row=r, column=2).alignment = center
             for col in range(6, 11):
                 ws_p.cell(row=r, column=col).alignment = center
@@ -1223,8 +1229,7 @@ def crea_tab_grafici(wb, df_per_calc, rows_progetti, col_proj, col_period, col_a
 
     # ── helper grafici ────────────────────────────────────────────────────────
 
-    PALETTE = ["4472C4", "ED7D31", "70AD47", "FFC000", "A9D18E", "9DC3E6"]
-    CW, CH  = 18, 12  # larghezza e altezza grafici in cm
+    CW, CH = 18, 12  # larghezza e altezza grafici in cm
 
     def _bar(title, y_title=None, x_title=None, horiz=False, stacked=False):
         c = BarChart()
@@ -1244,8 +1249,6 @@ def crea_tab_grafici(wb, df_per_calc, rows_progetti, col_proj, col_period, col_a
     cat1 = Reference(ws, min_col=1, min_row=T1+1,              max_row=T1_END)
     c1.add_data(ref1, titles_from_data=True)
     c1.set_categories(cat1)
-    c1.series[0].graphicalProperties.solidFill = PALETTE[0]
-    c1.series[1].graphicalProperties.solidFill = PALETTE[1]
     ws.add_chart(c1, "H2")
 
     # ── grafico 4: top risorse orizzontale (col T, riga 2) ───────────────────
@@ -1254,7 +1257,6 @@ def crea_tab_grafici(wb, df_per_calc, rows_progetti, col_proj, col_period, col_a
     cat4 = Reference(ws, min_col=1, min_row=T4+1,   max_row=T4_END)
     c4.add_data(ref4, titles_from_data=True)
     c4.set_categories(cat4)
-    c4.series[0].graphicalProperties.solidFill = PALETTE[2]
     ws.add_chart(c4, "T2")
 
     # ── grafico 2: trend settimanale (col H, riga 30) ────────────────────────
@@ -1268,10 +1270,6 @@ def crea_tab_grafici(wb, df_per_calc, rows_progetti, col_proj, col_period, col_a
     cat2 = Reference(ws, min_col=1, min_row=T2+1, max_row=T2_END)
     c2.add_data(ref2, titles_from_data=True)
     c2.set_categories(cat2)
-    c2.series[0].graphicalProperties.line.solidFill = PALETTE[0]
-    c2.series[0].graphicalProperties.line.width     = 25400   # 2 pt
-    c2.series[0].marker.symbol = "circle"
-    c2.series[0].marker.size   = 5
     ws.add_chart(c2, "H30")
 
     # ── grafico 5: stato contratti impilato (col T, riga 30) ─────────────────
@@ -1281,8 +1279,6 @@ def crea_tab_grafici(wb, df_per_calc, rows_progetti, col_proj, col_period, col_a
     cat5 = Reference(ws, min_col=1, min_row=T5+1, max_row=T5_END)
     c5.add_data(ref5, titles_from_data=True)
     c5.set_categories(cat5)
-    for i, color in enumerate(["A9D18E", "70AD47", "9DC3E6", PALETTE[0]]):
-        c5.series[i].graphicalProperties.solidFill = color
     ws.add_chart(c5, "T30")
 
 
