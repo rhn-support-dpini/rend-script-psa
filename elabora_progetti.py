@@ -26,7 +26,7 @@ import traceback
 from datetime import datetime, timedelta
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-from openpyxl.chart import BarChart, LineChart, Reference
+import json
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 log = logging.getLogger(__name__)
@@ -924,12 +924,13 @@ def aggiungi_note(ws_p, ws_e, anno_corrente, start_w, end_w, rows_progetti, riga
 # --- GENERAZIONE HTML ---
 
 def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
-                pivot_role_est, df_per_calc, config, col_rif, col_actual, file_output):
-    """Genera un file HTML navigabile con tutte le tabelle del report.
+                pivot_role_est, df_per_calc, config, col_rif, col_actual,
+                col_proj, col_period, col_estimated, file_output):
+    """Genera un file HTML navigabile con tabelle e grafici Chart.js.
 
     Il file ha lo stesso nome del file Excel con estensione .html e viene
     scritto nella stessa directory. Include una barra laterale fissa con
-    indice e link ancorati a ciascuna sezione.
+    indice e link ancorati a ciascuna sezione, più 4 grafici interattivi.
     """
     html_path = os.path.splitext(file_output)[0] + '.html'
     now_str   = datetime.now().strftime('%d/%m/%Y %H:%M')
@@ -937,11 +938,11 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
 
     df_dati = df_dati_comp.drop(columns=['sett_calc'], errors='ignore')
 
-    # ── DataFrame progetti ───────────────────────────────────────────────────
     def _f(v):
         try:    return round(float(v), 2)
         except: return v or ''
 
+    # ── DataFrame progetti ───────────────────────────────────────────────────
     df_proj = pd.DataFrame([{
         'Contract Name': r['A'],
         'OPA Number':    r['B'],
@@ -951,26 +952,33 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
         'Risc. Cons.':   _f(r['F']),
         'Usati PM':      _f(r['G']),
         'Usati Cons.':   _f(r['H']),
+        'Rem. PM':       _f(r['E'] - r['G']),
+        'Rem. Cons.':    _f(r['F'] - r['H']),
         'Riferimento':   r['K'],
     } for r in rows_progetti])
 
     # ── DataFrame export ─────────────────────────────────────────────────────
     somme_rif = {str(k).strip(): round(v / 8.0, 2)
                  for k, v in df_per_calc.groupby(col_rif)[col_actual].sum().items()}
-    hdr_exp   = [h.strip() for h in config.get('Export2', '').split(',')]
+    hdr_exp = [h.strip() for h in config.get('Export2', '').split(',')]
     righe_exp = []
     i_e = 3
     while f"Export{i_e}" in config:
         vals = [v.strip() for v in config[f"Export{i_e}"].split(',')]
         gg   = next((somme_rif[v] for v in vals if v in somme_rif), 0.0)
-        while len(vals) < 10:
+        try:
+            i_num = float(str(vals[8] if len(vals) > 8 else '0').replace(',', '.'))
+            k_val = round(i_num - gg, 2)
+        except (ValueError, TypeError):
+            k_val = ''
+        while len(vals) < 9:
             vals.append('')
-        righe_exp.append(vals[:9] + [round(gg, 2)] + vals[10:])
+        righe_exp.append(vals[:9] + [round(gg, 2)] + [k_val])
         i_e += 1
 
     if righe_exp:
-        nc      = max(len(r) for r in righe_exp)
-        df_exp  = pd.DataFrame(
+        nc     = max(len(r) for r in righe_exp)
+        df_exp = pd.DataFrame(
             [r + [''] * (nc - len(r)) for r in righe_exp],
             columns=(hdr_exp + [''] * nc)[:nc]
         )
@@ -978,6 +986,48 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
         df_exp = pd.DataFrame()
 
     pv_ruoli = pivot_role_est.rename(columns={'Riferimento tabella 1': 'Riferimento'})
+
+    # ── Dati grafici ─────────────────────────────────────────────────────────
+    actual_pp    = df_per_calc.groupby(col_proj)[col_actual].sum() / 8.0
+    estimated_pp = df_per_calc.groupby(col_proj)[col_estimated].sum() / 8.0
+    progetti_list = list(actual_pp.index)
+
+    def _sort_key(s):
+        m = re.search(r'(\d{4}).*W(\d+)', str(s), re.IGNORECASE)
+        return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+
+    trend = df_per_calc.groupby(col_period)[col_actual].sum() / 8.0
+    trend = trend.loc[sorted(trend.index, key=_sort_key)]
+
+    risorse_s = (
+        df_per_calc[df_per_calc['Nome risorsa'].astype(str).str.strip().ne('') &
+                    df_per_calc['Nome risorsa'].notna()]
+        .groupby('Nome risorsa')[col_actual].sum() / 8.0
+    ).sort_values(ascending=False).head(10)
+
+    chart_data = {
+        'ae': {
+            'labels':    progetti_list,
+            'actual':    [round(float(actual_pp[p]), 2) for p in progetti_list],
+            'estimated': [round(float(estimated_pp.get(p, 0.0)), 2) for p in progetti_list],
+        },
+        'trend': {
+            'labels': [str(w) for w in trend.index],
+            'values': [round(float(v), 2) for v in trend.values],
+        },
+        'risorse': {
+            'labels': list(risorse_s.index),
+            'values': [round(float(v), 2) for v in risorse_s.values],
+        },
+        'contratti': {
+            'labels':     [r['A'] for r in rows_progetti],
+            'risc_pm':    [float(r['E'] or 0) for r in rows_progetti],
+            'risc_cons':  [float(r['F'] or 0) for r in rows_progetti],
+            'usati_pm':   [float(r['G'] or 0) for r in rows_progetti],
+            'usati_cons': [float(r['H'] or 0) for r in rows_progetti],
+        },
+    }
+    chart_json = json.dumps(chart_data, ensure_ascii=False)
 
     # ── CSS ─────────────────────────────────────────────────────────────────
     css = """
@@ -1030,6 +1080,12 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
 .row-count{padding:.35rem 1.2rem;font-size:.72rem;color:var(--mut);
   border-top:1px solid var(--brd);background:#f8fafc}
 .empty{padding:1.25rem;color:var(--mut);font-style:italic}
+.charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;padding:1.25rem}
+.chart-card{background:#f8fafc;border-radius:6px;padding:1rem;border:1px solid var(--brd)}
+.chart-card h3{font-size:.82rem;font-weight:600;color:var(--pri-d);margin-bottom:.75rem;
+  display:flex;align-items:center;gap:.45rem}
+.chart-card h3::before{content:'';display:inline-block;width:3px;height:.9em;
+  background:var(--pri);border-radius:2px}
 .btt{position:fixed;bottom:1.25rem;right:1.25rem;background:var(--pri);color:#fff;
   border:none;border-radius:50%;width:2.25rem;height:2.25rem;font-size:1.1rem;
   cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25);transition:background .15s;
@@ -1102,6 +1158,29 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
   </div>
 </section>"""
 
+    sec_grafici = """
+<section class="sec" id="grafici">
+  <div class="sec-hdr"><h2>Grafici</h2></div>
+  <div class="charts-grid">
+    <div class="chart-card">
+      <h3>Actual vs Estimated per Progetto (giornate)</h3>
+      <canvas id="chart-ae"></canvas>
+    </div>
+    <div class="chart-card">
+      <h3>Trend Settimanale Giornate Actual</h3>
+      <canvas id="chart-trend"></canvas>
+    </div>
+    <div class="chart-card">
+      <h3>Top Risorse per Giornate Actual</h3>
+      <canvas id="chart-risorse"></canvas>
+    </div>
+    <div class="chart-card">
+      <h3>Stato Contratti: Riscattati vs Utilizzati</h3>
+      <canvas id="chart-contratti"></canvas>
+    </div>
+  </div>
+</section>"""
+
     # ── Navigazione laterale ─────────────────────────────────────────────────
     nav = f"""<nav class="sidebar">
   <div class="sb-title">Report Risorse</div>
@@ -1115,8 +1194,64 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
     <li><a href="#estimated" class="sub">&#x2937; Estimated</a></li>
     <li><a href="#dettaglio-ruoli">Dettaglio Ruoli</a></li>
     <li><a href="#export">Tabella Export</a></li>
+    <li><a href="#grafici">Grafici</a></li>
   </ul>
 </nav>"""
+
+    # ── Script Chart.js (stringa normale, non f-string, per evitare escaping) ─
+    js_data = f"const D = {chart_json};"
+    chart_script = (
+        '<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>\n'
+        '<script>\n'
+        '(function(){\n'
+        + js_data + '\n'
+        'const PAL=["#1a56db","#f59e0b","#10b981","#ef4444","#8b5cf6","#06b6d4","#f97316"];\n'
+        '\n'
+        'new Chart(document.getElementById("chart-ae"),{\n'
+        '  type:"bar",\n'
+        '  data:{labels:D.ae.labels,datasets:[\n'
+        '    {label:"Actual",    data:D.ae.actual,    backgroundColor:"#1a56db"},\n'
+        '    {label:"Estimated", data:D.ae.estimated, backgroundColor:"#f59e0b"}\n'
+        '  ]},\n'
+        '  options:{responsive:true,plugins:{legend:{position:"top"}},\n'
+        '    scales:{x:{ticks:{maxRotation:45}},y:{beginAtZero:true}}}\n'
+        '});\n'
+        '\n'
+        'new Chart(document.getElementById("chart-trend"),{\n'
+        '  type:"line",\n'
+        '  data:{labels:D.trend.labels,datasets:[{\n'
+        '    label:"Giornate Actual",data:D.trend.values,\n'
+        '    borderColor:"#1a56db",backgroundColor:"rgba(26,86,219,0.12)",\n'
+        '    fill:true,tension:0.3,pointRadius:3\n'
+        '  }]},\n'
+        '  options:{responsive:true,plugins:{legend:{display:false}},\n'
+        '    scales:{x:{ticks:{maxRotation:45}},y:{beginAtZero:true}}}\n'
+        '});\n'
+        '\n'
+        'new Chart(document.getElementById("chart-risorse"),{\n'
+        '  type:"bar",\n'
+        '  data:{labels:D.risorse.labels,datasets:[{\n'
+        '    label:"Giornate",data:D.risorse.values,\n'
+        '    backgroundColor:D.risorse.labels.map(function(_,i){return PAL[i%PAL.length];})\n'
+        '  }]},\n'
+        '  options:{indexAxis:"y",responsive:true,plugins:{legend:{display:false}},\n'
+        '    scales:{x:{beginAtZero:true}}}\n'
+        '});\n'
+        '\n'
+        'new Chart(document.getElementById("chart-contratti"),{\n'
+        '  type:"bar",\n'
+        '  data:{labels:D.contratti.labels,datasets:[\n'
+        '    {label:"Risc. PM",    data:D.contratti.risc_pm,    backgroundColor:"#1a56db",stack:"r"},\n'
+        '    {label:"Risc. Cons.", data:D.contratti.risc_cons,  backgroundColor:"#93c5fd",stack:"r"},\n'
+        '    {label:"Usati PM",    data:D.contratti.usati_pm,   backgroundColor:"#f59e0b",stack:"u"},\n'
+        '    {label:"Usati Cons.", data:D.contratti.usati_cons, backgroundColor:"#fcd34d",stack:"u"}\n'
+        '  ]},\n'
+        '  options:{responsive:true,plugins:{legend:{position:"top"}},\n'
+        '    scales:{x:{ticks:{maxRotation:45}},y:{beginAtZero:true,stacked:true}}}\n'
+        '});\n'
+        '})();\n'
+        '</script>'
+    )
 
     # ── Assemblaggio finale ──────────────────────────────────────────────────
     html = f"""<!DOCTYPE html>
@@ -1139,147 +1274,16 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
 {sec_riep}
 {sec_ruoli}
 {sec_exp}
+{sec_grafici}
 </main>
 <button class="btt" onclick="window.scrollTo({{top:0,behavior:'smooth'}})" title="Torna in cima">&#8679;</button>
+{chart_script}
 </body>
 </html>"""
 
     with open(html_path, 'w', encoding='utf-8') as f:
         f.write(html)
     log.info("HTML generato: %s", html_path)
-
-
-# --- TAB GRAFICI ---
-
-def crea_tab_grafici(wb, df_per_calc, rows_progetti, col_proj, col_period, col_actual, col_estimated):
-    """Crea il foglio 'grafici' con 5 grafici su dati aggregati.
-
-    Grafici prodotti:
-      1. Actual vs Estimated per progetto (barre raggruppate)
-      2. Trend settimanale giornate actual (linea con marcatori)
-      3. Ripartizione per profilo PM/Consulting (ciambella)
-      4. Top risorse per giornate actual (barre orizzontali)
-      5. Stato contratti: giorni riscattati vs usati (barre sovrapposte)
-
-    Le tabelle dati di supporto vengono scritte in colonna A del foglio;
-    i grafici sono disposti in una griglia 2×2 + 1 a partire da colonna H.
-    """
-    ws = wb.create_sheet('grafici')
-    hdr_font = Font(bold=True)
-
-    # ── aggregazioni ──────────────────────────────────────────────────────────
-
-    actual_pp     = df_per_calc.groupby(col_proj)[col_actual].sum() / 8.0
-    estimated_pp  = df_per_calc.groupby(col_proj)[col_estimated].sum() / 8.0
-    progetti      = list(actual_pp.index)
-
-    def _sort_key(s):
-        m = re.search(r'(\d{4}).*W(\d+)', str(s), re.IGNORECASE)
-        return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
-
-    trend = df_per_calc.groupby(col_period)[col_actual].sum() / 8.0
-    trend = trend.loc[sorted(trend.index, key=_sort_key)]
-
-    risorse_s = (
-        df_per_calc[df_per_calc['Nome risorsa'].astype(str).str.strip().ne('') &
-                    df_per_calc['Nome risorsa'].notna()]
-        .groupby('Nome risorsa')[col_actual].sum() / 8.0
-    ).sort_values(ascending=False).head(10)
-
-    # ── scrittura tabelle dati (col A–E) ──────────────────────────────────────
-
-    def hdr(row, *labels):
-        for i, lbl in enumerate(labels):
-            c = ws.cell(row=row, column=1 + i)
-            c.value = lbl
-            c.font  = hdr_font
-
-    # Tabella 1: actual vs estimated per progetto
-    T1 = 2
-    hdr(T1, 'Progetto', 'Actual (gg)', 'Estimated (gg)')
-    for i, proj in enumerate(progetti):
-        ws.cell(row=T1+1+i, column=1).value = proj
-        ws.cell(row=T1+1+i, column=2).value = round(float(actual_pp[proj]),    2)
-        ws.cell(row=T1+1+i, column=3).value = round(float(estimated_pp[proj]), 2)
-    T1_END = T1 + len(progetti)
-
-    # Tabella 2: trend settimanale
-    T2 = T1_END + 2
-    hdr(T2, 'Settimana', 'Giornate Actual')
-    for i, (week, val) in enumerate(trend.items()):
-        ws.cell(row=T2+1+i, column=1).value = str(week)
-        ws.cell(row=T2+1+i, column=2).value = round(float(val), 2)
-    T2_END = T2 + len(trend)
-
-    # Tabella 4: top risorse
-    T4 = T2_END + 2
-    hdr(T4, 'Risorsa', 'Giornate Actual')
-    for i, (risorsa, val) in enumerate(risorse_s.items()):
-        ws.cell(row=T4+1+i, column=1).value = risorsa
-        ws.cell(row=T4+1+i, column=2).value = round(float(val), 2)
-    T4_END = T4 + len(risorse_s)
-
-    # Tabella 5: stato contratti
-    T5 = T4_END + 2
-    hdr(T5, 'Contratto', 'Risc. PM', 'Risc. Cons.', 'Usati PM', 'Usati Cons.')
-    for i, r in enumerate(rows_progetti):
-        row = T5 + 1 + i
-        ws.cell(row=row, column=1).value = r['A']
-        for j, key in enumerate(['E', 'F', 'G', 'H'], start=2):
-            try:
-                ws.cell(row=row, column=j).value = round(float(r[key]), 2)
-            except (ValueError, TypeError):
-                ws.cell(row=row, column=j).value = 0.0
-    T5_END = T5 + len(rows_progetti)
-
-    # ── helper grafici ────────────────────────────────────────────────────────
-
-    CW, CH = 18, 12  # larghezza e altezza grafici in cm
-
-    def _bar(title, horiz=False, stacked=False):
-        c = BarChart()
-        c.type   = "bar" if horiz else "col"
-        c.title  = title
-        c.width  = CW
-        c.height = CH
-        if stacked:
-            c.grouping = "stacked"
-        return c
-
-    # ── grafico 1: actual vs estimated (col H, riga 2) ───────────────────────
-    c1   = _bar("Actual vs Estimated per Progetto (giornate)")
-    ref1 = Reference(ws, min_col=2, min_row=T1,     max_col=3, max_row=T1_END)
-    cat1 = Reference(ws, min_col=1, min_row=T1+1,              max_row=T1_END)
-    c1.add_data(ref1, titles_from_data=True)
-    c1.set_categories(cat1)
-    ws.add_chart(c1, "H2")
-
-    # ── grafico 4: top risorse orizzontale (col T, riga 2) ───────────────────
-    c4   = _bar("Top Risorse per Giornate Actual", horiz=True)
-    ref4 = Reference(ws, min_col=2, min_row=T4,     max_row=T4_END)
-    cat4 = Reference(ws, min_col=1, min_row=T4+1,   max_row=T4_END)
-    c4.add_data(ref4, titles_from_data=True)
-    c4.set_categories(cat4)
-    ws.add_chart(c4, "T2")
-
-    # ── grafico 2: trend settimanale (col H, riga 30) ────────────────────────
-    c2 = LineChart()
-    c2.title  = "Trend Settimanale Giornate Actual"
-    c2.width  = CW
-    c2.height = CH
-    ref2 = Reference(ws, min_col=2, min_row=T2,   max_row=T2_END)
-    cat2 = Reference(ws, min_col=1, min_row=T2+1, max_row=T2_END)
-    c2.add_data(ref2, titles_from_data=True)
-    c2.set_categories(cat2)
-    ws.add_chart(c2, "H30")
-
-    # ── grafico 5: stato contratti impilato (col T, riga 30) ─────────────────
-    c5   = _bar("Stato Contratti: Giorni Riscattati vs Utilizzati", stacked=True)
-    ref5 = Reference(ws, min_col=2, min_row=T5,   max_col=5, max_row=T5_END)
-    cat5 = Reference(ws, min_col=1, min_row=T5+1, max_row=T5_END)
-    c5.add_data(ref5, titles_from_data=True)
-    c5.set_categories(cat5)
-    ws.add_chart(c5, "T30")
 
 
 
@@ -1381,12 +1385,10 @@ def elabora_dati(file_excel_input, file_config, file_output):
             aggiungi_note(wb['progetti'], wb['Tabella di Export'], anno_corrente,
                           start_w, end_w, rows_progetti, riga_export, bold)
 
-        log.info("4. Creazione tab grafici...")
-        crea_tab_grafici(wb, df_per_calc, rows_progetti, col_proj, col_period, col_actual, col_estimated)
-
-        log.info("5. Generazione file HTML...")
+        log.info("4. Generazione file HTML...")
         genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
-                    pivot_role_est, df_per_calc, config, col_rif, col_actual, file_output)
+                    pivot_role_est, df_per_calc, config, col_rif, col_actual,
+                    col_proj, col_period, col_estimated, file_output)
 
         wb.save(file_output)
         log.info("SUCCESSO: File generato con tutte le intestazioni e dati Export.")
