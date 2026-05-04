@@ -375,6 +375,20 @@ def scrivi_fogli_base(file_output, df_dati_comp, rows_progetti):
         pd.DataFrame().to_excel(writer, sheet_name='Dettaglio Ruoli', index=False)
         pd.DataFrame().to_excel(writer, sheet_name='Tabella di Export', index=False)
 
+# --- UTILITÀ FORMATTAZIONE ---
+
+def autofit_columns(ws, scan_rows=12, min_width=8, max_width=60):
+    """Imposta la larghezza di ogni colonna in base al testo degli header."""
+    for col in ws.columns:
+        max_len = min_width
+        for cell in list(col)[:scan_rows]:
+            if cell.value is not None:
+                try:
+                    max_len = max(max_len, len(str(cell.value)))
+                except Exception:
+                    pass
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, max_width)
+
 # --- FORMATTAZIONE TAB PROGETTI ---
 
 def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold, center):
@@ -478,6 +492,12 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
     # Tabella duplicata: distanza fissa dalla prima per il layout di stampa
     n = len(rows_progetti)
     dup_header_row = 10 + n + 6
+
+    fill_pastello = PatternFill(fill_type="solid", fgColor="D9E1F2")
+    for r in range(dup_header_row, dup_header_row + n + 2):
+        for c in range(1, 12):
+            ws_p.cell(row=r, column=c).fill = fill_pastello
+
     scrivi_intestazione(dup_header_row)
     scrivi_dati(dup_header_row + 2)
 
@@ -911,6 +931,20 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_actual,
             except (ValueError, TypeError):
                 ws_e.cell(row=r, column=11).value = ''
         return start_row + len(righe_export)
+
+    fill_pastello = PatternFill(fill_type="solid", fgColor="D9E1F2")
+    n_righe = len(righe_export)
+    dup_start_pre = 3 + n_righe + 5
+
+    # Prima tabella (decimale, righe 1..dup_start_pre-1): tutte le colonne A-N
+    for r in range(1, dup_start_pre):
+        for c in range(1, 15):
+            ws_e.cell(row=r, column=c).fill = fill_pastello
+
+    # Seconda tabella (arrotondata): solo colonne A e N
+    for r in range(dup_start_pre, dup_start_pre + 2 + n_righe):
+        ws_e.cell(row=r, column=1).fill = fill_pastello
+        ws_e.cell(row=r, column=14).fill = fill_pastello
 
     scrivi_titolo(1)
     scrivi_header(2)
@@ -1431,6 +1465,10 @@ def elabora_dati(file_excel_input, file_config, file_output, cliente_filter=''):
         genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
                     pivot_role_est, df_per_calc, config, col_rif, col_actual,
                     col_proj, col_period, col_estimated, file_output)
+
+        for sheet_name in ['dati', 'progetti', 'Riepilogo Settimanale',
+                            'Dettaglio Ruoli', 'Tabella di Export']:
+            autofit_columns(wb[sheet_name])
 
         wb.save(file_output)
         log.info("SUCCESSO: File generato con tutte le intestazioni e dati Export.")
