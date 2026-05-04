@@ -29,6 +29,7 @@ import traceback
 from datetime import datetime, timedelta
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter
 import json
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
@@ -387,7 +388,7 @@ def autofit_columns(ws, scan_rows=12, min_width=8, max_width=60):
                     max_len = max(max_len, len(str(cell.value)))
                 except Exception:
                     pass
-        ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, max_width)
+        ws.column_dimensions[get_column_letter(col[0].column)].width = min(max_len + 2, max_width)
 
 # --- FORMATTAZIONE TAB PROGETTI ---
 
