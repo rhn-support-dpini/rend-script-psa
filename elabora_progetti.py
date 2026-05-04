@@ -852,15 +852,24 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_actual,
     """
     somme_rif = (df_per_calc.groupby(col_rif)[col_actual].sum() / 8.0).to_dict()
     somme_rif = {str(k).strip(): v for k, v in somme_rif.items()}
-    log.info("Riferimenti disponibili in somme_rif: %s", list(somme_rif.keys()))
+
+    col_sotto_rif = "Sotto Riferimento tabella 1"
+    somme_sotto_rif = (df_per_calc.groupby(col_sotto_rif)[col_actual].sum() / 8.0).to_dict()
+    somme_sotto_rif = {str(k).strip(): v for k, v in somme_sotto_rif.items()}
+    log.info("Riferimenti disponibili: %s | Sotto-rif: %s",
+             list(somme_rif.keys()), list(somme_sotto_rif.keys()))
 
     righe_export = []
     idx = 3
     while f"Export{idx}" in config:
         vals = [v.strip() for v in config[f"Export{idx}"].split(',')]
         ref_key = vals[-1] if vals else ''
-        valore_match = somme_rif.get(ref_key, 0.0) if ref_key else 0.0
-        log.info("Export%d: ref=%r → %.2f gg", idx, ref_key, valore_match)
+        valore_match = (
+            somme_rif.get(ref_key, 0.0) + somme_sotto_rif.get(ref_key, 0.0)
+        ) if ref_key else 0.0
+        log.info("Export%d: ref=%r → %.2f gg (rif=%.2f + sotto=%.2f)",
+                 idx, ref_key, valore_match,
+                 somme_rif.get(ref_key, 0.0), somme_sotto_rif.get(ref_key, 0.0))
         righe_export.append((vals, valore_match))
         idx += 1
 
@@ -981,13 +990,15 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
     # ── DataFrame export ─────────────────────────────────────────────────────
     somme_rif = {str(k).strip(): round(v / 8.0, 2)
                  for k, v in df_per_calc.groupby(col_rif)[col_actual].sum().items()}
+    somme_sotto_rif_html = {str(k).strip(): round(v / 8.0, 2)
+                            for k, v in df_per_calc.groupby("Sotto Riferimento tabella 1")[col_actual].sum().items()}
     hdr_exp = [h.strip() for h in config.get('Export2', '').split(',')]
     righe_exp = []
     i_e = 3
     while f"Export{i_e}" in config:
         vals = [v.strip() for v in config[f"Export{i_e}"].split(',')]
         ref_key = vals[-1] if vals else ''
-        gg = somme_rif.get(ref_key, 0.0) if ref_key else 0.0
+        gg = (somme_rif.get(ref_key, 0.0) + somme_sotto_rif_html.get(ref_key, 0.0)) if ref_key else 0.0
         try:
             i_num = float(str(vals[8] if len(vals) > 8 else '0').replace(',', '.'))
             k_val = round(i_num - gg, 2)
