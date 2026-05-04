@@ -10,10 +10,13 @@ Excel di output multi-foglio con:
   - Tabella di Export     : riepilogo giornate per codice ordine
 
 Utilizzo:
-    python elabora_progetti.py [input.xlsx] [nome.config] [output.xlsx]
+    python elabora_progetti.py [cliente] [input.xlsx] [nome.config] [output.xlsx]
 
-    I tre argomenti sono opzionali; i default sono:
-        input.xlsx, nome.config, output_elaborato.xlsx
+    Tutti gli argomenti sono opzionali; i default sono:
+        cliente='', input.xlsx, nome.config, output_elaborato.xlsx
+
+    cliente: valore del filtro sulla colonna "Cliente" (case-insensitive).
+             Se omesso o stringa vuota, vengono inclusi tutti i clienti.
 """
 
 import pandas as pd
@@ -157,22 +160,36 @@ def calcola_date_settimana(week_str):
         return None
 
 def splitta_assegnazione(val):
-    """Divide il campo assegnazione (colonna C del sorgente) nei suoi 6 componenti.
+    """Divide il campo assegnazione (colonna C del sorgente) nei suoi 7 componenti.
 
     Il formato atteso è: "Nome|OPA@profilo|Cliente|SottoProgetto|Riferimento|Commento"
-    Il separatore è il carattere pipe '|'. Se i campi sono meno di 6, li riempie
-    con stringhe vuote; se sono più di 6, tronca al sesto.
+    Il campo Riferimento può contenere due valori numerici separati da '&'
+    (es. "6&4" o "6 & 4"): il primo va in "Riferimento tabella 1", il secondo
+    in "Sotto Riferimento tabella 1". Con un solo valore, "Sotto Riferimento
+    tabella 1" resta vuoto. I riferimenti numerici sono convertiti in interi.
 
     Args:
         val: stringa grezza della cella, o NaN.
 
     Returns:
-        Lista di esattamente 6 stringhe.
+        Lista di esattamente 7 elementi.
     """
     parti = [p.strip() for p in str(val).split('|')] if pd.notna(val) else []
     while len(parti) < 6:
         parti.append("")
-    return parti[:6]
+    parti = parti[:6]
+
+    def _to_int(s):
+        try:
+            return int(float(s))
+        except (ValueError, TypeError):
+            return s
+
+    rif_parts = [r.strip() for r in re.split(r'\s*&\s*', parti[4]) if r.strip()]
+    rif1 = _to_int(rif_parts[0]) if len(rif_parts) >= 1 else ''
+    rif2 = _to_int(rif_parts[1]) if len(rif_parts) >= 2 else ''
+
+    return [parti[0], parti[1], parti[2], parti[3], rif1, rif2, parti[5]]
 
 # --- CARICAMENTO E PREPARAZIONE DATI ---
 
@@ -212,7 +229,8 @@ def carica_dati(file_excel_input, config):
     for c in [col_actual, col_estimated]:
         df_src[c] = pd.to_numeric(df_src[c].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
 
-    nuove_col = ["Nome risorsa", "OPA@profilo", "Cliente", "Sotto progetto", "Riferimento tabella 1", "Commento"]
+    nuove_col = ["Nome risorsa", "OPA@profilo", "Cliente", "Sotto progetto",
+                 "Riferimento tabella 1", "Sotto Riferimento tabella 1", "Commento"]
     df_split = pd.DataFrame(df_src.iloc[:, 2].apply(splitta_assegnazione).tolist(), columns=nuove_col)
     df_dati_comp = pd.concat([df_src, df_split], axis=1)
 
@@ -834,12 +852,15 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_actual,
     """
     somme_rif = (df_per_calc.groupby(col_rif)[col_actual].sum() / 8.0).to_dict()
     somme_rif = {str(k).strip(): v for k, v in somme_rif.items()}
+    log.info("Riferimenti disponibili in somme_rif: %s", list(somme_rif.keys()))
 
     righe_export = []
     idx = 3
     while f"Export{idx}" in config:
         vals = [v.strip() for v in config[f"Export{idx}"].split(',')]
-        valore_match = next((somme_rif[v] for v in vals if v and v in somme_rif), 0.0)
+        ref_key = vals[-1] if vals else ''
+        valore_match = somme_rif.get(ref_key, 0.0) if ref_key else 0.0
+        log.info("Export%d: ref=%r → %.2f gg", idx, ref_key, valore_match)
         righe_export.append((vals, valore_match))
         idx += 1
 
@@ -965,7 +986,8 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
     i_e = 3
     while f"Export{i_e}" in config:
         vals = [v.strip() for v in config[f"Export{i_e}"].split(',')]
-        gg   = next((somme_rif[v] for v in vals if v and v in somme_rif), 0.0)
+        ref_key = vals[-1] if vals else ''
+        gg = somme_rif.get(ref_key, 0.0) if ref_key else 0.0
         try:
             i_num = float(str(vals[8] if len(vals) > 8 else '0').replace(',', '.'))
             k_val = round(i_num - gg, 2)
@@ -1289,22 +1311,25 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
 
 # --- FUNZIONE PRINCIPALE ---
 
-def elabora_dati(file_excel_input, file_config, file_output):
+def elabora_dati(file_excel_input, file_config, file_output, cliente_filter=''):
     """Orchestratore principale: legge input, calcola, scrive e formatta l'output.
 
     Flusso:
     1. Carica config e indice contratti
     2. Legge il file Excel e prepara i DataFrame
-    3. Calcola le pivot table
-    4. Prepara le righe del foglio progetti
-    5. Scrive i fogli base con pandas ExcelWriter
-    6. Riapre il file con openpyxl e applica formattazione
-    7. Salva il file finale
+    3. (opzionale) Filtra per cliente
+    4. Calcola le pivot table
+    5. Prepara le righe del foglio progetti
+    6. Scrive i fogli base con pandas ExcelWriter
+    7. Riapre il file con openpyxl e applica formattazione
+    8. Salva il file finale
 
     Args:
         file_excel_input: percorso del file Excel sorgente.
         file_config:      percorso del file di configurazione .config.
         file_output:      percorso del file Excel di output da generare.
+        cliente_filter:   se non vuoto, filtra le righe dove la colonna "Cliente"
+                          corrisponde a questo valore (confronto case-insensitive).
     """
     try:
         config = carica_config(file_config)
@@ -1325,6 +1350,12 @@ def elabora_dati(file_excel_input, file_config, file_output):
 
         log.info("1. Caricamento e preparazione dati...")
         df_src, df_dati_comp, col_proj, col_period, col_role_name, col_estimated, col_actual = carica_dati(file_excel_input, config)
+
+        if cliente_filter:
+            mask = df_dati_comp['Cliente'].str.strip().str.lower() == cliente_filter.strip().lower()
+            df_dati_comp = df_dati_comp[mask].reset_index(drop=True)
+            df_src = df_src[mask].reset_index(drop=True)
+            log.info("   Filtro cliente '%s': %d righe selezionate.", cliente_filter, len(df_dati_comp))
 
         df_dati_comp['sett_calc'] = df_dati_comp[col_period].apply(estrai_settimana)
 
@@ -1399,7 +1430,14 @@ def elabora_dati(file_excel_input, file_config, file_output):
 
 
 if __name__ == "__main__":
-    input_file = sys.argv[1] if len(sys.argv) > 1 else 'input.xlsx'
-    config_file = sys.argv[2] if len(sys.argv) > 2 else 'nome.config'
-    output_file = sys.argv[3] if len(sys.argv) > 3 else 'output_elaborato.xlsx'
-    elabora_dati(input_file, config_file, output_file)
+    import argparse
+    ap = argparse.ArgumentParser(
+        description='Report settimanale risorse Red Hat Italy')
+    ap.add_argument('cliente',     nargs='?', default='',
+                    help='Filtro colonna Cliente (case-insensitive; vuoto = tutti)')
+    ap.add_argument('input_file',  nargs='?', default='input.xlsx')
+    ap.add_argument('config_file', nargs='?', default='nome.config')
+    ap.add_argument('output_file', nargs='?', default='output_elaborato.xlsx')
+    args = ap.parse_args()
+    elabora_dati(args.input_file, args.config_file, args.output_file,
+                 cliente_filter=args.cliente)
