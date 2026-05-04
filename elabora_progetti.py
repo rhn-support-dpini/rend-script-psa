@@ -839,7 +839,7 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_actual,
     idx = 3
     while f"Export{idx}" in config:
         vals = [v.strip() for v in config[f"Export{idx}"].split(',')]
-        valore_match = next((somme_rif[v] for v in vals if v in somme_rif), 0.0)
+        valore_match = next((somme_rif[v] for v in vals if v and v in somme_rif), 0.0)
         righe_export.append((vals, valore_match))
         idx += 1
 
@@ -965,7 +965,7 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
     i_e = 3
     while f"Export{i_e}" in config:
         vals = [v.strip() for v in config[f"Export{i_e}"].split(',')]
-        gg   = next((somme_rif[v] for v in vals if v in somme_rif), 0.0)
+        gg   = next((somme_rif[v] for v in vals if v and v in somme_rif), 0.0)
         try:
             i_num = float(str(vals[8] if len(vals) > 8 else '0').replace(',', '.'))
             k_val = round(i_num - gg, 2)
