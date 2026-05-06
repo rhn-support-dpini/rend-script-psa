@@ -10,13 +10,14 @@ Excel di output multi-foglio con:
   - Tabella di Export     : riepilogo giornate per codice ordine
 
 Utilizzo:
-    python elabora_progetti.py [cliente] [input.xlsx] [nome.config] [output.xlsx]
+    python elabora_progetti.py [cliente] [input.xlsx] [script.config] [cust.config] [output.xlsx]
 
     Tutti gli argomenti sono opzionali; i default sono:
-        cliente='', input.xlsx, nome.config, output_elaborato.xlsx
+        cliente='', input.xlsx, script.config, cust.config, output_elaborato.xlsx
 
-    cliente: valore del filtro sulla colonna "Cliente" (case-insensitive).
-             Se omesso o stringa vuota, vengono inclusi tutti i clienti.
+    cliente:       filtro sulla colonna "Cliente" (case-insensitive; vuoto = tutti).
+    script.config: impostazioni generiche dello script (WeeksLimit, ColIdx, branding).
+    cust.config:   impostazioni specifiche del cliente (contratti, Export, contatti).
 """
 
 import pandas as pd
@@ -1357,11 +1358,12 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
 
 # --- FUNZIONE PRINCIPALE ---
 
-def elabora_dati(file_excel_input, file_config, file_output, cliente_filter=''):
+def elabora_dati(file_excel_input, file_script_config, file_cust_config,
+                 file_output, cliente_filter=''):
     """Orchestratore principale: legge input, calcola, scrive e formatta l'output.
 
     Flusso:
-    1. Carica config e indice contratti
+    1. Carica le due config (script + cust) e indice contratti
     2. Legge il file Excel e prepara i DataFrame
     3. (opzionale) Filtra per cliente
     4. Calcola le pivot table
@@ -1371,14 +1373,15 @@ def elabora_dati(file_excel_input, file_config, file_output, cliente_filter=''):
     8. Salva il file finale
 
     Args:
-        file_excel_input: percorso del file Excel sorgente.
-        file_config:      percorso del file di configurazione .config.
-        file_output:      percorso del file Excel di output da generare.
-        cliente_filter:   se non vuoto, filtra le righe dove la colonna "Cliente"
-                          corrisponde a questo valore (confronto case-insensitive).
+        file_excel_input:   percorso del file Excel sorgente.
+        file_script_config: config generica dello script (WeeksLimit, ColIdx, branding).
+        file_cust_config:   config specifica del cliente (contratti, Export, contatti).
+        file_output:        percorso del file Excel di output da generare.
+        cliente_filter:     se non vuoto, filtra le righe dove la colonna "Cliente"
+                            corrisponde a questo valore (confronto case-insensitive).
     """
     try:
-        config = carica_config(file_config)
+        config = {**carica_config(file_script_config), **carica_config(file_cust_config)}
         contratti_idx = indicizza_contratti(config)
 
         start_w = int(config.get('StartWeek', 0))
@@ -1483,11 +1486,12 @@ if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser(
         description='Report settimanale risorse Red Hat Italy')
-    ap.add_argument('cliente',     nargs='?', default='',
+    ap.add_argument('cliente',       nargs='?', default='',
                     help='Filtro colonna Cliente (case-insensitive; vuoto = tutti)')
-    ap.add_argument('input_file',  nargs='?', default='input.xlsx')
-    ap.add_argument('config_file', nargs='?', default='nome.config')
-    ap.add_argument('output_file', nargs='?', default='output_elaborato.xlsx')
+    ap.add_argument('input_file',    nargs='?', default='input.xlsx')
+    ap.add_argument('script_config', nargs='?', default='script.config')
+    ap.add_argument('cust_config',   nargs='?', default='cust.config')
+    ap.add_argument('output_file',   nargs='?', default='output_elaborato.xlsx')
     args = ap.parse_args()
-    elabora_dati(args.input_file, args.config_file, args.output_file,
-                 cliente_filter=args.cliente)
+    elabora_dati(args.input_file, args.script_config, args.cust_config,
+                 args.output_file, cliente_filter=args.cliente)
