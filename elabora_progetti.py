@@ -991,7 +991,7 @@ def aggiungi_note(ws_p, ws_e, anno_corrente, start_w, end_w, rows_progetti, riga
 
 # --- GRAFICI EXCEL ---
 
-def _vline(lc, ws, col, data_row, n_weeks, color_hex):
+def _vline(lc, ws, col, data_row, n_weeks, color_hex, err_val=100.0):
     """Simula una linea verticale nel line chart tramite error bar Y su serie nascosta."""
     ws.cell(row=1, column=col).value = ''
     for r in range(2, n_weeks + 2):
@@ -1022,7 +1022,7 @@ def _vline(lc, ws, col, data_row, n_weeks, color_hex):
         gp2.ln = lp2
         ser.errBars = ErrorBars(
             errDir='y', errBarType='both', errValType='fixedVal',
-            val=100000.0, noEndCap=True, spPr=gp2
+            val=err_val, noEndCap=True, spPr=gp2
         )
     except Exception:
         pass
@@ -1094,6 +1094,17 @@ def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_ac
             cum = float(cumsum.loc[proj, week]) if proj in cumsum.index else 0.0
             ws.cell(row=i, column=j).value = round(total_red - cum, 2)
 
+    # Calcola il massimo delle giornate rimaste per impostare i bounds dell'asse Y
+    axis_max = 10.0
+    for row in rows_progetti:
+        proj = row['A']
+        total_red = float(row['E'] or 0) + float(row['F'] or 0)
+        if proj in cumsum.index:
+            axis_max = max(axis_max, float((total_red - cumsum.loc[proj]).max()))
+        else:
+            axis_max = max(axis_max, total_red)
+    axis_max = axis_max * 1.1
+
     # Line chart: ascisse = settimane, ordinate = giornate rimaste, una linea per contratto
     lc = LineChart()
     lc.title = "Giorni Rimasti per Contratto nel Tempo"
@@ -1101,6 +1112,11 @@ def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_ac
     lc.x_axis.title = "Settimana"
     lc.width = 30
     lc.height = 16
+    try:
+        lc.y_axis.scaling.min = 0
+        lc.y_axis.scaling.max = axis_max
+    except Exception:
+        pass
 
     cats = Reference(ws, min_col=1, min_row=2, max_row=1 + n_weeks)
     for j in range(2, 2 + n_proj):
@@ -1111,11 +1127,11 @@ def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_ac
     _cw_idx, _me_idx = _week_vline_indices(all_weeks)
     _col_vl = 2 + n_proj
     if 0 <= _cw_idx < n_weeks:
-        _vline(lc, ws, _col_vl, _cw_idx + 2, n_weeks, 'DC2626')
+        _vline(lc, ws, _col_vl, _cw_idx + 2, n_weeks, 'DC2626', axis_max * 100)
         _col_vl += 1
     for _mi in _me_idx:
         if 0 <= _mi < n_weeks:
-            _vline(lc, ws, _col_vl, _mi + 2, n_weeks, '000000')
+            _vline(lc, ws, _col_vl, _mi + 2, n_weeks, '000000', axis_max * 100)
             _col_vl += 1
 
     ws.add_chart(lc, f"A{n_weeks + 4}")
@@ -1190,6 +1206,13 @@ def crea_grafici_intesa(wb, df_per_calc, col_period, col_actual, col_rif, config
         for j, (_, ref_key, acq) in enumerate(voci, 2):
             ws.cell(row=i, column=j).value = round(acq - cumsum_voci[ref_key].get(week, 0.0), 2)
 
+    # Calcola il massimo delle giornate rimaste per impostare i bounds dell'asse Y
+    axis_max = 10.0
+    for _, ref_key, acq in voci:
+        for w in all_weeks:
+            axis_max = max(axis_max, acq - cumsum_voci[ref_key].get(w, 0.0))
+    axis_max = axis_max * 1.1
+
     # Line chart: ascisse = settimane, ordinate = giornate rimaste, una linea per voce
     lc = LineChart()
     lc.title = "Giorni Rimasti per Voce nel Tempo"
@@ -1197,6 +1220,11 @@ def crea_grafici_intesa(wb, df_per_calc, col_period, col_actual, col_rif, config
     lc.x_axis.title = "Settimana"
     lc.width = 30
     lc.height = 16
+    try:
+        lc.y_axis.scaling.min = 0
+        lc.y_axis.scaling.max = axis_max
+    except Exception:
+        pass
 
     cats = Reference(ws, min_col=1, min_row=2, max_row=1 + n_weeks)
     for j in range(2, 2 + n_voci):
@@ -1207,11 +1235,11 @@ def crea_grafici_intesa(wb, df_per_calc, col_period, col_actual, col_rif, config
     _cw_idx, _me_idx = _week_vline_indices(all_weeks)
     _col_vl = 2 + n_voci
     if 0 <= _cw_idx < n_weeks:
-        _vline(lc, ws, _col_vl, _cw_idx + 2, n_weeks, 'DC2626')
+        _vline(lc, ws, _col_vl, _cw_idx + 2, n_weeks, 'DC2626', axis_max * 100)
         _col_vl += 1
     for _mi in _me_idx:
         if 0 <= _mi < n_weeks:
-            _vline(lc, ws, _col_vl, _mi + 2, n_weeks, '000000')
+            _vline(lc, ws, _col_vl, _mi + 2, n_weeks, '000000', axis_max * 100)
             _col_vl += 1
 
     ws.add_chart(lc, f"A{n_weeks + 4}")
