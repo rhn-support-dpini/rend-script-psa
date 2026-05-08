@@ -32,6 +32,7 @@ from datetime import datetime, timedelta
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.chart import BarChart, LineChart, Reference
 import json
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
@@ -988,6 +989,151 @@ def aggiungi_note(ws_p, ws_e, anno_corrente, start_w, end_w, rows_progetti, riga
         ws_t[f'A{lr_t + 3}'] = nota2
         ws_t[f'A{lr_t + 3}'].font = bold
 
+# --- GRAFICI EXCEL ---
+
+def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_actual, bold, center):
+    """Crea il foglio 'Grafici RH': line chart giornate rimaste per contratto nel tempo."""
+    ws = wb.create_sheet("Grafici RH")
+
+    def _sk(s):
+        m = re.search(r'(\d{4}).*W(\d+)', str(s), re.IGNORECASE)
+        return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+
+    all_weeks = sorted(df_per_calc[col_period].dropna().unique(), key=_sk)
+    n_weeks, n_proj = len(all_weeks), len(rows_progetti)
+    if not all_weeks or not rows_progetti:
+        return
+
+    # Pivot project × week → giorni consumati cumulati
+    pivot = (
+        df_per_calc.groupby([col_proj, col_period])[col_actual]
+        .sum().unstack(fill_value=0)
+        .reindex(columns=all_weeks, fill_value=0)
+        / 8.0
+    )
+    cumsum = pivot.cumsum(axis=1)
+
+    # Tabella dati: col 1 = settimana, col 2+ = rimasti per progetto
+    ws.cell(row=1, column=1).value = "Settimana"
+    ws.cell(row=1, column=1).font = bold
+    ws.cell(row=1, column=1).alignment = center
+    for j, row in enumerate(rows_progetti, 2):
+        c = ws.cell(row=1, column=j)
+        c.value = row['A']
+        c.font = bold
+        c.alignment = center
+
+    for i, week in enumerate(all_weeks, 2):
+        ws.cell(row=i, column=1).value = str(week)
+        for j, row in enumerate(rows_progetti, 2):
+            proj = row['A']
+            total_red = float(row['E'] or 0) + float(row['F'] or 0)
+            cum = float(cumsum.loc[proj, week]) if proj in cumsum.index else 0.0
+            ws.cell(row=i, column=j).value = round(total_red - cum, 2)
+
+    # Line chart: ascisse = settimane, ordinate = giornate rimaste, una linea per contratto
+    lc = LineChart()
+    lc.title = "Giorni Rimasti per Contratto nel Tempo"
+    lc.y_axis.title = "Giornate Rimaste"
+    lc.x_axis.title = "Settimana"
+    lc.width = 30
+    lc.height = 16
+
+    cats = Reference(ws, min_col=1, min_row=2, max_row=1 + n_weeks)
+    for j in range(2, 2 + n_proj):
+        ref = Reference(ws, min_col=j, min_row=1, max_row=1 + n_weeks)
+        lc.add_data(ref, titles_from_data=True)
+    lc.set_categories(cats)
+    ws.add_chart(lc, f"A{n_weeks + 4}")
+
+    autofit_columns(ws)
+
+
+def crea_grafici_intesa(wb, df_per_calc, col_period, col_actual, col_rif, config, bold, center):
+    """Crea il foglio 'Grafici Intesa': line chart giornate rimaste per voce nel tempo."""
+    ws = wb.create_sheet("Grafici Intesa")
+
+    def _sk(s):
+        m = re.search(r'(\d{4}).*W(\d+)', str(s), re.IGNORECASE)
+        return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+
+    all_weeks = sorted(df_per_calc[col_period].dropna().unique(), key=_sk)
+    n_weeks = len(all_weeks)
+    if not all_weeks:
+        return
+
+    col_sotto_rif = "Sotto Riferimento tabella 1"
+
+    # Voci dalla config (skip separatori '-')
+    voci = []
+    idx = 3
+    while f"Export{idx}" in config:
+        vals = [v.strip() for v in config[f"Export{idx}"].split(',')]
+        if vals and vals[0] != '-':
+            desc = vals[2] if len(vals) > 2 and vals[2] else vals[0]
+            ref_key = str(vals[-1]) if vals else ''
+            try:
+                acq = float(vals[8] if len(vals) > 8 else '0')
+            except (ValueError, TypeError):
+                acq = 0.0
+            voci.append((desc, ref_key, acq))
+        idx += 1
+
+    if not voci:
+        return
+
+    n_voci = len(voci)
+
+    # Cumsum settimanale per ogni ref_key (rif + sotto-rif)
+    def _weekly(ref_key):
+        mask = (
+            (df_per_calc[col_rif].astype(str).str.strip() == ref_key) |
+            (df_per_calc[col_sotto_rif].astype(str).str.strip() == ref_key)
+        )
+        return df_per_calc[mask].groupby(col_period)[col_actual].sum() / 8.0
+
+    cumsum_voci = {}
+    for _, ref_key, _ in voci:
+        wc = _weekly(ref_key)
+        cum, cs = 0.0, {}
+        for w in all_weeks:
+            cum += float(wc.get(w, 0.0))
+            cs[w] = cum
+        cumsum_voci[ref_key] = cs
+
+    # Tabella dati: col 1 = settimana, col 2+ = rimasti per voce
+    ws.cell(row=1, column=1).value = "Settimana"
+    ws.cell(row=1, column=1).font = bold
+    ws.cell(row=1, column=1).alignment = center
+    for j, (desc, _, _) in enumerate(voci, 2):
+        c = ws.cell(row=1, column=j)
+        c.value = desc
+        c.font = bold
+        c.alignment = center
+
+    for i, week in enumerate(all_weeks, 2):
+        ws.cell(row=i, column=1).value = str(week)
+        for j, (_, ref_key, acq) in enumerate(voci, 2):
+            ws.cell(row=i, column=j).value = round(acq - cumsum_voci[ref_key].get(week, 0.0), 2)
+
+    # Line chart: ascisse = settimane, ordinate = giornate rimaste, una linea per voce
+    lc = LineChart()
+    lc.title = "Giorni Rimasti per Voce nel Tempo"
+    lc.y_axis.title = "Giornate Rimaste"
+    lc.x_axis.title = "Settimana"
+    lc.width = 30
+    lc.height = 16
+
+    cats = Reference(ws, min_col=1, min_row=2, max_row=1 + n_weeks)
+    for j in range(2, 2 + n_voci):
+        ref = Reference(ws, min_col=j, min_row=1, max_row=1 + n_weeks)
+        lc.add_data(ref, titles_from_data=True)
+    lc.set_categories(cats)
+    ws.add_chart(lc, f"A{n_weeks + 4}")
+
+    autofit_columns(ws)
+
+
 # --- GENERAZIONE HTML ---
 
 def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
@@ -1075,10 +1221,46 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
         .groupby('Nome risorsa')[col_actual].sum() / 8.0
     ).sort_values(ascending=False).head(10)
 
-    _intesa_rows = [
-        (r[2] or r[0], r[9], r[10])
-        for r in righe_exp if r and str(r[0]).strip() != '-'
-    ]
+    # ── Time-series giornate rimaste per Grafici RH e Intesa ─────────────────
+    all_weeks_ts = sorted(df_per_calc[col_period].dropna().unique(), key=_sort_key)
+
+    rh_pivot_ts = (
+        df_per_calc.groupby([col_proj, col_period])[col_actual]
+        .sum().unstack(fill_value=0)
+        .reindex(columns=all_weeks_ts, fill_value=0)
+        / 8.0
+    ).cumsum(axis=1)
+
+    rh_series = []
+    for row in rows_progetti:
+        proj = row['A']
+        total_red = float(row['E'] or 0) + float(row['F'] or 0)
+        rh_series.append({'label': proj, 'data': [
+            round(total_red - (float(rh_pivot_ts.loc[proj, w]) if proj in rh_pivot_ts.index else 0.0), 2)
+            for w in all_weeks_ts
+        ]})
+
+    col_sotto_rif_ts = "Sotto Riferimento tabella 1"
+    intesa_series = []
+    _ie = 3
+    while f"Export{_ie}" in config:
+        _v = [v.strip() for v in config[f"Export{_ie}"].split(',')]
+        _ie += 1
+        if not _v or _v[0] == '-':
+            continue
+        _desc = _v[2] if len(_v) > 2 and _v[2] else _v[0]
+        _rk   = str(_v[-1]) if _v else ''
+        try: _acq = float(_v[8] if len(_v) > 8 else '0')
+        except (ValueError, TypeError): _acq = 0.0
+        _wc = df_per_calc[
+            (df_per_calc[col_rif].astype(str).str.strip() == _rk) |
+            (df_per_calc[col_sotto_rif_ts].astype(str).str.strip() == _rk)
+        ].groupby(col_period)[col_actual].sum() / 8.0
+        _cum, _data = 0.0, []
+        for w in all_weeks_ts:
+            _cum += float(_wc.get(w, 0.0))
+            _data.append(round(_acq - _cum, 2))
+        intesa_series.append({'label': _desc, 'data': _data})
 
     chart_data = {
         'ae': {
@@ -1102,16 +1284,12 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
             'usati_cons': [float(r['H'] or 0) for r in rows_progetti],
         },
         'rh': {
-            'labels':    [r['A'] for r in rows_progetti],
-            'cons_pm':   [round(float(r['G'] or 0), 2) for r in rows_progetti],
-            'cons_cons': [round(float(r['H'] or 0), 2) for r in rows_progetti],
-            'rim_pm':    [round(float(r['E'] or 0) - float(r['G'] or 0), 2) for r in rows_progetti],
-            'rim_cons':  [round(float(r['F'] or 0) - float(r['H'] or 0), 2) for r in rows_progetti],
+            'weeks':  [str(w) for w in all_weeks_ts],
+            'series': rh_series,
         },
         'intesa': {
-            'labels':    [str(x[0]) for x in _intesa_rows],
-            'consumati': [round(float(x[1] or 0), 2) for x in _intesa_rows],
-            'rimasti':   [round(float(x[2] or 0), 2) for x in _intesa_rows],
+            'weeks':  [str(w) for w in all_weeks_ts],
+            'series': intesa_series,
         },
     }
     chart_json = json.dumps(chart_data, ensure_ascii=False)
@@ -1271,13 +1449,9 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
     sec_grafici_rh = """
 <section class="sec" id="grafici-rh">
   <div class="sec-hdr"><h2>Grafici RH</h2></div>
-  <div class="charts-grid">
+  <div class="sub-sec">
     <div class="chart-card">
-      <h3>Consumati vs Rimasti per Contratto (giornate)</h3>
-      <canvas id="chart-rh-stack"></canvas>
-    </div>
-    <div class="chart-card">
-      <h3>Giorni Rimasti per Contratto</h3>
+      <h3>Giorni Rimasti per Contratto nel Tempo</h3>
       <canvas id="chart-rh-rim"></canvas>
     </div>
   </div>
@@ -1286,13 +1460,9 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
     sec_grafici_intesa = """
 <section class="sec" id="grafici-intesa">
   <div class="sec-hdr"><h2>Grafici Intesa</h2></div>
-  <div class="charts-grid">
+  <div class="sub-sec">
     <div class="chart-card">
-      <h3>Consumati vs Rimasti per Voce (giornate)</h3>
-      <canvas id="chart-intesa-stack"></canvas>
-    </div>
-    <div class="chart-card">
-      <h3>Giorni Rimasti per Voce</h3>
+      <h3>Giorni Rimasti per Voce nel Tempo</h3>
       <canvas id="chart-intesa-rim"></canvas>
     </div>
   </div>
@@ -1369,47 +1539,34 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
         '    scales:{x:{ticks:{maxRotation:45}},y:{beginAtZero:true,stacked:true}}}\n'
         '});\n'
         '\n'
-        'new Chart(document.getElementById("chart-rh-stack"),{\n'
-        '  type:"bar",\n'
-        '  data:{labels:D.rh.labels,datasets:[\n'
-        '    {label:"Consumati PM",   data:D.rh.cons_pm,   backgroundColor:"#1a56db",stack:"c"},\n'
-        '    {label:"Consumati Cons.",data:D.rh.cons_cons,  backgroundColor:"#93c5fd",stack:"c"},\n'
-        '    {label:"Rimasti PM",     data:D.rh.rim_pm,    backgroundColor:"#10b981",stack:"r"},\n'
-        '    {label:"Rimasti Cons.",  data:D.rh.rim_cons,  backgroundColor:"#6ee7b7",stack:"r"}\n'
-        '  ]},\n'
-        '  options:{responsive:true,plugins:{legend:{position:"top"}},\n'
-        '    scales:{x:{ticks:{maxRotation:45}},y:{beginAtZero:true,stacked:true}}}\n'
-        '});\n'
+        'const LINE_PAL=["#1a56db","#f59e0b","#10b981","#ef4444","#8b5cf6","#06b6d4","#f97316","#84cc16","#ec4899","#78716c"];\n'
         '\n'
         'new Chart(document.getElementById("chart-rh-rim"),{\n'
-        '  type:"bar",\n'
-        '  data:{labels:D.rh.labels,datasets:[{\n'
-        '    label:"Rimasti Totale",\n'
-        '    data:D.rh.labels.map(function(_,i){return D.rh.rim_pm[i]+D.rh.rim_cons[i];}),\n'
-        '    backgroundColor:D.rh.labels.map(function(_,i){return PAL[i%PAL.length];})\n'
-        '  }]},\n'
-        '  options:{indexAxis:"y",responsive:true,plugins:{legend:{display:false}},\n'
-        '    scales:{x:{beginAtZero:true}}}\n'
-        '});\n'
-        '\n'
-        'new Chart(document.getElementById("chart-intesa-stack"),{\n'
-        '  type:"bar",\n'
-        '  data:{labels:D.intesa.labels,datasets:[\n'
-        '    {label:"Consumati",data:D.intesa.consumati,backgroundColor:"#f59e0b",stack:"all"},\n'
-        '    {label:"Rimasti",  data:D.intesa.rimasti,  backgroundColor:"#10b981",stack:"all"}\n'
-        '  ]},\n'
+        '  type:"line",\n'
+        '  data:{\n'
+        '    labels:D.rh.weeks,\n'
+        '    datasets:D.rh.series.map(function(s,i){\n'
+        '      return {label:s.label,data:s.data,\n'
+        '        borderColor:LINE_PAL[i%LINE_PAL.length],\n'
+        '        backgroundColor:"transparent",tension:0.3,pointRadius:3,fill:false};\n'
+        '    })\n'
+        '  },\n'
         '  options:{responsive:true,plugins:{legend:{position:"top"}},\n'
-        '    scales:{x:{ticks:{maxRotation:45}},y:{beginAtZero:true,stacked:true}}}\n'
+        '    scales:{x:{ticks:{maxRotation:45}},y:{beginAtZero:false}}}\n'
         '});\n'
         '\n'
         'new Chart(document.getElementById("chart-intesa-rim"),{\n'
-        '  type:"bar",\n'
-        '  data:{labels:D.intesa.labels,datasets:[{\n'
-        '    label:"Rimasti",data:D.intesa.rimasti,\n'
-        '    backgroundColor:D.intesa.labels.map(function(_,i){return PAL[i%PAL.length];})\n'
-        '  }]},\n'
-        '  options:{indexAxis:"y",responsive:true,plugins:{legend:{display:false}},\n'
-        '    scales:{x:{beginAtZero:true}}}\n'
+        '  type:"line",\n'
+        '  data:{\n'
+        '    labels:D.intesa.weeks,\n'
+        '    datasets:D.intesa.series.map(function(s,i){\n'
+        '      return {label:s.label,data:s.data,\n'
+        '        borderColor:LINE_PAL[i%LINE_PAL.length],\n'
+        '        backgroundColor:"transparent",tension:0.3,pointRadius:3,fill:false};\n'
+        '    })\n'
+        '  },\n'
+        '  options:{responsive:true,plugins:{legend:{position:"top"}},\n'
+        '    scales:{x:{ticks:{maxRotation:45}},y:{beginAtZero:false}}}\n'
         '});\n'
         '})();\n'
         '</script>'
@@ -1558,7 +1715,11 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
             aggiungi_note(wb['progetti'], wb['Tabella di Export'], anno_corrente,
                           start_w, end_w, rows_progetti, riga_export, bold)
 
-        log.info("4. Generazione file HTML...")
+        log.info("4. Generazione grafici Excel...")
+        crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_actual, bold, center)
+        crea_grafici_intesa(wb, df_per_calc, col_period, col_actual, col_rif, config, bold, center)
+
+        log.info("5. Generazione file HTML...")
         genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
                     pivot_role_est, df_per_calc, config, col_rif, col_actual,
                     col_proj, col_period, col_estimated, file_output)
