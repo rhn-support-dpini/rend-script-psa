@@ -32,7 +32,6 @@ from datetime import datetime, timedelta
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
-from openpyxl.chart import BarChart, Reference
 import json
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
@@ -989,139 +988,6 @@ def aggiungi_note(ws_p, ws_e, anno_corrente, start_w, end_w, rows_progetti, riga
         ws_t[f'A{lr_t + 3}'] = nota2
         ws_t[f'A{lr_t + 3}'].font = bold
 
-# --- GRAFICI EXCEL ---
-
-def crea_grafici_rh(wb, rows_progetti, bold, center):
-    """Crea il foglio 'Grafici RH' con due grafici basati sui dati del foglio 'progetti'."""
-    ws = wb.create_sheet("Grafici RH")
-
-    headers = ['Contratto', 'Consumati PM', 'Consumati Cons.', 'Rimasti PM', 'Rimasti Cons.', 'Rimasti Totale']
-    for c, h in enumerate(headers, 1):
-        cell = ws.cell(row=1, column=c)
-        cell.value = h
-        cell.font = bold
-        cell.alignment = center
-
-    for i, row in enumerate(rows_progetti, 2):
-        rim_pm   = row['E'] - row['G']
-        rim_cons = row['F'] - row['H']
-        ws.cell(row=i, column=1).value = row['A']
-        ws.cell(row=i, column=2).value = round(row['G'], 2)
-        ws.cell(row=i, column=3).value = round(row['H'], 2)
-        ws.cell(row=i, column=4).value = round(rim_pm, 2)
-        ws.cell(row=i, column=5).value = round(rim_cons, 2)
-        ws.cell(row=i, column=6).value = round(rim_pm + rim_cons, 2)
-
-    n = len(rows_progetti)
-    if n == 0:
-        return
-
-    cats = Reference(ws, min_col=1, min_row=2, max_row=1 + n)
-
-    c1 = BarChart()
-    c1.type = "col"
-    c1.grouping = "stacked"
-    c1.title = "Consumati vs Rimasti per Contratto"
-    c1.y_axis.title = "Giornate"
-    c1.x_axis.title = "Contratto"
-    c1.width = 22
-    c1.height = 14
-    for col_idx in [2, 3, 4, 5]:
-        ref = Reference(ws, min_col=col_idx, min_row=1, max_row=1 + n)
-        c1.add_data(ref, titles_from_data=True)
-    c1.set_categories(cats)
-    ws.add_chart(c1, "H2")
-
-    c2 = BarChart()
-    c2.type = "bar"
-    c2.title = "Giorni Rimasti per Contratto"
-    c2.x_axis.title = "Giornate Rimaste"
-    c2.y_axis.title = "Contratto"
-    c2.width = 22
-    c2.height = 14
-    ref2 = Reference(ws, min_col=6, min_row=1, max_row=1 + n)
-    c2.add_data(ref2, titles_from_data=True)
-    c2.set_categories(cats)
-    ws.add_chart(c2, "H32")
-
-    autofit_columns(ws)
-
-
-def crea_grafici_intesa(wb, bold, center):
-    """Crea il foglio 'Grafici Intesa' con grafici basati sulla Tabella di Export."""
-    ws_e = wb['Tabella di Export']
-    ws = wb.create_sheet("Grafici Intesa")
-
-    labels, acquistati_list, consumati_list, rimasti_list = [], [], [], []
-    r = 3
-    while True:
-        val_a = ws_e.cell(row=r, column=1).value
-        if val_a is None or str(val_a).strip() == '':
-            break
-        if str(val_a).strip() == '-':
-            r += 1
-            continue
-        desc = ws_e.cell(row=r, column=3).value or val_a
-        acq  = ws_e.cell(row=r, column=9).value or 0
-        cons = ws_e.cell(row=r, column=10).value or 0
-        rim  = ws_e.cell(row=r, column=11).value or 0
-        labels.append(str(desc))
-        try: acquistati_list.append(float(str(acq).replace(',', '.')))
-        except (ValueError, TypeError): acquistati_list.append(0.0)
-        try: consumati_list.append(float(cons))
-        except (ValueError, TypeError): consumati_list.append(0.0)
-        try: rimasti_list.append(float(rim))
-        except (ValueError, TypeError): rimasti_list.append(0.0)
-        r += 1
-
-    if not labels:
-        return
-
-    headers = ['Descrizione', 'Acquistati', 'Consumati', 'Rimasti']
-    for c, h in enumerate(headers, 1):
-        cell = ws.cell(row=1, column=c)
-        cell.value = h
-        cell.font = bold
-        cell.alignment = center
-
-    for i, (l, a, cv, ri) in enumerate(zip(labels, acquistati_list, consumati_list, rimasti_list), 2):
-        ws.cell(row=i, column=1).value = l
-        ws.cell(row=i, column=2).value = round(a, 2)
-        ws.cell(row=i, column=3).value = round(cv, 2)
-        ws.cell(row=i, column=4).value = round(ri, 2)
-
-    n = len(labels)
-    cats = Reference(ws, min_col=1, min_row=2, max_row=1 + n)
-
-    c1 = BarChart()
-    c1.type = "col"
-    c1.grouping = "stacked"
-    c1.title = "Consumati vs Rimasti per Voce"
-    c1.y_axis.title = "Giornate"
-    c1.x_axis.title = "Descrizione"
-    c1.width = 22
-    c1.height = 14
-    for col_idx in [3, 4]:
-        ref = Reference(ws, min_col=col_idx, min_row=1, max_row=1 + n)
-        c1.add_data(ref, titles_from_data=True)
-    c1.set_categories(cats)
-    ws.add_chart(c1, "F2")
-
-    c2 = BarChart()
-    c2.type = "bar"
-    c2.title = "Giorni Rimasti per Voce"
-    c2.x_axis.title = "Giornate Rimaste"
-    c2.y_axis.title = "Descrizione"
-    c2.width = 22
-    c2.height = 14
-    ref2 = Reference(ws, min_col=4, min_row=1, max_row=1 + n)
-    c2.add_data(ref2, titles_from_data=True)
-    c2.set_categories(cats)
-    ws.add_chart(c2, "F32")
-
-    autofit_columns(ws)
-
-
 # --- GENERAZIONE HTML ---
 
 def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
@@ -1209,6 +1075,11 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
         .groupby('Nome risorsa')[col_actual].sum() / 8.0
     ).sort_values(ascending=False).head(10)
 
+    _intesa_rows = [
+        (r[2] or r[0], r[9], r[10])
+        for r in righe_exp if r and str(r[0]).strip() != '-'
+    ]
+
     chart_data = {
         'ae': {
             'labels':    progetti_list,
@@ -1229,6 +1100,18 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
             'risc_cons':  [float(r['F'] or 0) for r in rows_progetti],
             'usati_pm':   [float(r['G'] or 0) for r in rows_progetti],
             'usati_cons': [float(r['H'] or 0) for r in rows_progetti],
+        },
+        'rh': {
+            'labels':    [r['A'] for r in rows_progetti],
+            'cons_pm':   [round(float(r['G'] or 0), 2) for r in rows_progetti],
+            'cons_cons': [round(float(r['H'] or 0), 2) for r in rows_progetti],
+            'rim_pm':    [round(float(r['E'] or 0) - float(r['G'] or 0), 2) for r in rows_progetti],
+            'rim_cons':  [round(float(r['F'] or 0) - float(r['H'] or 0), 2) for r in rows_progetti],
+        },
+        'intesa': {
+            'labels':    [str(x[0]) for x in _intesa_rows],
+            'consumati': [round(float(x[1] or 0), 2) for x in _intesa_rows],
+            'rimasti':   [round(float(x[2] or 0), 2) for x in _intesa_rows],
         },
     }
     chart_json = json.dumps(chart_data, ensure_ascii=False)
@@ -1385,6 +1268,36 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
   </div>
 </section>"""
 
+    sec_grafici_rh = """
+<section class="sec" id="grafici-rh">
+  <div class="sec-hdr"><h2>Grafici RH</h2></div>
+  <div class="charts-grid">
+    <div class="chart-card">
+      <h3>Consumati vs Rimasti per Contratto (giornate)</h3>
+      <canvas id="chart-rh-stack"></canvas>
+    </div>
+    <div class="chart-card">
+      <h3>Giorni Rimasti per Contratto</h3>
+      <canvas id="chart-rh-rim"></canvas>
+    </div>
+  </div>
+</section>"""
+
+    sec_grafici_intesa = """
+<section class="sec" id="grafici-intesa">
+  <div class="sec-hdr"><h2>Grafici Intesa</h2></div>
+  <div class="charts-grid">
+    <div class="chart-card">
+      <h3>Consumati vs Rimasti per Voce (giornate)</h3>
+      <canvas id="chart-intesa-stack"></canvas>
+    </div>
+    <div class="chart-card">
+      <h3>Giorni Rimasti per Voce</h3>
+      <canvas id="chart-intesa-rim"></canvas>
+    </div>
+  </div>
+</section>"""
+
     # ── Navigazione laterale ─────────────────────────────────────────────────
     nav = f"""<nav class="sidebar">
   <div class="sb-title">Report Risorse</div>
@@ -1399,6 +1312,8 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
     <li><a href="#dettaglio-ruoli">Dettaglio Ruoli</a></li>
     <li><a href="#export">Tabella Export</a></li>
     <li><a href="#grafici">Grafici</a></li>
+    <li><a href="#grafici-rh">Grafici RH</a></li>
+    <li><a href="#grafici-intesa">Grafici Intesa</a></li>
   </ul>
 </nav>"""
 
@@ -1453,6 +1368,49 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
         '  options:{responsive:true,plugins:{legend:{position:"top"}},\n'
         '    scales:{x:{ticks:{maxRotation:45}},y:{beginAtZero:true,stacked:true}}}\n'
         '});\n'
+        '\n'
+        'new Chart(document.getElementById("chart-rh-stack"),{\n'
+        '  type:"bar",\n'
+        '  data:{labels:D.rh.labels,datasets:[\n'
+        '    {label:"Consumati PM",   data:D.rh.cons_pm,   backgroundColor:"#1a56db",stack:"c"},\n'
+        '    {label:"Consumati Cons.",data:D.rh.cons_cons,  backgroundColor:"#93c5fd",stack:"c"},\n'
+        '    {label:"Rimasti PM",     data:D.rh.rim_pm,    backgroundColor:"#10b981",stack:"r"},\n'
+        '    {label:"Rimasti Cons.",  data:D.rh.rim_cons,  backgroundColor:"#6ee7b7",stack:"r"}\n'
+        '  ]},\n'
+        '  options:{responsive:true,plugins:{legend:{position:"top"}},\n'
+        '    scales:{x:{ticks:{maxRotation:45}},y:{beginAtZero:true,stacked:true}}}\n'
+        '});\n'
+        '\n'
+        'new Chart(document.getElementById("chart-rh-rim"),{\n'
+        '  type:"bar",\n'
+        '  data:{labels:D.rh.labels,datasets:[{\n'
+        '    label:"Rimasti Totale",\n'
+        '    data:D.rh.labels.map(function(_,i){return D.rh.rim_pm[i]+D.rh.rim_cons[i];}),\n'
+        '    backgroundColor:D.rh.labels.map(function(_,i){return PAL[i%PAL.length];})\n'
+        '  }]},\n'
+        '  options:{indexAxis:"y",responsive:true,plugins:{legend:{display:false}},\n'
+        '    scales:{x:{beginAtZero:true}}}\n'
+        '});\n'
+        '\n'
+        'new Chart(document.getElementById("chart-intesa-stack"),{\n'
+        '  type:"bar",\n'
+        '  data:{labels:D.intesa.labels,datasets:[\n'
+        '    {label:"Consumati",data:D.intesa.consumati,backgroundColor:"#f59e0b",stack:"all"},\n'
+        '    {label:"Rimasti",  data:D.intesa.rimasti,  backgroundColor:"#10b981",stack:"all"}\n'
+        '  ]},\n'
+        '  options:{responsive:true,plugins:{legend:{position:"top"}},\n'
+        '    scales:{x:{ticks:{maxRotation:45}},y:{beginAtZero:true,stacked:true}}}\n'
+        '});\n'
+        '\n'
+        'new Chart(document.getElementById("chart-intesa-rim"),{\n'
+        '  type:"bar",\n'
+        '  data:{labels:D.intesa.labels,datasets:[{\n'
+        '    label:"Rimasti",data:D.intesa.rimasti,\n'
+        '    backgroundColor:D.intesa.labels.map(function(_,i){return PAL[i%PAL.length];})\n'
+        '  }]},\n'
+        '  options:{indexAxis:"y",responsive:true,plugins:{legend:{display:false}},\n'
+        '    scales:{x:{beginAtZero:true}}}\n'
+        '});\n'
         '})();\n'
         '</script>'
     )
@@ -1479,6 +1437,8 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
 {sec_ruoli}
 {sec_exp}
 {sec_grafici}
+{sec_grafici_rh}
+{sec_grafici_intesa}
 </main>
 <button class="btt" onclick="window.scrollTo({{top:0,behavior:'smooth'}})" title="Torna in cima">&#8679;</button>
 {chart_script}
@@ -1598,11 +1558,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
             aggiungi_note(wb['progetti'], wb['Tabella di Export'], anno_corrente,
                           start_w, end_w, rows_progetti, riga_export, bold)
 
-        log.info("4. Generazione grafici Excel...")
-        crea_grafici_rh(wb, rows_progetti, bold, center)
-        crea_grafici_intesa(wb, bold, center)
-
-        log.info("5. Generazione file HTML...")
+        log.info("4. Generazione file HTML...")
         genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
                     pivot_role_est, df_per_calc, config, col_rif, col_actual,
                     col_proj, col_period, col_estimated, file_output)
