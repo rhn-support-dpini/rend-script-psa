@@ -1262,6 +1262,25 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
             _data.append(round(_acq - _cum, 2))
         intesa_series.append({'label': _desc, 'data': _data})
 
+    # ── Meta: settimana corrente e fine mesi per annotazioni ─────────────────
+    _oggi = datetime.now()
+    _cw_label = f"CY{_oggi.year}-W{_oggi.isocalendar()[1]:02d}"
+    _weeks_str = [str(w) for w in all_weeks_ts]
+    try: _cw_idx = _weeks_str.index(_cw_label)
+    except ValueError: _cw_idx = -1
+    _me_pos = []
+    for _i in range(len(all_weeks_ts) - 1):
+        _m1 = re.search(r'(\d{4}).*W(\d+)', _weeks_str[_i],     re.IGNORECASE)
+        _m2 = re.search(r'(\d{4}).*W(\d+)', _weeks_str[_i + 1], re.IGNORECASE)
+        if _m1 and _m2:
+            try:
+                _d1 = datetime.fromisocalendar(int(_m1.group(1)), int(_m1.group(2)), 1)
+                _d2 = datetime.fromisocalendar(int(_m2.group(1)), int(_m2.group(2)), 1)
+                if (_d1.year, _d1.month) != (_d2.year, _d2.month):
+                    _me_pos.append(_i + 0.5)
+            except Exception:
+                pass
+
     chart_data = {
         'ae': {
             'labels':    progetti_list,
@@ -1290,6 +1309,10 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
         'intesa': {
             'weeks':  [str(w) for w in all_weeks_ts],
             'series': intesa_series,
+        },
+        'meta': {
+            'current_week_idx':    _cw_idx,
+            'month_end_positions': _me_pos,
         },
     }
     chart_json = json.dumps(chart_data, ensure_ascii=False)
@@ -1474,6 +1497,8 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
   <div class="sb-meta">Generato il<br>{now_str}</div>
   <ul class="nav-list">
     <li class="nav-sep">Indice</li>
+    <li><a href="#grafici-rh">Grafici RH</a></li>
+    <li><a href="#grafici-intesa">Grafici Intesa</a></li>
     <li><a href="#dati">Dati</a></li>
     <li><a href="#progetti">Progetti</a></li>
     <li><a href="#riepilogo">Riepilogo Settimanale</a></li>
@@ -1482,8 +1507,6 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
     <li><a href="#dettaglio-ruoli">Dettaglio Ruoli</a></li>
     <li><a href="#export">Tabella Export</a></li>
     <li><a href="#grafici">Grafici</a></li>
-    <li><a href="#grafici-rh">Grafici RH</a></li>
-    <li><a href="#grafici-intesa">Grafici Intesa</a></li>
   </ul>
 </nav>"""
 
@@ -1491,6 +1514,7 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
     js_data = f"const D = {chart_json};"
     chart_script = (
         '<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>\n'
+        '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3/dist/chartjs-plugin-annotation.min.js"></script>\n'
         '<script>\n'
         '(function(){\n'
         + js_data + '\n'
@@ -1540,6 +1564,18 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
         '});\n'
         '\n'
         'const LINE_PAL=["#1a56db","#f59e0b","#10b981","#ef4444","#8b5cf6","#06b6d4","#f97316","#84cc16","#ec4899","#78716c"];\n'
+        'function makeAnnotations(){\n'
+        '  var a={};\n'
+        '  if(D.meta.current_week_idx>=0){\n'
+        '    a.cw={type:"line",scaleID:"x",value:D.meta.current_week_idx,\n'
+        '      borderColor:"rgb(220,38,38)",borderWidth:2};\n'
+        '  }\n'
+        '  D.meta.month_end_positions.forEach(function(p,i){\n'
+        '    a["me"+i]={type:"line",scaleID:"x",value:p,\n'
+        '      borderColor:"rgb(0,0,0)",borderWidth:1};\n'
+        '  });\n'
+        '  return a;\n'
+        '}\n'
         '\n'
         'new Chart(document.getElementById("chart-rh-rim"),{\n'
         '  type:"line",\n'
@@ -1551,7 +1587,8 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
         '        backgroundColor:"transparent",tension:0.3,pointRadius:3,fill:false};\n'
         '    })\n'
         '  },\n'
-        '  options:{responsive:true,plugins:{legend:{position:"top"}},\n'
+        '  options:{responsive:true,\n'
+        '    plugins:{legend:{position:"top"},annotation:{annotations:makeAnnotations()}},\n'
         '    scales:{x:{ticks:{maxRotation:45}},y:{beginAtZero:false}}}\n'
         '});\n'
         '\n'
@@ -1565,7 +1602,8 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
         '        backgroundColor:"transparent",tension:0.3,pointRadius:3,fill:false};\n'
         '    })\n'
         '  },\n'
-        '  options:{responsive:true,plugins:{legend:{position:"top"}},\n'
+        '  options:{responsive:true,\n'
+        '    plugins:{legend:{position:"top"},annotation:{annotations:makeAnnotations()}},\n'
         '    scales:{x:{ticks:{maxRotation:45}},y:{beginAtZero:false}}}\n'
         '});\n'
         '})();\n'
@@ -1588,14 +1626,14 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
     <h1>{titolo}</h1>
     <p>Generato il {now_str}</p>
   </div>
+{sec_grafici_rh}
+{sec_grafici_intesa}
 {sec_dati}
 {sec_proj}
 {sec_riep}
 {sec_ruoli}
 {sec_exp}
 {sec_grafici}
-{sec_grafici_rh}
-{sec_grafici_intesa}
 </main>
 <button class="btt" onclick="window.scrollTo({{top:0,behavior:'smooth'}})" title="Torna in cima">&#8679;</button>
 {chart_script}
