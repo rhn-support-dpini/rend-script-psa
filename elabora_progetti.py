@@ -991,6 +991,69 @@ def aggiungi_note(ws_p, ws_e, anno_corrente, start_w, end_w, rows_progetti, riga
 
 # --- GRAFICI EXCEL ---
 
+def _vline(lc, ws, col, data_row, n_weeks, color_hex):
+    """Simula una linea verticale nel line chart tramite error bar Y su serie nascosta."""
+    ws.cell(row=1, column=col).value = ''
+    for r in range(2, n_weeks + 2):
+        ws.cell(row=r, column=col).value = None
+    ws.cell(row=data_row, column=col).value = 0.0
+    lc.add_data(Reference(ws, min_col=col, min_row=2, max_row=1 + n_weeks))
+    ser = lc.series[-1]
+    try:
+        from openpyxl.chart.marker import Marker
+        ser.marker = Marker(symbol='none')
+    except Exception:
+        pass
+    try:
+        from openpyxl.chart.shapes import GraphicalProperties
+        from openpyxl.drawing.line import LineProperties
+        gp = GraphicalProperties()
+        gp.ln = LineProperties(noFill=True)
+        ser.spPr = gp
+    except Exception:
+        pass
+    try:
+        from openpyxl.chart.error_bar import ErrorBars
+        from openpyxl.chart.shapes import GraphicalProperties
+        from openpyxl.drawing.line import LineProperties
+        gp2 = GraphicalProperties()
+        lp2 = LineProperties()
+        lp2.solidFill = color_hex
+        gp2.ln = lp2
+        ser.errBars = ErrorBars(
+            errDir='y', errBarType='both', errValType='fixedVal',
+            val=100000.0, noEndCap=True, spPr=gp2
+        )
+    except Exception:
+        pass
+
+
+def _week_vline_indices(all_weeks):
+    """Ritorna (cw_idx, me_idx_list): indice settimana corrente e lista indici fine mese."""
+    from datetime import datetime as _dt
+    _oggi = _dt.now()
+    _cw_label = f"CY{_oggi.year}-W{_oggi.isocalendar()[1]:02d}"
+    _weeks_str = [str(w) for w in all_weeks]
+    try:
+        _cw_idx = _weeks_str.index(_cw_label)
+    except ValueError:
+        _cw_idx = -1
+    _me_idx = []
+    for _i in range(len(_weeks_str) - 1):
+        _m1 = re.search(r'(\d{4}).*W(\d+)', _weeks_str[_i], re.IGNORECASE)
+        _m2 = re.search(r'(\d{4}).*W(\d+)', _weeks_str[_i + 1], re.IGNORECASE)
+        if _m1 and _m2:
+            try:
+                from datetime import datetime as _dt2
+                _d1 = _dt2.fromisocalendar(int(_m1.group(1)), int(_m1.group(2)), 1)
+                _d2 = _dt2.fromisocalendar(int(_m2.group(1)), int(_m2.group(2)), 1)
+                if (_d1.year, _d1.month) != (_d2.year, _d2.month):
+                    _me_idx.append(_i)
+            except Exception:
+                pass
+    return _cw_idx, _me_idx
+
+
 def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_actual, bold, center):
     """Crea il foglio 'Grafici RH': line chart giornate rimaste per contratto nel tempo."""
     ws = wb.create_sheet("Grafici RH")
@@ -1044,6 +1107,17 @@ def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_ac
         ref = Reference(ws, min_col=j, min_row=1, max_row=1 + n_weeks)
         lc.add_data(ref, titles_from_data=True)
     lc.set_categories(cats)
+
+    _cw_idx, _me_idx = _week_vline_indices(all_weeks)
+    _col_vl = 2 + n_proj
+    if 0 <= _cw_idx < n_weeks:
+        _vline(lc, ws, _col_vl, _cw_idx + 2, n_weeks, 'DC2626')
+        _col_vl += 1
+    for _mi in _me_idx:
+        if 0 <= _mi < n_weeks:
+            _vline(lc, ws, _col_vl, _mi + 2, n_weeks, '000000')
+            _col_vl += 1
+
     ws.add_chart(lc, f"A{n_weeks + 4}")
 
     autofit_columns(ws)
@@ -1129,6 +1203,17 @@ def crea_grafici_intesa(wb, df_per_calc, col_period, col_actual, col_rif, config
         ref = Reference(ws, min_col=j, min_row=1, max_row=1 + n_weeks)
         lc.add_data(ref, titles_from_data=True)
     lc.set_categories(cats)
+
+    _cw_idx, _me_idx = _week_vline_indices(all_weeks)
+    _col_vl = 2 + n_voci
+    if 0 <= _cw_idx < n_weeks:
+        _vline(lc, ws, _col_vl, _cw_idx + 2, n_weeks, 'DC2626')
+        _col_vl += 1
+    for _mi in _me_idx:
+        if 0 <= _mi < n_weeks:
+            _vline(lc, ws, _col_vl, _mi + 2, n_weeks, '000000')
+            _col_vl += 1
+
     ws.add_chart(lc, f"A{n_weeks + 4}")
 
     autofit_columns(ws)
