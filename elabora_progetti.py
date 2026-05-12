@@ -10,13 +10,18 @@ Excel di output multi-foglio con:
   - Tabella di Export     : riepilogo giornate per codice ordine
 
 Utilizzo:
-    python elabora_progetti.py [cliente] [input.xlsx] [cust.config] [output.xlsx]
+    python elabora_progetti.py [cliente] [input.xlsx] [output.xlsx]
 
-    Tutti gli argomenti sono opzionali; i default sono:
-        cliente='', input.xlsx, cust.config, output_elaborato.xlsx
+    Gli argomenti sono opzionali; i default sono:
+        cliente=Intesa, input.xlsx, output_elaborato.xlsx
 
-    cliente:     filtro sulla colonna "Cliente" (case-insensitive; vuoto = tutti).
-    cust.config: impostazioni specifiche del cliente (contratti, Export, contatti).
+    cliente: filtro sulla colonna "Cliente" (case-insensitive). Default Intesa
+              (adatto ai test; usa "" da shell per nessun filtro, es. python ... "" file.xlsx).
+
+    Se passi un solo argomento ed è un file .xlsx, viene usato come input e il filtro
+    cliente resta il default (Intesa).
+
+    La configurazione cliente è sempre letta da cust.config nella directory di lavoro corrente.
 
     Le impostazioni generiche vengono sempre lette da script.config (fisso).
 """
@@ -1889,13 +1894,19 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
 
 if __name__ == "__main__":
     import argparse
-    ap = argparse.ArgumentParser(
-        description='Report settimanale risorse Red Hat Italy')
-    ap.add_argument('cliente',     nargs='?', default='',
-                    help='Filtro colonna Cliente (case-insensitive; vuoto = tutti)')
-    ap.add_argument('input_file',  nargs='?', default='input.xlsx')
-    ap.add_argument('cust_config', nargs='?', default='cust.config')
-    ap.add_argument('output_file', nargs='?', default='output_elaborato.xlsx')
-    args = ap.parse_args()
-    elabora_dati(args.input_file, args.cust_config, args.output_file,
-                 cliente_filter=args.cliente)
+    _argv = sys.argv[1:]
+    if len(_argv) == 1 and _argv[0].lower().endswith(('.xlsx', '.xlsm', '.xls')):
+        elabora_dati(_argv[0], 'cust.config', 'output_elaborato.xlsx',
+                     cliente_filter='Intesa')
+    else:
+        ap = argparse.ArgumentParser(
+            description='Report settimanale risorse Red Hat Italy')
+        ap.add_argument('cliente', nargs='?', default='Intesa',
+                        help='Filtro colonna Cliente (case-insensitive; default Intesa; vuoto = tutti)')
+        ap.add_argument('input_file', nargs='?', default='input.xlsx',
+                        help='File Excel di input (export PSA)')
+        ap.add_argument('output_file', nargs='?', default='output_elaborato.xlsx',
+                        help='File Excel di output')
+        args = ap.parse_args()
+        elabora_dati(args.input_file, 'cust.config', args.output_file,
+                     cliente_filter=args.cliente)

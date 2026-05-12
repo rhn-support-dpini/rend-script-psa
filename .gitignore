@@ -1,0 +1,6 @@
+# Tracciati solo elabora_progetti.py e questo file (.gitignore).
+# Tutto il resto (config cliente, Excel, output, artefatti) resta fuori dal repo.
+
+/*
+!.gitignore
+!elabora_progetti.py
