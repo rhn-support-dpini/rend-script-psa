@@ -7,8 +7,8 @@ Excel di output multi-foglio con:
   - progetti : riepilogo contratti con giorni consuntivati vs. riscattati
   - Riepilogo Settimanale : pivot actual/estimated per progetto e settimana
   - Dettaglio Ruoli       : pivot estimated con breakdown per ruolo/milestone
-  - Tabella di Export     : riepilogo giornate per codice ordine
   - Tentative             : stati ≠ Scheduled/Commit più righe in aggregazioni miste K×L
+  - Tabella di Export     : riepilogo giornate per codice ordine
 
 Utilizzo:
     python elabora_progetti.py [cliente] [input.xlsx] [output.xlsx]
@@ -542,7 +542,7 @@ def prepara_righe_progetti(df_src, df_dati_comp, df_per_calc, col_proj, col_actu
 def scrivi_fogli_base(file_output, df_dati_comp, rows_progetti):
     """Scrive i fogli con dati grezzi nel file di output.
 
-    I fogli Riepilogo Settimanale, Dettaglio Ruoli, Tabella di Export e Tentative vengono
+    I fogli Riepilogo Settimanale, Dettaglio Ruoli, Tentative e Tabella di Export vengono
     creati vuoti qui; la formattazione e i dati vengono aggiunti nelle funzioni
     successive tramite openpyxl diretto.
 
@@ -559,8 +559,8 @@ def scrivi_fogli_base(file_output, df_dati_comp, rows_progetti):
         pd.DataFrame(rows_progetti).to_excel(writer, sheet_name='progetti', index=False, startrow=10, header=False)
         pd.DataFrame().to_excel(writer, sheet_name='Riepilogo Settimanale', index=False)
         pd.DataFrame().to_excel(writer, sheet_name='Dettaglio Ruoli', index=False)
-        pd.DataFrame().to_excel(writer, sheet_name='Tabella di Export', index=False)
         pd.DataFrame().to_excel(writer, sheet_name='Tentative', index=False)
+        pd.DataFrame().to_excel(writer, sheet_name='Tabella di Export', index=False)
 
 # --- UTILITÀ FORMATTAZIONE ---
 
@@ -669,6 +669,7 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
             except (ValueError, TypeError):
                 ws_p.cell(row=r, column=10).value = 0.0
             ws_p.cell(row=r, column=2).alignment = center
+            ws_p.cell(row=r, column=5).alignment = center
             for col in range(6, 11):
                 ws_p.cell(row=r, column=col).alignment = center
             ws_p.cell(row=r, column=11).alignment = center
@@ -1283,16 +1284,23 @@ def _week_vline_indices(all_weeks):
 
 def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_actual, bold, center):
     """Crea il foglio 'Grafici RH': line chart giornate rimaste per contratto nel tempo."""
-    ws = wb.create_sheet("Grafici RH")
+    from openpyxl.chart.text import RichText
+    from openpyxl.drawing.text import CharacterProperties, Paragraph, ParagraphProperties
 
     def _sk(s):
         m = re.search(r'(\d{4}).*W(\d+)', str(s), re.IGNORECASE)
         return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
 
+    def _solo_num_settimana(s):
+        m = re.search(r'W(\d+)', str(s), re.IGNORECASE)
+        return int(m.group(1)) if m else s
+
     all_weeks = sorted(df_per_calc[col_period].dropna().unique(), key=_sk)
-    n_weeks, n_proj = len(all_weeks), len(rows_progetti)
+    n_weeks = len(all_weeks)
     if not all_weeks or not rows_progetti:
         return
+
+    week_to_idx = {w: i for i, w in enumerate(all_weeks)}
 
     # Pivot project × week → giorni consumati cumulati
     pivot = (
@@ -1303,40 +1311,57 @@ def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_ac
     )
     cumsum = pivot.cumsum(axis=1)
 
-    # Tabella dati: col 1 = settimana, col 2+ = rimasti per progetto
+    # Solo contratti presenti nei dati filtrati; traccia dalla prima all'ultima settimana con righe
+    chart_rows = []
+    for row in rows_progetti:
+        proj = row['A']
+        sub = df_per_calc[df_per_calc[col_proj] == proj]
+        if sub.empty:
+            continue
+        idxs = sorted(
+            week_to_idx[w] for w in sub[col_period].dropna().unique() if w in week_to_idx)
+        if not idxs:
+            continue
+        chart_rows.append((row, idxs[0], idxs[-1]))
+
+    if not chart_rows:
+        return
+
+    n_proj = len(chart_rows)
+    ws = wb.create_sheet("Grafici RH")
+
+    # Tabella dati: col 1 = n° settimana ISO (solo numero), col 2+ = giornate rimaste (solo settimane valorizzate)
     ws.cell(row=1, column=1).value = "Settimana"
     ws.cell(row=1, column=1).font = bold
     ws.cell(row=1, column=1).alignment = center
-    for j, row in enumerate(rows_progetti, 2):
+    for j, (row, _fi, _li) in enumerate(chart_rows, start=2):
         c = ws.cell(row=1, column=j)
         c.value = row['A']
         c.font = bold
         c.alignment = center
 
-    for i, week in enumerate(all_weeks, 2):
-        ws.cell(row=i, column=1).value = str(week)
-        for j, row in enumerate(rows_progetti, 2):
+    axis_max = 10.0
+    for wi, week in enumerate(all_weeks):
+        r_idx = wi + 2
+        ws.cell(row=r_idx, column=1).value = _solo_num_settimana(week)
+        for j, (row, first_i, last_i) in enumerate(chart_rows, start=2):
+            if wi < first_i or wi > last_i:
+                ws.cell(row=r_idx, column=j).value = None
+                continue
             proj = row['A']
             total_red = float(row['E'] or 0) + float(row['F'] or 0)
             cum = float(cumsum.loc[proj, week]) if proj in cumsum.index else 0.0
-            ws.cell(row=i, column=j).value = round(total_red - cum, 2)
+            rim = round(total_red - cum, 2)
+            ws.cell(row=r_idx, column=j).value = rim
+            axis_max = max(axis_max, rim)
 
-    # Calcola il massimo delle giornate rimaste per impostare i bounds dell'asse Y
-    axis_max = 10.0
-    for row in rows_progetti:
-        proj = row['A']
-        total_red = float(row['E'] or 0) + float(row['F'] or 0)
-        if proj in cumsum.index:
-            axis_max = max(axis_max, float((total_red - cumsum.loc[proj]).max()))
-        else:
-            axis_max = max(axis_max, total_red)
     axis_max = axis_max * 1.1
 
-    # Line chart: ascisse = settimane, ordinate = giornate rimaste, una linea per contratto
     lc = LineChart()
+    lc.display_blanks = 'gap'
     lc.title = "Giorni Rimasti per Contratto nel Tempo"
-    lc.y_axis.title = "Giornate Rimaste"
-    lc.x_axis.title = "Settimana"
+    lc.y_axis.title = "Giornate rimaste"
+    lc.x_axis.title = "Settimana (n°)"
     lc.width = 30
     lc.height = 16
     try:
@@ -1344,6 +1369,24 @@ def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_ac
         lc.y_axis.scaling.max = axis_max
     except Exception:
         pass
+    try:
+        lc.y_axis.numFmt = '0.0'
+    except Exception:
+        pass
+    try:
+        span = max(float(axis_max), 1e-6)
+        major = span / 10.0
+        if major >= 1:
+            major_u = max(1.0, round(major))
+        else:
+            major_u = max(0.5, round(major * 2.0) / 2.0)
+        lc.y_axis.majorUnit = float(major_u)
+    except Exception:
+        pass
+
+    x_para = Paragraph()
+    x_para.pPr = ParagraphProperties(defRPr=CharacterProperties(sz=720))
+    lc.x_axis.txPr = RichText(p=[x_para])
 
     cats = Reference(ws, min_col=1, min_row=2, max_row=1 + n_weeks)
     for j in range(2, 2 + n_proj):
