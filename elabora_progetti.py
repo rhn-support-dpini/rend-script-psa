@@ -1714,8 +1714,9 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
     """Genera un file HTML navigabile con tabelle e grafici Chart.js.
 
     Il file ha lo stesso nome del file Excel con estensione .html e viene
-    scritto nella stessa directory. Include una barra laterale fissa con
-    indice e link ancorati a ciascuna sezione, più 4 grafici interattivi.
+    scritto nella stessa directory. Include barra laterale con indice, grafici
+    RH/Intesa allineati ai fogli Excel (inclusa finestra di sei settimane verso
+    la corrente) e le altre viste a barre/linee del report.
     """
     html_path = os.path.splitext(file_output)[0] + '.html'
     now_str   = datetime.now().strftime('%d/%m/%Y %H:%M')
@@ -1793,8 +1794,11 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
         .groupby('Nome risorsa')[col_actual].sum() / 8.0
     ).sort_values(ascending=False).head(10)
 
-    # ── Time-series giornate rimaste per Grafici RH e Intesa ─────────────────
+    # ── Time-series giornate rimaste (allineata ai grafici Excel) ─────────────
     all_weeks_ts = sorted(df_per_calc[col_period].dropna().unique(), key=_sort_key)
+    nwt = len(all_weeks_ts)
+    week_to_idx = {w: i for i, w in enumerate(all_weeks_ts)}
+    _cw_idx, _me_idx_html = _week_vline_indices(all_weeks_ts)
 
     rh_pivot_ts = (
         df_per_calc.groupby([col_proj, col_period])[col_actual]
@@ -1806,14 +1810,43 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
     rh_series = []
     for row in rows_progetti:
         proj = row['A']
+        sub = df_per_calc[df_per_calc[col_proj] == proj]
+        if sub.empty:
+            continue
+        idxs = sorted(
+            week_to_idx[w] for w in sub[col_period].dropna().unique() if w in week_to_idx)
+        if not idxs:
+            continue
+        first_i, last_i = idxs[0], idxs[-1]
         total_red = float(row['E'] or 0) + float(row['F'] or 0)
-        rh_series.append({'label': proj, 'data': [
-            round(total_red - (float(rh_pivot_ts.loc[proj, w]) if proj in rh_pivot_ts.index else 0.0), 2)
-            for w in all_weeks_ts
-        ]})
+        ser_data = []
+        for wi, w in enumerate(all_weeks_ts):
+            eff_last = min(last_i, _cw_idx) if 0 <= _cw_idx < nwt else last_i
+            if wi < first_i or wi > eff_last:
+                ser_data.append(None)
+            else:
+                cum = float(rh_pivot_ts.loc[proj, w]) if proj in rh_pivot_ts.index else 0.0
+                ser_data.append(round(total_red - cum, 2))
+        rh_series.append({'label': proj, 'data': ser_data})
+
+    rh_week_lbl = [_etichetta_solo_num_settimana(w) for w in all_weeks_ts]
+
+    _me_pos = []
+    for _i in range(len(all_weeks_ts) - 1):
+        _m1 = re.search(r'(\d{4}).*W(\d+)', str(all_weeks_ts[_i]), re.IGNORECASE)
+        _m2 = re.search(r'(\d{4}).*W(\d+)', str(all_weeks_ts[_i + 1]), re.IGNORECASE)
+        if _m1 and _m2:
+            try:
+                _d1 = datetime.fromisocalendar(int(_m1.group(1)), int(_m1.group(2)), 1)
+                _d2 = datetime.fromisocalendar(int(_m2.group(1)), int(_m2.group(2)), 1)
+                if (_d1.year, _d1.month) != (_d2.year, _d2.month):
+                    if _cw_idx < 0 or _i < _cw_idx:
+                        _me_pos.append(_i + 0.5)
+            except Exception:
+                pass
 
     col_sotto_rif_ts = "Sotto Riferimento tabella 1"
-    intesa_series = []
+    voci_cfg_html = []
     _ie = 3
     while f"Export{_ie}" in config:
         _v = [v.strip() for v in config[f"Export{_ie}"].split(',')]
@@ -1821,37 +1854,91 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
         if not _v or _v[0] == '-':
             continue
         _desc = _v[2] if len(_v) > 2 and _v[2] else _v[0]
-        _rk   = str(_v[-1]) if _v else ''
-        try: _acq = float(_v[8] if len(_v) > 8 else '0')
-        except (ValueError, TypeError): _acq = 0.0
-        _wc = df_per_calc[
-            (df_per_calc[col_rif].astype(str).str.strip() == _rk) |
-            (df_per_calc[col_sotto_rif_ts].astype(str).str.strip() == _rk)
-        ].groupby(col_period)[col_actual].sum() / 8.0
-        _cum, _data = 0.0, []
-        for w in all_weeks_ts:
-            _cum += float(_wc.get(w, 0.0))
-            _data.append(round(_acq - _cum, 2))
-        intesa_series.append({'label': _desc, 'data': _data})
+        _rk = str(_v[-1]) if _v else ''
+        try:
+            _acq = float(_v[8] if len(_v) > 8 else '0')
+        except (ValueError, TypeError):
+            _acq = 0.0
+        voci_cfg_html.append((_desc, _rk, _acq))
 
-    # ── Meta: settimana corrente e fine mesi per annotazioni ─────────────────
-    _oggi = datetime.now()
-    _cw_label = f"CY{_oggi.year}-W{_oggi.isocalendar()[1]:02d}"
-    _weeks_str = [str(w) for w in all_weeks_ts]
-    try: _cw_idx = _weeks_str.index(_cw_label)
-    except ValueError: _cw_idx = -1
-    _me_pos = []
-    for _i in range(len(all_weeks_ts) - 1):
-        _m1 = re.search(r'(\d{4}).*W(\d+)', _weeks_str[_i],     re.IGNORECASE)
-        _m2 = re.search(r'(\d{4}).*W(\d+)', _weeks_str[_i + 1], re.IGNORECASE)
-        if _m1 and _m2:
-            try:
-                _d1 = datetime.fromisocalendar(int(_m1.group(1)), int(_m1.group(2)), 1)
-                _d2 = datetime.fromisocalendar(int(_m2.group(1)), int(_m2.group(2)), 1)
-                if (_d1.year, _d1.month) != (_d2.year, _d2.month):
-                    _me_pos.append(_i + 0.5)
-            except Exception:
-                pass
+    def _weekly_html(ref_key):
+        mask = (
+            (df_per_calc[col_rif].astype(str).str.strip() == ref_key) |
+            (df_per_calc[col_sotto_rif_ts].astype(str).str.strip() == ref_key)
+        )
+        return df_per_calc[mask].groupby(col_period)[col_actual].sum() / 8.0
+
+    cumsum_voci_html = {}
+    for _, ref_key, _ in voci_cfg_html:
+        wc = _weekly_html(ref_key)
+        cum = 0.0
+        cs = {}
+        for w in all_weeks_ts:
+            cum += float(wc.get(w, 0.0))
+            cs[w] = cum
+        cumsum_voci_html[ref_key] = cs
+
+    intesa_series = []
+    for desc, ref_key, acq in voci_cfg_html:
+        mask = (
+            (df_per_calc[col_rif].astype(str).str.strip() == ref_key) |
+            (df_per_calc[col_sotto_rif_ts].astype(str).str.strip() == ref_key)
+        )
+        sub = df_per_calc[mask]
+        if sub.empty:
+            continue
+        idxs = sorted(
+            week_to_idx[w] for w in sub[col_period].dropna().unique() if w in week_to_idx)
+        if not idxs:
+            continue
+        first_i, last_i = idxs[0], idxs[-1]
+        ser_data = []
+        for wi, w in enumerate(all_weeks_ts):
+            eff_last = min(last_i, _cw_idx) if 0 <= _cw_idx < nwt else last_i
+            if wi < first_i or wi > eff_last:
+                ser_data.append(None)
+            else:
+                rim = round(acq - cumsum_voci_html[ref_key].get(w, 0.0), 2)
+                ser_data.append(rim)
+        intesa_series.append({'label': desc, 'data': ser_data})
+
+    intesa_week_lbl = [_etichetta_solo_num_settimana(w) for w in all_weeks_ts]
+
+    hist_start_idx, hist_slice_weeks = _finestra_verso_settimana_corrente(
+        all_weeks_ts, _cw_idx, max_settimane=6)
+    hist_n = len(hist_slice_weeks)
+
+    rh_zoom_series = [
+        {'label': s['label'], 'data': s['data'][hist_start_idx:hist_start_idx + hist_n]}
+        for s in rh_series
+    ]
+    int_zoom_series = [
+        {'label': s['label'], 'data': s['data'][hist_start_idx:hist_start_idx + hist_n]}
+        for s in intesa_series
+    ]
+    zoom_week_lbl = [_etichetta_solo_num_settimana(w) for w in hist_slice_weeks]
+
+    rh_zoom_cw_local = -1
+    if hist_n and 0 <= _cw_idx < nwt and hist_start_idx <= _cw_idx:
+        rh_zoom_cw_local = _cw_idx - hist_start_idx
+
+    rh_zoom_month = []
+    for _mi in _me_idx_html:
+        if hist_start_idx <= _mi < hist_start_idx + hist_n - 1 and (_cw_idx < 0 or _mi < _cw_idx):
+            rh_zoom_month.append((_mi - hist_start_idx) + 0.5)
+
+    def _y_cap(series_list):
+        m = 10.0
+        for s in series_list:
+            for v in s['data']:
+                if v is not None:
+                    m = max(m, float(v))
+        return round(max(m * 1.1, 1.0), 2)
+
+    rh_y_max = _y_cap(rh_series)
+    rh_z_max = _y_cap(rh_zoom_series) if rh_zoom_series else 10.0
+    in_y_max = _y_cap(intesa_series)
+    in_z_max = _y_cap(int_zoom_series) if int_zoom_series else 10.0
 
     chart_data = {
         'ae': {
@@ -1875,12 +1962,28 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
             'usati_cons': [float(r['H'] or 0) for r in rows_progetti],
         },
         'rh': {
-            'weeks':  [str(w) for w in all_weeks_ts],
+            'weeks': rh_week_lbl,
             'series': rh_series,
+            'y_max': rh_y_max,
+        },
+        'rh_zoom': {
+            'weeks': zoom_week_lbl,
+            'series': rh_zoom_series,
+            'y_max': rh_z_max,
+            'cw_local': rh_zoom_cw_local,
+            'month_lines': rh_zoom_month,
         },
         'intesa': {
-            'weeks':  [str(w) for w in all_weeks_ts],
+            'weeks': intesa_week_lbl,
             'series': intesa_series,
+            'y_max': in_y_max,
+        },
+        'intesa_zoom': {
+            'weeks': zoom_week_lbl,
+            'series': int_zoom_series,
+            'y_max': in_z_max,
+            'cw_local': rh_zoom_cw_local,
+            'month_lines': rh_zoom_month,
         },
         'meta': {
             'current_week_idx':    _cw_idx,
@@ -1911,6 +2014,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 .nav-list a:hover{background:rgba(255,255,255,.08);color:#e2e8f0}
 .nav-list a.sub{padding-left:1.15rem;font-size:.79rem;color:#64748b}
 .nav-list a.sub:hover{color:#94a3b8}
+.nav-list a.subchart{padding-left:1.65rem;font-size:.77rem;color:#64748b}
+.nav-list a.subchart:hover{color:#94a3b8}
 main{flex:1;padding:1.75rem 2rem;overflow-x:hidden;min-width:0}
 .pg-hdr{margin-bottom:1.75rem}
 .pg-hdr h1{font-size:1.45rem;font-weight:700;color:var(--pri-d);margin-bottom:.3rem}
@@ -2044,10 +2149,14 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
     sec_grafici_rh = """
 <section class="sec" id="grafici-rh">
   <div class="sec-hdr"><h2>Grafici RH</h2></div>
-  <div class="sub-sec">
+  <div class="sub-sec charts-grid">
     <div class="chart-card">
-      <h3>Giorni Rimasti per Contratto nel Tempo</h3>
+      <h3>Giorni rimasti per contratto nel tempo</h3>
       <canvas id="chart-rh-rim"></canvas>
+    </div>
+    <div class="chart-card">
+      <h3>Sei settimane verso la corrente</h3>
+      <canvas id="chart-rh-zoom"></canvas>
     </div>
   </div>
 </section>"""
@@ -2055,10 +2164,14 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
     sec_grafici_intesa = """
 <section class="sec" id="grafici-intesa">
   <div class="sec-hdr"><h2>Grafici Intesa</h2></div>
-  <div class="sub-sec">
+  <div class="sub-sec charts-grid">
     <div class="chart-card">
-      <h3>Giorni Rimasti per Voce nel Tempo</h3>
+      <h3>Giorni rimasti per voce nel tempo</h3>
       <canvas id="chart-intesa-rim"></canvas>
+    </div>
+    <div class="chart-card">
+      <h3>Sei settimane verso la corrente</h3>
+      <canvas id="chart-intesa-zoom"></canvas>
     </div>
   </div>
 </section>"""
@@ -2069,8 +2182,6 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
   <div class="sb-meta">Generato il<br>{now_str}</div>
   <ul class="nav-list">
     <li class="nav-sep">Indice</li>
-    <li><a href="#grafici-rh">Grafici RH</a></li>
-    <li><a href="#grafici-intesa">Grafici Intesa</a></li>
     <li><a href="#dati">Dati</a></li>
     <li><a href="#progetti">Progetti</a></li>
     <li><a href="#riepilogo">Riepilogo Settimanale</a></li>
@@ -2079,6 +2190,8 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
     <li><a href="#dettaglio-ruoli">Dettaglio Ruoli</a></li>
     <li><a href="#export">Tabella Export</a></li>
     <li><a href="#grafici">Grafici</a></li>
+    <li><a href="#grafici-rh" class="subchart">Grafici RH</a></li>
+    <li><a href="#grafici-intesa" class="subchart">Grafici Intesa</a></li>
   </ul>
 </nav>"""
 
@@ -2142,41 +2255,86 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
         '    a.cw={type:"line",scaleID:"x",value:D.meta.current_week_idx,\n'
         '      borderColor:"rgb(220,38,38)",borderWidth:2};\n'
         '  }\n'
-        '  D.meta.month_end_positions.forEach(function(p,i){\n'
+        '  (D.meta.month_end_positions||[]).forEach(function(p,i){\n'
         '    a["me"+i]={type:"line",scaleID:"x",value:p,\n'
         '      borderColor:"rgb(0,0,0)",borderWidth:1};\n'
         '  });\n'
         '  return a;\n'
+        '}\n'
+        'function makeZoomAnnotations(Z){\n'
+        '  var a={};\n'
+        '  if(Z&&Z.cw_local>=0){\n'
+        '    a.zcw={type:"line",scaleID:"x",value:Z.cw_local,borderColor:"rgb(220,38,38)",borderWidth:2};\n'
+        '  }\n'
+        '  (Z&&Z.month_lines||[]).forEach(function(p,i){\n'
+        '    a["zm"+i]={type:"line",scaleID:"x",value:p,borderColor:"rgb(0,0,0)",borderWidth:1};\n'
+        '  });\n'
+        '  return a;\n'
+        '}\n'
+        'function rimastiOpts(yMax, ann){\n'
+        '  var mx=(typeof yMax==="number"&&!isNaN(yMax))?yMax:10;\n'
+        '  return {\n'
+        '    responsive:true,\n'
+        '    interaction:{mode:"index",intersect:false},\n'
+        '    plugins:{legend:{position:"top"},annotation:{annotations:ann}},\n'
+        '    scales:{\n'
+        '      x:{ticks:{maxRotation:0,autoSkip:true,font:{size:11}}},\n'
+        '      y:{beginAtZero:true,max:mx,ticks:{precision:0,maxTicksLimit:12}}\n'
+        '    },\n'
+        '    elements:{line:{spanGaps:false,tension:0},point:{radius:3,hitRadius:6}}\n'
+        '  };\n'
         '}\n'
         '\n'
         'new Chart(document.getElementById("chart-rh-rim"),{\n'
         '  type:"line",\n'
         '  data:{\n'
         '    labels:D.rh.weeks,\n'
-        '    datasets:D.rh.series.map(function(s,i){\n'
+        '    datasets:(D.rh.series||[]).map(function(s,i){\n'
         '      return {label:s.label,data:s.data,\n'
         '        borderColor:LINE_PAL[i%LINE_PAL.length],\n'
-        '        backgroundColor:"transparent",tension:0.3,pointRadius:3,fill:false};\n'
+        '        backgroundColor:"transparent",fill:false,spanGaps:false,tension:0,pointRadius:3};\n'
         '    })\n'
         '  },\n'
-        '  options:{responsive:true,\n'
-        '    plugins:{legend:{position:"top"},annotation:{annotations:makeAnnotations()}},\n'
-        '    scales:{x:{ticks:{maxRotation:45}},y:{beginAtZero:false}}}\n'
+        '  options:rimastiOpts(D.rh.y_max, makeAnnotations())\n'
+        '});\n'
+        '\n'
+        'new Chart(document.getElementById("chart-rh-zoom"),{\n'
+        '  type:"line",\n'
+        '  data:{\n'
+        '    labels:(D.rh_zoom&&D.rh_zoom.weeks)||[],\n'
+        '    datasets:(D.rh_zoom&&D.rh_zoom.series||[]).map(function(s,i){\n'
+        '      return {label:s.label,data:s.data,\n'
+        '        borderColor:LINE_PAL[i%LINE_PAL.length],\n'
+        '        backgroundColor:"transparent",fill:false,spanGaps:false,tension:0,pointRadius:3};\n'
+        '    })\n'
+        '  },\n'
+        '  options:rimastiOpts(D.rh_zoom&&D.rh_zoom.y_max, makeZoomAnnotations(D.rh_zoom))\n'
         '});\n'
         '\n'
         'new Chart(document.getElementById("chart-intesa-rim"),{\n'
         '  type:"line",\n'
         '  data:{\n'
         '    labels:D.intesa.weeks,\n'
-        '    datasets:D.intesa.series.map(function(s,i){\n'
+        '    datasets:(D.intesa.series||[]).map(function(s,i){\n'
         '      return {label:s.label,data:s.data,\n'
         '        borderColor:LINE_PAL[i%LINE_PAL.length],\n'
-        '        backgroundColor:"transparent",tension:0.3,pointRadius:3,fill:false};\n'
+        '        backgroundColor:"transparent",fill:false,spanGaps:false,tension:0,pointRadius:3};\n'
         '    })\n'
         '  },\n'
-        '  options:{responsive:true,\n'
-        '    plugins:{legend:{position:"top"},annotation:{annotations:makeAnnotations()}},\n'
-        '    scales:{x:{ticks:{maxRotation:45}},y:{beginAtZero:false}}}\n'
+        '  options:rimastiOpts(D.intesa.y_max, makeAnnotations())\n'
+        '});\n'
+        '\n'
+        'new Chart(document.getElementById("chart-intesa-zoom"),{\n'
+        '  type:"line",\n'
+        '  data:{\n'
+        '    labels:(D.intesa_zoom&&D.intesa_zoom.weeks)||[],\n'
+        '    datasets:(D.intesa_zoom&&D.intesa_zoom.series||[]).map(function(s,i){\n'
+        '      return {label:s.label,data:s.data,\n'
+        '        borderColor:LINE_PAL[i%LINE_PAL.length],\n'
+        '        backgroundColor:"transparent",fill:false,spanGaps:false,tension:0,pointRadius:3};\n'
+        '    })\n'
+        '  },\n'
+        '  options:rimastiOpts(D.intesa_zoom&&D.intesa_zoom.y_max, makeZoomAnnotations(D.intesa_zoom))\n'
         '});\n'
         '})();\n'
         '</script>'
@@ -2198,14 +2356,14 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
     <h1>{titolo}</h1>
     <p>Generato il {now_str}</p>
   </div>
-{sec_grafici_rh}
-{sec_grafici_intesa}
 {sec_dati}
 {sec_proj}
 {sec_riep}
 {sec_ruoli}
 {sec_exp}
 {sec_grafici}
+{sec_grafici_rh}
+{sec_grafici_intesa}
 </main>
 <button class="btt" onclick="window.scrollTo({{top:0,behavior:'smooth'}})" title="Torna in cima">&#8679;</button>
 {chart_script}
