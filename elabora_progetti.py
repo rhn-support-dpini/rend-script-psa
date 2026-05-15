@@ -1219,17 +1219,21 @@ def aggiungi_note(ws_p, ws_e, anno_corrente, start_w, end_w, rows_progetti, riga
 
 # --- GRAFICI EXCEL ---
 
-def _vline(lc, ws, col, data_row, n_weeks, color_hex, err_val):
+def _vline(lc, ws, col, data_row, n_cat, color_hex, err_val, cat_first_row=2):
     """Simula una linea verticale nel line chart tramite error bar Y su serie nascosta.
 
     Usa solo barre positive da y=0 così l'intervallo dell'asse Y non viene dilatato
     (compatibile Numbers/macOS; ``errBarType='both'`` con valori grandi schiaccia le serie).
+
+    ``cat_first_row``: prima riga delle categorie (valori asse X); ``n_cat`` categorie consecutive.
     """
-    ws.cell(row=1, column=col).value = ''
-    for r in range(2, n_weeks + 2):
+    hdr_row = cat_first_row - 1
+    ws.cell(row=hdr_row, column=col).value = ''
+    last_cat = cat_first_row + n_cat - 1
+    for r in range(cat_first_row, last_cat + 1):
         ws.cell(row=r, column=col).value = None
     ws.cell(row=data_row, column=col).value = 0.0
-    lc.add_data(Reference(ws, min_col=col, min_row=2, max_row=1 + n_weeks))
+    lc.add_data(Reference(ws, min_col=col, min_row=cat_first_row, max_row=last_cat))
     ser = lc.series[-1]
     try:
         from openpyxl.chart.marker import Marker
@@ -1302,7 +1306,11 @@ def _applica_stile_assi_grafico_giornate(lc, axis_max, x_font_sz=400):
     lc.y_axis.title = "Giornate rimaste"
     lc.x_axis.title = "Settimana (n°)"
     try:
-        lc.y_axis.tickLblPos = 'nextTo'
+        lc.y_axis.tickLblPos = 'low'
+    except Exception:
+        pass
+    try:
+        lc.y_axis.majorTickMark = 'out'
     except Exception:
         pass
     try:
@@ -1321,14 +1329,6 @@ def _applica_stile_assi_grafico_giornate(lc, axis_max, x_font_sz=400):
         lc.y_axis.majorUnit = float(major_u)
     except Exception:
         pass
-    try:
-        lc.y_axis.numFmt = '0.##'
-    except Exception:
-        pass
-
-    y_para = Paragraph()
-    y_para.pPr = ParagraphProperties(defRPr=CharacterProperties(sz=1000))
-    lc.y_axis.txPr = RichText(p=[y_para])
 
     x_para = Paragraph()
     x_para.pPr = ParagraphProperties(defRPr=CharacterProperties(sz=float(x_font_sz)))
@@ -1422,14 +1422,76 @@ def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_ac
 
     _col_vl = 2 + n_proj
     if 0 <= _cw_idx < n_weeks:
-        _vline(lc, ws, _col_vl, _cw_idx + 2, n_weeks, 'DC2626', axis_max)
+        _vline(lc, ws, _col_vl, _cw_idx + 2, n_weeks, 'DC2626', axis_max, cat_first_row=2)
         _col_vl += 1
     for _mi in _me_idx:
         if 0 <= _mi < n_weeks and (_cw_idx < 0 or _mi < _cw_idx):
-            _vline(lc, ws, _col_vl, _mi + 2, n_weeks, '000000', axis_max)
+            _vline(lc, ws, _col_vl, _mi + 2, n_weeks, '000000', axis_max, cat_first_row=2)
             _col_vl += 1
 
-    ws.add_chart(lc, f"A{n_weeks + 4}")
+    ROW_GAP_CHARTS = 26
+    chart_main_anchor_row = n_weeks + 4
+    ws.add_chart(lc, f"A{chart_main_anchor_row}")
+
+    hist_n = min(6, n_weeks)
+    hist_week_off = n_weeks - hist_n
+    hist_header_row = chart_main_anchor_row + ROW_GAP_CHARTS
+    hist_first_data = hist_header_row + 1
+
+    ws.cell(row=hist_header_row, column=1).value = "Settimana"
+    ws.cell(row=hist_header_row, column=1).font = bold
+    ws.cell(row=hist_header_row, column=1).alignment = center
+    for j, (row, _fi, _li) in enumerate(chart_rows, start=2):
+        hc = ws.cell(row=hist_header_row, column=j)
+        hc.value = row['A']
+        hc.font = bold
+        hc.alignment = center
+
+    axis_max_hist = 10.0
+    for k, week in enumerate(all_weeks[hist_week_off:]):
+        wi = hist_week_off + k
+        r_idx = hist_first_data + k
+        ws.cell(row=r_idx, column=1).value = _etichetta_solo_num_settimana(week)
+        for j, (row, first_i, last_i) in enumerate(chart_rows, start=2):
+            eff_last = last_i
+            if 0 <= _cw_idx < n_weeks:
+                eff_last = min(last_i, _cw_idx)
+            if wi < first_i or wi > eff_last:
+                ws.cell(row=r_idx, column=j).value = None
+                continue
+            proj = row['A']
+            total_red = float(row['E'] or 0) + float(row['F'] or 0)
+            cum = float(cumsum.loc[proj, week]) if proj in cumsum.index else 0.0
+            rim = round(total_red - cum, 2)
+            ws.cell(row=r_idx, column=j).value = rim
+            axis_max_hist = max(axis_max_hist, rim)
+
+    axis_max_hist *= 1.1
+
+    lc_hist = LineChart()
+    lc_hist.title = "Ultime 6 settimane — Giorni rimasti per contratto"
+    lc_hist.width = 30
+    lc_hist.height = 16
+    _applica_stile_assi_grafico_giornate(lc_hist, axis_max_hist, x_font_sz=400)
+
+    cats_hist = Reference(ws, min_col=1, min_row=hist_first_data, max_row=hist_first_data + hist_n - 1)
+    for j in range(2, 2 + n_proj):
+        ref_h = Reference(ws, min_col=j, min_row=hist_header_row, max_row=hist_first_data + hist_n - 1)
+        lc_hist.add_data(ref_h, titles_from_data=True)
+    lc_hist.set_categories(cats_hist)
+
+    _col_vh = 2 + n_proj
+    if 0 <= _cw_idx < n_weeks and _cw_idx >= hist_week_off:
+        loc_row = hist_first_data + (_cw_idx - hist_week_off)
+        _vline(lc_hist, ws, _col_vh, loc_row, hist_n, 'DC2626', axis_max_hist, cat_first_row=hist_first_data)
+        _col_vh += 1
+    for _mi in _me_idx:
+        if hist_week_off <= _mi < n_weeks and (_cw_idx < 0 or _mi < _cw_idx):
+            loc_row = hist_first_data + (_mi - hist_week_off)
+            _vline(lc_hist, ws, _col_vh, loc_row, hist_n, '000000', axis_max_hist, cat_first_row=hist_first_data)
+            _col_vh += 1
+
+    ws.add_chart(lc_hist, f"A{hist_first_data + hist_n + 4}")
 
     autofit_columns(ws)
 
@@ -1549,14 +1611,73 @@ def crea_grafici_intesa(wb, df_per_calc, col_period, col_actual, col_rif, config
 
     _col_vl = 2 + n_voci
     if 0 <= _cw_idx < n_weeks:
-        _vline(lc, ws, _col_vl, _cw_idx + 2, n_weeks, 'DC2626', axis_max)
+        _vline(lc, ws, _col_vl, _cw_idx + 2, n_weeks, 'DC2626', axis_max, cat_first_row=2)
         _col_vl += 1
     for _mi in _me_idx:
         if 0 <= _mi < n_weeks and (_cw_idx < 0 or _mi < _cw_idx):
-            _vline(lc, ws, _col_vl, _mi + 2, n_weeks, '000000', axis_max)
+            _vline(lc, ws, _col_vl, _mi + 2, n_weeks, '000000', axis_max, cat_first_row=2)
             _col_vl += 1
 
-    ws.add_chart(lc, f"A{n_weeks + 4}")
+    ROW_GAP_CHARTS = 26
+    chart_main_anchor_row = n_weeks + 4
+    ws.add_chart(lc, f"A{chart_main_anchor_row}")
+
+    hist_n = min(6, n_weeks)
+    hist_week_off = n_weeks - hist_n
+    hist_header_row = chart_main_anchor_row + ROW_GAP_CHARTS
+    hist_first_data = hist_header_row + 1
+
+    ws.cell(row=hist_header_row, column=1).value = "Settimana"
+    ws.cell(row=hist_header_row, column=1).font = bold
+    ws.cell(row=hist_header_row, column=1).alignment = center
+    for j, (desc, _rk, _acq, _fi, _li) in enumerate(chart_voci, start=2):
+        hc = ws.cell(row=hist_header_row, column=j)
+        hc.value = desc
+        hc.font = bold
+        hc.alignment = center
+
+    axis_max_hist = 10.0
+    for k, week in enumerate(all_weeks[hist_week_off:]):
+        wi = hist_week_off + k
+        r_idx = hist_first_data + k
+        ws.cell(row=r_idx, column=1).value = _etichetta_solo_num_settimana(week)
+        for j, (_desc, ref_key, acq, first_i, last_i) in enumerate(chart_voci, start=2):
+            eff_last = last_i
+            if 0 <= _cw_idx < n_weeks:
+                eff_last = min(last_i, _cw_idx)
+            if wi < first_i or wi > eff_last:
+                ws.cell(row=r_idx, column=j).value = None
+                continue
+            rim = round(acq - cumsum_voci[ref_key].get(week, 0.0), 2)
+            ws.cell(row=r_idx, column=j).value = rim
+            axis_max_hist = max(axis_max_hist, rim)
+
+    axis_max_hist *= 1.1
+
+    lc_hist = LineChart()
+    lc_hist.title = "Ultime 6 settimane — Giorni rimasti per voce"
+    lc_hist.width = 30
+    lc_hist.height = 16
+    _applica_stile_assi_grafico_giornate(lc_hist, axis_max_hist, x_font_sz=400)
+
+    cats_hist = Reference(ws, min_col=1, min_row=hist_first_data, max_row=hist_first_data + hist_n - 1)
+    for j in range(2, 2 + n_voci):
+        ref_h = Reference(ws, min_col=j, min_row=hist_header_row, max_row=hist_first_data + hist_n - 1)
+        lc_hist.add_data(ref_h, titles_from_data=True)
+    lc_hist.set_categories(cats_hist)
+
+    _col_vh = 2 + n_voci
+    if 0 <= _cw_idx < n_weeks and _cw_idx >= hist_week_off:
+        loc_row = hist_first_data + (_cw_idx - hist_week_off)
+        _vline(lc_hist, ws, _col_vh, loc_row, hist_n, 'DC2626', axis_max_hist, cat_first_row=hist_first_data)
+        _col_vh += 1
+    for _mi in _me_idx:
+        if hist_week_off <= _mi < n_weeks and (_cw_idx < 0 or _mi < _cw_idx):
+            loc_row = hist_first_data + (_mi - hist_week_off)
+            _vline(lc_hist, ws, _col_vh, loc_row, hist_n, '000000', axis_max_hist, cat_first_row=hist_first_data)
+            _col_vh += 1
+
+    ws.add_chart(lc_hist, f"A{hist_first_data + hist_n + 4}")
 
     autofit_columns(ws)
 
