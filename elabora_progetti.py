@@ -1776,6 +1776,22 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
 
     pv_ruoli = pivot_role_est.rename(columns={'Riferimento tabella 1': 'Riferimento'})
 
+    _oggi_h = datetime.now()
+    _cw_canon_html = f"CY{_oggi_h.year}-W{_oggi_h.isocalendar()[1]:02d}"
+
+    def _week_highlight_col_idx(df_in):
+        if df_in is None or df_in.empty:
+            return None
+        for j, col in enumerate(df_in.columns):
+            m = re.search(r'(\d{4}).*W(\d+)', str(col), re.IGNORECASE)
+            if m and f"CY{m.group(1)}-W{int(m.group(2)):02d}" == _cw_canon_html:
+                return j
+        return None
+
+    hi_week_actual = _week_highlight_col_idx(pivot_actual)
+    hi_week_estimated = _week_highlight_col_idx(pivot_estimated)
+    hi_week_ruoli = _week_highlight_col_idx(pv_ruoli)
+
     # ── Dati grafici ─────────────────────────────────────────────────────────
     actual_pp    = df_per_calc.groupby(col_proj)[col_actual].sum() / 8.0
     estimated_pp = df_per_calc.groupby(col_proj)[col_estimated].sum() / 8.0
@@ -2042,6 +2058,11 @@ tbody tr:nth-child(even){background:#f8fafc}
 tbody tr:hover{background:#eff6ff}
 td{padding:.38rem .72rem;border-bottom:1px solid var(--brd);white-space:nowrap}
 td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
+.tbl-week-highlight th.week-curr,.tbl-week-highlight td.week-curr{background:#c6efce !important}
+tr.sep-progetto td{height:0;padding:0 !important;line-height:0;border-top:3px solid #dc2626;
+  background:linear-gradient(transparent,#fee2e2);vertical-align:middle}
+tr.sep-progetto{background:transparent !important}
+tr.sep-progetto:hover{background:transparent !important}
 .row-count{padding:.35rem 1.2rem;font-size:.72rem;color:var(--mut);
   border-top:1px solid var(--brd);background:#f8fafc}
 .empty{padding:1.25rem;color:var(--mut);font-style:italic}
@@ -2059,27 +2080,74 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
 """
 
     # ── Helper: DataFrame → tabella HTML ────────────────────────────────────
-    def _cell(val):
+    def _cell(val, week_highlight=False):
+        wc = ' week-curr' if week_highlight else ''
         if pd.isna(val):
-            return '<td></td>'
+            return f'<td class="{wc.strip()}"></td>' if week_highlight else '<td></td>'
         if isinstance(val, float):
-            return f'<td class="num">{val:,.2f}</td>'
-        return f'<td>{val}</td>'
+            cls = 'num' + wc
+            return f'<td class="{cls.strip()}">{val:,.2f}</td>'
+        esc = str(val).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        if week_highlight:
+            return f'<td class="week-curr">{esc}</td>'
+        return f'<td>{esc}</td>'
 
-    def _tbl(df):
+    def _tbl(df, highlight_week_col_idx=None):
         if df is None or df.empty:
             return '<p class="empty">Nessun dato disponibile.</p>'
-        out = ['<div class="tbl-wrap"><table><thead><tr>']
-        for col in df.columns:
-            out.append(f'<th>{col}</th>')
+        tbl_cls = 'tbl-week-highlight' if highlight_week_col_idx is not None else ''
+        t_open = f'<table class="{tbl_cls}">' if tbl_cls else '<table>'
+        out = [f'<div class="tbl-wrap">{t_open}<thead><tr>']
+        for j, col in enumerate(df.columns):
+            wh = highlight_week_col_idx is not None and j == highlight_week_col_idx
+            th_cls = ' class="week-curr"' if wh else ''
+            esc_h = str(col).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            out.append(f'<th{th_cls}>{esc_h}</th>')
         out.append('</tr></thead><tbody>')
         for _, row in df.iterrows():
             out.append('<tr>')
-            out.extend(_cell(v) for v in row)
+            for j, v in enumerate(row):
+                out.append(_cell(v, week_highlight=(
+                    highlight_week_col_idx is not None and j == highlight_week_col_idx)))
             out.append('</tr>')
-        out.append('</tbody></table></div>')
+        out.append(f'</tbody></table></div>')
         out.append(f'<p class="row-count">{len(df):,} record</p>')
         return ''.join(out)
+
+    def _tbl_dettaglio_ruoli(df, highlight_week_col_idx=None):
+        if df is None or df.empty:
+            return '<p class="empty">Nessun dato disponibile.</p>'
+        tbl_cls = 'tbl-week-highlight' if highlight_week_col_idx is not None else ''
+        t_open = f'<table class="{tbl_cls}">' if tbl_cls else '<table>'
+        out = [f'<div class="tbl-wrap">{t_open}<thead><tr>']
+        for j, col in enumerate(df.columns):
+            wh = highlight_week_col_idx is not None and j == highlight_week_col_idx
+            th_cls = ' class="week-curr"' if wh else ''
+            esc_h = str(col).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            out.append(f'<th{th_cls}>{esc_h}</th>')
+        out.append('</tr></thead><tbody>')
+        ncols = len(df.columns)
+        rows_iter = list(df.iterrows())
+        for i, (_, row) in enumerate(rows_iter):
+            out.append('<tr>')
+            for j, v in enumerate(row):
+                out.append(_cell(v, week_highlight=(
+                    highlight_week_col_idx is not None and j == highlight_week_col_idx)))
+            out.append('</tr>')
+            if i + 1 < len(rows_iter):
+                cur_p = row.iloc[0]
+                nxt_p = rows_iter[i + 1][1].iloc[0]
+                if _norm_proj_cell(cur_p) != _norm_proj_cell(nxt_p):
+                    out.append(
+                        f'<tr class="sep-progetto"><td colspan="{ncols}"></td></tr>')
+        out.append(f'</tbody></table></div>')
+        out.append(f'<p class="row-count">{len(df):,} record</p>')
+        return ''.join(out)
+
+    def _norm_proj_cell(v):
+        if pd.isna(v):
+            return ''
+        return str(v).strip()
 
     # ── Sezioni ─────────────────────────────────────────────────────────────
     sec_dati = f"""
@@ -2099,18 +2167,18 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
   <div class="sec-hdr"><h2>Riepilogo Settimanale</h2></div>
   <div class="sub-sec" id="actual">
     <h3>Actual Hours (Giornate)</h3>
-    {_tbl(pivot_actual)}
+    {_tbl(pivot_actual, hi_week_actual)}
   </div>
   <div class="sub-sec" id="estimated">
     <h3>Estimated Hours (Giornate)</h3>
-    {_tbl(pivot_estimated)}
+    {_tbl(pivot_estimated, hi_week_estimated)}
   </div>
 </section>"""
 
     sec_ruoli = f"""
 <section class="sec" id="dettaglio-ruoli">
   <div class="sec-hdr"><h2>Dettaglio Ruoli</h2></div>
-  <div class="sub-sec">{_tbl(pv_ruoli)}</div>
+  <div class="sub-sec">{_tbl_dettaglio_ruoli(pv_ruoli, hi_week_ruoli)}</div>
 </section>"""
 
     exp_title = config.get('Export1', 'Tabella di Export')
@@ -2271,12 +2339,16 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
         '  });\n'
         '  return a;\n'
         '}\n'
-        'function rimastiOpts(yMax, ann){\n'
+        'function rimastiOpts(yMax, ann, legendSmall){\n'
         '  var mx=(typeof yMax==="number"&&!isNaN(yMax))?yMax:10;\n'
+        '  var legendCfg={position:"top"};\n'
+        '  if(legendSmall){\n'
+        '    legendCfg.labels={font:{size:9,lineHeight:1.15},padding:10};\n'
+        '  }\n'
         '  return {\n'
         '    responsive:true,\n'
         '    interaction:{mode:"index",intersect:false},\n'
-        '    plugins:{legend:{position:"top"},annotation:{annotations:ann}},\n'
+        '    plugins:{legend:legendCfg,annotation:{annotations:ann}},\n'
         '    scales:{\n'
         '      x:{ticks:{maxRotation:0,autoSkip:true,font:{size:11}}},\n'
         '      y:{beginAtZero:true,max:mx,ticks:{precision:0,maxTicksLimit:12}}\n'
@@ -2321,7 +2393,7 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
         '        backgroundColor:"transparent",fill:false,spanGaps:false,tension:0,pointRadius:3};\n'
         '    })\n'
         '  },\n'
-        '  options:rimastiOpts(D.intesa.y_max, makeAnnotations())\n'
+        '  options:rimastiOpts(D.intesa.y_max, makeAnnotations(), true)\n'
         '});\n'
         '\n'
         'new Chart(document.getElementById("chart-intesa-zoom"),{\n'
@@ -2334,7 +2406,7 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;color:#1e3a8a}
         '        backgroundColor:"transparent",fill:false,spanGaps:false,tension:0,pointRadius:3};\n'
         '    })\n'
         '  },\n'
-        '  options:rimastiOpts(D.intesa_zoom&&D.intesa_zoom.y_max, makeZoomAnnotations(D.intesa_zoom))\n'
+        '  options:rimastiOpts(D.intesa_zoom&&D.intesa_zoom.y_max, makeZoomAnnotations(D.intesa_zoom), true)\n'
         '});\n'
         '})();\n'
         '</script>'
