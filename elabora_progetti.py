@@ -1862,6 +1862,7 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
                 pass
 
     col_sotto_rif_ts = "Sotto Riferimento tabella 1"
+    col_f_export_hdr = hdr_exp[5].strip() if len(hdr_exp) > 5 else 'Ref. ISP'
     voci_cfg_html = []
     _ie = 3
     while f"Export{_ie}" in config:
@@ -1871,11 +1872,12 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
             continue
         _desc = _v[2] if len(_v) > 2 and _v[2] else _v[0]
         _rk = str(_v[-1]) if _v else ''
+        _ref_isp_col_f = _v[5] if len(_v) > 5 else ''
         try:
             _acq = float(_v[8] if len(_v) > 8 else '0')
         except (ValueError, TypeError):
             _acq = 0.0
-        voci_cfg_html.append((_desc, _rk, _acq))
+        voci_cfg_html.append((_desc, _rk, _acq, _ref_isp_col_f))
 
     def _weekly_html(ref_key):
         mask = (
@@ -1885,7 +1887,7 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
         return df_per_calc[mask].groupby(col_period)[col_actual].sum() / 8.0
 
     cumsum_voci_html = {}
-    for _, ref_key, _ in voci_cfg_html:
+    for _, ref_key, _, _ in voci_cfg_html:
         wc = _weekly_html(ref_key)
         cum = 0.0
         cs = {}
@@ -1895,7 +1897,7 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
         cumsum_voci_html[ref_key] = cs
 
     intesa_series = []
-    for desc, ref_key, acq in voci_cfg_html:
+    for desc, ref_key, acq, ref_isp_f in voci_cfg_html:
         mask = (
             (df_per_calc[col_rif].astype(str).str.strip() == ref_key) |
             (df_per_calc[col_sotto_rif_ts].astype(str).str.strip() == ref_key)
@@ -1916,7 +1918,11 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
             else:
                 rim = round(acq - cumsum_voci_html[ref_key].get(w, 0.0), 2)
                 ser_data.append(rim)
-        intesa_series.append({'label': desc, 'data': ser_data})
+        ref_isp_txt = str(ref_isp_f).strip() if ref_isp_f is not None else ''
+        chart_lbl = (
+            [desc, f'{col_f_export_hdr}: {ref_isp_txt}']
+            if ref_isp_txt else desc)
+        intesa_series.append({'label': chart_lbl, 'data': ser_data})
 
     intesa_week_lbl = [_etichetta_solo_num_settimana(w) for w in all_weeks_ts]
 
