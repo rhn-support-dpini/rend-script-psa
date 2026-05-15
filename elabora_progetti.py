@@ -1219,8 +1219,12 @@ def aggiungi_note(ws_p, ws_e, anno_corrente, start_w, end_w, rows_progetti, riga
 
 # --- GRAFICI EXCEL ---
 
-def _vline(lc, ws, col, data_row, n_weeks, color_hex, err_val=100.0):
-    """Simula una linea verticale nel line chart tramite error bar Y su serie nascosta."""
+def _vline(lc, ws, col, data_row, n_weeks, color_hex, err_val):
+    """Simula una linea verticale nel line chart tramite error bar Y su serie nascosta.
+
+    Usa solo barre positive da y=0 così l'intervallo dell'asse Y non viene dilatato
+    (compatibile Numbers/macOS; ``errBarType='both'`` con valori grandi schiaccia le serie).
+    """
     ws.cell(row=1, column=col).value = ''
     for r in range(2, n_weeks + 2):
         ws.cell(row=r, column=col).value = None
@@ -1248,9 +1252,10 @@ def _vline(lc, ws, col, data_row, n_weeks, color_hex, err_val=100.0):
         lp2 = LineProperties()
         lp2.solidFill = color_hex
         gp2.ln = lp2
+        ev = float(max(err_val, 1e-9))
         ser.errBars = ErrorBars(
-            errDir='y', errBarType='both', errValType='fixedVal',
-            val=err_val, noEndCap=True, spPr=gp2
+            errDir='y', errBarType='plus', errValType='fixedVal',
+            val=ev, noEndCap=True, spPr=gp2
         )
     except Exception:
         pass
@@ -1288,8 +1293,8 @@ def _etichetta_solo_num_settimana(periodo):
     return int(m.group(1)) if m else periodo
 
 
-def _applica_stile_assi_grafico_giornate(lc, x_font_sz=600):
-    """Titoli assi Y/X, tick sulle ordinate visibili, etichette ascisse compatte."""
+def _applica_stile_assi_grafico_giornate(lc, axis_max, x_font_sz=400):
+    """Titoli assi Y/X, scala ordinata esplicita (compat Numbers), etichette leggibili."""
     from openpyxl.chart.text import RichText
     from openpyxl.drawing.text import CharacterProperties, Paragraph, ParagraphProperties
 
@@ -1301,9 +1306,29 @@ def _applica_stile_assi_grafico_giornate(lc, x_font_sz=600):
     except Exception:
         pass
     try:
+        am = float(max(axis_max, 1e-9))
         lc.y_axis.scaling.min = 0
+        lc.y_axis.scaling.max = am
     except Exception:
         pass
+    try:
+        span = float(max(axis_max, 1e-9))
+        raw = span / 8.0
+        if raw >= 1:
+            major_u = max(1.0, round(raw))
+        else:
+            major_u = max(0.25, round(raw * 4.0) / 4.0)
+        lc.y_axis.majorUnit = float(major_u)
+    except Exception:
+        pass
+    try:
+        lc.y_axis.numFmt = '0.##'
+    except Exception:
+        pass
+
+    y_para = Paragraph()
+    y_para.pPr = ParagraphProperties(defRPr=CharacterProperties(sz=1000))
+    lc.y_axis.txPr = RichText(p=[y_para])
 
     x_para = Paragraph()
     x_para.pPr = ParagraphProperties(defRPr=CharacterProperties(sz=float(x_font_sz)))
@@ -1387,7 +1412,7 @@ def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_ac
     lc.title = "Giorni Rimasti per Contratto nel Tempo"
     lc.width = 30
     lc.height = 16
-    _applica_stile_assi_grafico_giornate(lc, x_font_sz=600)
+    _applica_stile_assi_grafico_giornate(lc, axis_max, x_font_sz=400)
 
     cats = Reference(ws, min_col=1, min_row=2, max_row=1 + n_weeks)
     for j in range(2, 2 + n_proj):
@@ -1397,11 +1422,11 @@ def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_ac
 
     _col_vl = 2 + n_proj
     if 0 <= _cw_idx < n_weeks:
-        _vline(lc, ws, _col_vl, _cw_idx + 2, n_weeks, 'DC2626', axis_max * 100)
+        _vline(lc, ws, _col_vl, _cw_idx + 2, n_weeks, 'DC2626', axis_max)
         _col_vl += 1
     for _mi in _me_idx:
         if 0 <= _mi < n_weeks and (_cw_idx < 0 or _mi < _cw_idx):
-            _vline(lc, ws, _col_vl, _mi + 2, n_weeks, '000000', axis_max * 100)
+            _vline(lc, ws, _col_vl, _mi + 2, n_weeks, '000000', axis_max)
             _col_vl += 1
 
     ws.add_chart(lc, f"A{n_weeks + 4}")
@@ -1514,7 +1539,7 @@ def crea_grafici_intesa(wb, df_per_calc, col_period, col_actual, col_rif, config
     lc.title = "Giorni Rimasti per Voce nel Tempo"
     lc.width = 30
     lc.height = 16
-    _applica_stile_assi_grafico_giornate(lc, x_font_sz=600)
+    _applica_stile_assi_grafico_giornate(lc, axis_max, x_font_sz=400)
 
     cats = Reference(ws, min_col=1, min_row=2, max_row=1 + n_weeks)
     for j in range(2, 2 + n_voci):
@@ -1524,11 +1549,11 @@ def crea_grafici_intesa(wb, df_per_calc, col_period, col_actual, col_rif, config
 
     _col_vl = 2 + n_voci
     if 0 <= _cw_idx < n_weeks:
-        _vline(lc, ws, _col_vl, _cw_idx + 2, n_weeks, 'DC2626', axis_max * 100)
+        _vline(lc, ws, _col_vl, _cw_idx + 2, n_weeks, 'DC2626', axis_max)
         _col_vl += 1
     for _mi in _me_idx:
         if 0 <= _mi < n_weeks and (_cw_idx < 0 or _mi < _cw_idx):
-            _vline(lc, ws, _col_vl, _mi + 2, n_weeks, '000000', axis_max * 100)
+            _vline(lc, ws, _col_vl, _mi + 2, n_weeks, '000000', axis_max)
             _col_vl += 1
 
     ws.add_chart(lc, f"A{n_weeks + 4}")
