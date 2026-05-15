@@ -1269,16 +1269,24 @@ def _week_vline_indices(all_weeks):
     """Ritorna (cw_idx, me_idx_list): indice settimana corrente e lista indici fine mese."""
     from datetime import datetime as _dt
     _oggi = _dt.now()
-    _cw_label = f"CY{_oggi.year}-W{_oggi.isocalendar()[1]:02d}"
-    _weeks_str = [str(w) for w in all_weeks]
+    iso_y, iso_w = _oggi.year, _oggi.isocalendar()[1]
+
+    def _canon_periodo(w):
+        m = re.search(r'(\d{4}).*W(\d+)', str(w), re.IGNORECASE)
+        if not m:
+            return None
+        return f"CY{m.group(1)}-W{int(m.group(2)):02d}"
+
+    _weeks_canon = [_canon_periodo(w) for w in all_weeks]
+    _cw_canon = f"CY{iso_y}-W{iso_w:02d}"
     try:
-        _cw_idx = _weeks_str.index(_cw_label)
+        _cw_idx = _weeks_canon.index(_cw_canon)
     except ValueError:
         _cw_idx = -1
     _me_idx = []
-    for _i in range(len(_weeks_str) - 1):
-        _m1 = re.search(r'(\d{4}).*W(\d+)', _weeks_str[_i], re.IGNORECASE)
-        _m2 = re.search(r'(\d{4}).*W(\d+)', _weeks_str[_i + 1], re.IGNORECASE)
+    for _i in range(len(_weeks_canon) - 1):
+        _m1 = re.search(r'(\d{4}).*W(\d+)', str(all_weeks[_i]), re.IGNORECASE)
+        _m2 = re.search(r'(\d{4}).*W(\d+)', str(all_weeks[_i + 1]), re.IGNORECASE)
         if _m1 and _m2:
             try:
                 from datetime import datetime as _dt2
@@ -1291,6 +1299,26 @@ def _week_vline_indices(all_weeks):
     return _cw_idx, _me_idx
 
 
+def _finestra_verso_settimana_corrente(all_weeks, cw_idx, max_settimane=6):
+    """Timeline ordinata: fino a ``max_settimane`` periodi che terminano alla settimana corrente (indietro).
+
+    Se ``cw_idx`` non è in timeline (nessuna corrispondenza col calendario odierno), usa le ultime
+    ``max_settimane`` voci presenti nei dati.
+
+    Returns:
+        tuple (start_idx, lista_week_slice): indice globale di inizio e sottolista di ``all_weeks``.
+    """
+    n_tot = len(all_weeks)
+    if n_tot == 0:
+        return 0, []
+    cap = min(max_settimane, n_tot)
+    if 0 <= cw_idx < n_tot:
+        start = max(0, cw_idx - (cap - 1))
+        return start, all_weeks[start:cw_idx + 1]
+    start = max(0, n_tot - cap)
+    return start, all_weeks[start:]
+
+
 def _etichetta_solo_num_settimana(periodo):
     """Estrae il solo numero settimana ISO (es. CY2026-W14 → 14) per l'asse categorie."""
     m = re.search(r'W(\d+)', str(periodo), re.IGNORECASE)
@@ -1298,19 +1326,21 @@ def _etichetta_solo_num_settimana(periodo):
 
 
 def _applica_stile_assi_grafico_giornate(lc, axis_max, x_font_sz=400):
-    """Titoli assi Y/X, scala ordinata esplicita (compat Numbers), etichette leggibili."""
+    """Titoli assi Y/X, scala ordinata; minor proprietà possibile per compatibilità Apple Numbers."""
     from openpyxl.chart.text import RichText
+    from openpyxl.chart.data_source import NumFmt
+    from openpyxl.chart.axis import ChartLines
     from openpyxl.drawing.text import CharacterProperties, Paragraph, ParagraphProperties
 
     lc.display_blanks = 'gap'
     lc.y_axis.title = "Giornate rimaste"
     lc.x_axis.title = "Settimana (n°)"
     try:
-        lc.y_axis.tickLblPos = 'low'
+        lc.y_axis.numFmt = NumFmt(formatCode='0', sourceLinked=False)
     except Exception:
         pass
     try:
-        lc.y_axis.majorTickMark = 'out'
+        lc.y_axis.tickLblPos = 'nextTo'
     except Exception:
         pass
     try:
@@ -1320,13 +1350,7 @@ def _applica_stile_assi_grafico_giornate(lc, axis_max, x_font_sz=400):
     except Exception:
         pass
     try:
-        span = float(max(axis_max, 1e-9))
-        raw = span / 8.0
-        if raw >= 1:
-            major_u = max(1.0, round(raw))
-        else:
-            major_u = max(0.25, round(raw * 4.0) / 4.0)
-        lc.y_axis.majorUnit = float(major_u)
+        lc.y_axis.majorGridlines = ChartLines()
     except Exception:
         pass
 
@@ -1433,8 +1457,8 @@ def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_ac
     chart_main_anchor_row = n_weeks + 4
     ws.add_chart(lc, f"A{chart_main_anchor_row}")
 
-    hist_n = min(6, n_weeks)
-    hist_week_off = n_weeks - hist_n
+    hist_start_idx, hist_slice_weeks = _finestra_verso_settimana_corrente(all_weeks, _cw_idx, max_settimane=6)
+    hist_n = len(hist_slice_weeks)
     hist_header_row = chart_main_anchor_row + ROW_GAP_CHARTS
     hist_first_data = hist_header_row + 1
 
@@ -1448,8 +1472,8 @@ def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_ac
         hc.alignment = center
 
     axis_max_hist = 10.0
-    for k, week in enumerate(all_weeks[hist_week_off:]):
-        wi = hist_week_off + k
+    for k, week in enumerate(hist_slice_weeks):
+        wi = hist_start_idx + k
         r_idx = hist_first_data + k
         ws.cell(row=r_idx, column=1).value = _etichetta_solo_num_settimana(week)
         for j, (row, first_i, last_i) in enumerate(chart_rows, start=2):
@@ -1469,7 +1493,7 @@ def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_ac
     axis_max_hist *= 1.1
 
     lc_hist = LineChart()
-    lc_hist.title = "Ultime 6 settimane — Giorni rimasti per contratto"
+    lc_hist.title = "Sei settimane verso la corrente — Giorni rimasti per contratto"
     lc_hist.width = 30
     lc_hist.height = 16
     _applica_stile_assi_grafico_giornate(lc_hist, axis_max_hist, x_font_sz=400)
@@ -1481,13 +1505,13 @@ def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_ac
     lc_hist.set_categories(cats_hist)
 
     _col_vh = 2 + n_proj
-    if 0 <= _cw_idx < n_weeks and _cw_idx >= hist_week_off:
-        loc_row = hist_first_data + (_cw_idx - hist_week_off)
+    if 0 <= _cw_idx < n_weeks and hist_n and hist_start_idx <= _cw_idx:
+        loc_row = hist_first_data + (_cw_idx - hist_start_idx)
         _vline(lc_hist, ws, _col_vh, loc_row, hist_n, 'DC2626', axis_max_hist, cat_first_row=hist_first_data)
         _col_vh += 1
     for _mi in _me_idx:
-        if hist_week_off <= _mi < n_weeks and (_cw_idx < 0 or _mi < _cw_idx):
-            loc_row = hist_first_data + (_mi - hist_week_off)
+        if hist_start_idx <= _mi < hist_start_idx + hist_n and (_cw_idx < 0 or _mi < _cw_idx):
+            loc_row = hist_first_data + (_mi - hist_start_idx)
             _vline(lc_hist, ws, _col_vh, loc_row, hist_n, '000000', axis_max_hist, cat_first_row=hist_first_data)
             _col_vh += 1
 
@@ -1622,8 +1646,8 @@ def crea_grafici_intesa(wb, df_per_calc, col_period, col_actual, col_rif, config
     chart_main_anchor_row = n_weeks + 4
     ws.add_chart(lc, f"A{chart_main_anchor_row}")
 
-    hist_n = min(6, n_weeks)
-    hist_week_off = n_weeks - hist_n
+    hist_start_idx, hist_slice_weeks = _finestra_verso_settimana_corrente(all_weeks, _cw_idx, max_settimane=6)
+    hist_n = len(hist_slice_weeks)
     hist_header_row = chart_main_anchor_row + ROW_GAP_CHARTS
     hist_first_data = hist_header_row + 1
 
@@ -1637,8 +1661,8 @@ def crea_grafici_intesa(wb, df_per_calc, col_period, col_actual, col_rif, config
         hc.alignment = center
 
     axis_max_hist = 10.0
-    for k, week in enumerate(all_weeks[hist_week_off:]):
-        wi = hist_week_off + k
+    for k, week in enumerate(hist_slice_weeks):
+        wi = hist_start_idx + k
         r_idx = hist_first_data + k
         ws.cell(row=r_idx, column=1).value = _etichetta_solo_num_settimana(week)
         for j, (_desc, ref_key, acq, first_i, last_i) in enumerate(chart_voci, start=2):
@@ -1655,7 +1679,7 @@ def crea_grafici_intesa(wb, df_per_calc, col_period, col_actual, col_rif, config
     axis_max_hist *= 1.1
 
     lc_hist = LineChart()
-    lc_hist.title = "Ultime 6 settimane — Giorni rimasti per voce"
+    lc_hist.title = "Sei settimane verso la corrente — Giorni rimasti per voce"
     lc_hist.width = 30
     lc_hist.height = 16
     _applica_stile_assi_grafico_giornate(lc_hist, axis_max_hist, x_font_sz=400)
@@ -1667,13 +1691,13 @@ def crea_grafici_intesa(wb, df_per_calc, col_period, col_actual, col_rif, config
     lc_hist.set_categories(cats_hist)
 
     _col_vh = 2 + n_voci
-    if 0 <= _cw_idx < n_weeks and _cw_idx >= hist_week_off:
-        loc_row = hist_first_data + (_cw_idx - hist_week_off)
+    if 0 <= _cw_idx < n_weeks and hist_n and hist_start_idx <= _cw_idx:
+        loc_row = hist_first_data + (_cw_idx - hist_start_idx)
         _vline(lc_hist, ws, _col_vh, loc_row, hist_n, 'DC2626', axis_max_hist, cat_first_row=hist_first_data)
         _col_vh += 1
     for _mi in _me_idx:
-        if hist_week_off <= _mi < n_weeks and (_cw_idx < 0 or _mi < _cw_idx):
-            loc_row = hist_first_data + (_mi - hist_week_off)
+        if hist_start_idx <= _mi < hist_start_idx + hist_n and (_cw_idx < 0 or _mi < _cw_idx):
+            loc_row = hist_first_data + (_mi - hist_start_idx)
             _vline(lc_hist, ws, _col_vh, loc_row, hist_n, '000000', axis_max_hist, cat_first_row=hist_first_data)
             _col_vh += 1
 
