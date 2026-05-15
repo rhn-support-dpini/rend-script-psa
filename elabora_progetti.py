@@ -8,6 +8,7 @@ Excel di output multi-foglio con:
   - Riepilogo Settimanale : pivot actual/estimated per progetto e settimana
   - Dettaglio Ruoli       : pivot estimated con breakdown per ruolo/milestone
   - Tabella di Export     : riepilogo giornate per codice ordine
+  - Tentative             : stati ≠ Scheduled/Commit più righe in aggregazioni miste K×L
 
 Utilizzo:
     python elabora_progetti.py [cliente] [input.xlsx] [output.xlsx]
@@ -21,7 +22,12 @@ Utilizzo:
     Se passi un solo argomento ed è un file .xlsx, viene usato come input e il filtro
     cliente resta il default (Intesa).
 
-    La configurazione cliente è sempre letta da cust.config nella directory di lavoro corrente.
+    Solo analisi combinazioni stato (colonne K e L export, senza generare Excel):
+        python elabora_progetti.py --list-kl-combos [cliente] input.xlsx
+        Se omiti cliente, viene usato il default sopra (es. Intesa).
+
+    La configurazione cliente è letta da cust.config nella stessa cartella dello script (o
+    dal percorso assoluto indicato a elabora_dati).
 
     Le impostazioni generiche vengono sempre lette da script.config (fisso).
 """
@@ -42,6 +48,15 @@ import json
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 log = logging.getLogger(__name__)
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def risolvi_percorso(nome_o_path):
+    """Se il percorso è relativo, è relativo alla cartella che contiene questo script."""
+    if os.path.isabs(nome_o_path):
+        return nome_o_path
+    return os.path.normpath(os.path.join(SCRIPT_DIR, nome_o_path))
 
 # --- FUNZIONI DI SUPPORTO ---
 
@@ -248,6 +263,168 @@ def carica_dati(file_excel_input, config):
 
     return df_src, df_dati_comp, col_proj, col_period, col_role_name, col_estimated, col_actual
 
+# Coppie Status × Forecast Category (normalizzate) con colore pastel in Dettaglio Ruoli e Tentative.
+# Ordine usato anche per la leggenda sul foglio. Chiavi fuori dall'insieme sono "Altro" (viola).
+COMBO_KL_LEGENDA = [
+    (('scheduled', 'commit'),   'C8E6C9', ('Scheduled', 'Commit')),
+    (('tentative', 'exclude'), 'FFCDD2', ('Tentative', 'Exclude')),
+    (('tentative', 'upside'),  'FFF9C4', ('Tentative', 'Upside')),
+    (('scheduled', 'exclude'), 'BBDEFB', ('Scheduled', 'Exclude')),
+    (('scheduled', 'upside'),  'FFE0B2', ('Scheduled', 'Upside')),
+    (('tentative', 'commit'),  'B2DFDB', ('Tentative', 'Commit')),
+]
+
+FILLS_COMBO_KL = {
+    pair: PatternFill(fill_type='solid', fgColor=hx) for pair, hx, _ in COMBO_KL_LEGENDA
+}
+FILLS_VIOLA_KL = PatternFill(fill_type='solid', fgColor='E1BEE7')
+CHIAVI_COMBO_KL_TRACCIATE = frozenset(FILLS_COMBO_KL.keys())
+
+
+def _norm_val_stato_kl(v):
+    """Normalizza come nel lookup celle Dettaglio Ruoli (strip + lower; vuoto se NaN)."""
+    if pd.isna(v):
+        return ''
+    return str(v).strip().lower()
+
+
+def coppia_dominante_stato_kl(subset, col_status_k, col_status_l, col_estimated):
+    """Sceglie (K,L) normalizzati per colorare una cella del Dettaglio Ruoli.
+
+    Se più righe collassano nella stessa cella con coppie diverse, si usa la coppia
+    con la maggior somma di ore stimate; se tutte nulle si segue ``COMBO_KL_LEGENDA``.
+    """
+    if subset.empty:
+        return '', ''
+    h = pd.to_numeric(subset[col_estimated], errors='coerce').fillna(0.0)
+    kser = subset[col_status_k].map(_norm_val_stato_kl)
+    lser = subset[col_status_l].map(_norm_val_stato_kl)
+    gb = pd.DataFrame({'_k': kser, '_l': lser, '_h': h}).groupby(
+        ['_k', '_l'], as_index=False)['_h'].sum()
+    if gb['_h'].sum() > 0:
+        row = gb.loc[gb['_h'].idxmax()]
+        return row['_k'], row['_l']
+    seen = {(a, b) for a, b in zip(kser.tolist(), lser.tolist())}
+    for pair, _hx, _ in COMBO_KL_LEGENDA:
+        if pair in seen:
+            return pair
+    return tuple(sorted(seen)[0])
+
+
+def chiavi_buckets_kl_misti(df_dati_comp, col_proj, col_role_name, col_period,
+                            col_status_k, col_status_l):
+    """Chiavi progetto × … × settimana con più di una coppia (K,L) sulle righe."""
+    tmp = df_dati_comp.assign(
+        _k=df_dati_comp[col_status_k].map(_norm_val_stato_kl),
+        _l=df_dati_comp[col_status_l].map(_norm_val_stato_kl),
+    )
+    gcols = [col_proj, 'Sotto progetto', col_role_name, 'Riferimento tabella 1', col_period]
+    mixed = set()
+    for key, grp in tmp.groupby(gcols):
+        pairs = {(a, b) for a, b in zip(grp['_k'], grp['_l'])}
+        if len(pairs) > 1:
+            mixed.add(tuple(key) if isinstance(key, tuple) else (key,))
+    return mixed
+
+
+def dataframe_foglio_tentative(df_dati_comp, col_proj, col_role_name, col_period,
+                               col_status_k, col_status_l):
+    """DataFrame righe Tentative: non Scheduled/Commit **o** parte di bucket K×L misto."""
+    kn = df_dati_comp[col_status_k].map(_norm_val_stato_kl)
+    ln = df_dati_comp[col_status_l].map(_norm_val_stato_kl)
+    sched_commit = (kn == 'scheduled') & (ln == 'commit')
+    keys_mixed = chiavi_buckets_kl_misti(
+        df_dati_comp, col_proj, col_role_name, col_period, col_status_k, col_status_l)
+    col_rif = 'Riferimento tabella 1'
+
+    def bucket_key_series(df):
+        return list(zip(
+            df[col_proj].astype(str),
+            df['Sotto progetto'].astype(str),
+            df[col_role_name].astype(str),
+            df[col_rif].astype(str),
+            df[col_period].astype(str),
+        ))
+
+    in_misto = [bk in keys_mixed for bk in bucket_key_series(df_dati_comp)]
+    return df_dati_comp[~sched_commit | pd.Series(in_misto, index=df_dati_comp.index)].copy()
+
+
+def riepilogo_combinazioni_k_l(df_dati_comp, col_k, col_l):
+    """Conta le coppie uniche (colonna K, colonna L) sulle righe del foglio dati.
+
+    Args:
+        df_dati_comp: DataFrame arricchito (stesso usato per export 'dati').
+        col_k:        nome colonna indice 10 (scheduling / colonna K sorgente).
+        col_l:        nome colonna indice 11 (commit-exclude / colonna L sorgente).
+
+    Returns:
+        DataFrame con colonne k_norm, l_norm, righe, tracciata, es_k, es_l
+        (ultime due: un esempio di valore grezzo per quella combinazione).
+    """
+    tmp = df_dati_comp[[col_k, col_l]].copy()
+    tmp['_k'] = tmp[col_k].map(_norm_val_stato_kl)
+    tmp['_l'] = tmp[col_l].map(_norm_val_stato_kl)
+    tmp['_tr'] = tmp.apply(
+        lambda r: (r['_k'], r['_l']) in CHIAVI_COMBO_KL_TRACCIATE, axis=1)
+
+    # un esempio di testo grezzo per ogni gruppo (prima riga del gruppo)
+    first_idx = tmp.groupby(['_k', '_l']).head(1).index
+    esempi = tmp.loc[first_idx][['_k', '_l', col_k, col_l]].rename(
+        columns={col_k: 'es_k', col_l: 'es_l'})
+    vc = tmp.groupby(['_k', '_l']).size().reset_index(name='righe')
+    out = vc.merge(esempi, on=['_k', '_l'], how='left')
+    out['tracciata'] = out.apply(
+        lambda r: (r['_k'], r['_l']) in CHIAVI_COMBO_KL_TRACCIATE, axis=1)
+    return out.rename(columns={'_k': 'k_norm', '_l': 'l_norm'}).sort_values(
+        'righe', ascending=False).reset_index(drop=True)
+
+
+def list_kl_combos_su_file(file_excel_input, file_cust_config='cust.config', cliente_filter=''):
+    """Stampa su log tutte le coppie K×L nel sorgente; utile per trovare valori fuori schema."""
+    path_script_cfg = risolvi_percorso('script.config')
+    path_cust_cfg = risolvi_percorso(file_cust_config)
+    if not os.path.isfile(path_cust_cfg):
+        log.error("cust.config non trovato: %s", os.path.abspath(path_cust_cfg))
+        return
+    config = {
+        **carica_config(path_script_cfg),
+        **carica_config(path_cust_cfg),
+    }
+    if not os.path.exists(file_excel_input):
+        log.error("File di input non trovato: %s", file_excel_input)
+        return
+    _df_src, df_dati_comp, _cp, _pe, _cr, _ce, _ca = carica_dati(file_excel_input, config)
+    if cliente_filter:
+        mask = df_dati_comp['Cliente'].str.strip().str.lower() == cliente_filter.strip().lower()
+        df_dati_comp = df_dati_comp[mask].reset_index(drop=True)
+        log.info("Filtro cliente %r → %d righe", cliente_filter, len(df_dati_comp))
+
+    col_k = df_dati_comp.columns[10]
+    col_l = df_dati_comp.columns[11]
+    log.info("Colonne analizzate: K[%d]=%r  L[%d]=%r", 10, col_k, 11, col_l)
+
+    tab = riepilogo_combinazioni_k_l(df_dati_comp, col_k, col_l)
+    altre = tab[~tab['tracciata']]
+    log.info("Totale combinazioni distinte (dopo normalizzazione): %d", len(tab))
+    log.info("Di cui tracciate dalla colorazione: %d", int(tab['tracciata'].sum()))
+    log.info("Combinazioni NON tracciate (esistono nei dati): %d", len(altre))
+    if len(altre):
+        log.info(
+            "--- Righe per combinazioni non tracciate (stesso formato usato nel foglio Excel) ---"
+        )
+        pd.set_option('display.max_columns', None)
+        pd.set_option('display.width', None)
+        pd.set_option('display.max_colwidth', 40)
+        print(altre.to_string(index=False))
+    else:
+        log.info("Nessuna coppia K×L fuori dalle combinazioni con colore dedicato.")
+
+    log.info(
+        "Nota: in Dettaglio Ruoli più righe nella stessa cella con K/L diversi usano il colore "
+        "della coppia con più ore stimate nel bucket; il foglio Tentative include anche le "
+        "righe Scheduled/Commit se condividono la stessa chiave con altre coppie K×L.")
+
 # --- CALCOLO PIVOT ---
 
 def calcola_pivot(df_dati_comp, col_period, col_actual, col_estimated,
@@ -363,9 +540,9 @@ def prepara_righe_progetti(df_src, df_dati_comp, df_per_calc, col_proj, col_actu
 # --- SCRITTURA FOGLI BASE ---
 
 def scrivi_fogli_base(file_output, df_dati_comp, rows_progetti):
-    """Scrive i cinque fogli con dati grezzi nel file di output.
+    """Scrive i fogli con dati grezzi nel file di output.
 
-    I fogli Riepilogo Settimanale, Dettaglio Ruoli e Tabella di Export vengono
+    I fogli Riepilogo Settimanale, Dettaglio Ruoli, Tabella di Export e Tentative vengono
     creati vuoti qui; la formattazione e i dati vengono aggiunti nelle funzioni
     successive tramite openpyxl diretto.
 
@@ -383,6 +560,7 @@ def scrivi_fogli_base(file_output, df_dati_comp, rows_progetti):
         pd.DataFrame().to_excel(writer, sheet_name='Riepilogo Settimanale', index=False)
         pd.DataFrame().to_excel(writer, sheet_name='Dettaglio Ruoli', index=False)
         pd.DataFrame().to_excel(writer, sheet_name='Tabella di Export', index=False)
+        pd.DataFrame().to_excel(writer, sheet_name='Tentative', index=False)
 
 # --- UTILITÀ FORMATTAZIONE ---
 
@@ -515,7 +693,7 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
 def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_est,
                        current_week_str, bold, center, green_fill, red_thick,
                        df_dati_comp, col_proj, col_role_name, col_period, col_status_k, col_status_l,
-                       df_per_calc, col_actual):
+                       df_per_calc, col_actual, col_estimated):
     """Riempie i fogli 'Riepilogo Settimanale' e 'Dettaglio Ruoli'.
 
     Riepilogo Settimanale: due pivot (actual e estimated) in sequenza verticale.
@@ -523,12 +701,10 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
     Dettaglio Ruoli: pivot estimated per ruolo con:
     - Riga 3: intervallo date di ogni settimana (lun-dom)
     - Riga 4: nome del mese (o "mese1-mese2" se la settimana è a cavallo di mese)
-    - Colorazione pastello dalla settimana corrente in poi basata su
-      stato schedulazione (colonne K e L del sorgente):
-        verde  = Scheduled/Commit
-        rosso  = Tentative/Exclude
-        giallo = Tentative/Upside
-        viola  = altro
+    - Colorazione pastello dalla settimana corrente in poi: per ogni cella si applica
+      il colore della coppia (Status, Forecast) con **maggior peso in ore stimate**
+      tra le righe che collassano nella cella (stesse chiavi pivot + settimana);
+      viola solo per coppie davvero sconosciute o valori mancanti dopo normalizzazione.
     - Bordo blu spesso sulla settimana corrente
     - Colonna extra "Actual Hours (Giornate)" a destra della tabella
     - Legenda colori in fondo alla tabella
@@ -552,6 +728,7 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
         col_status_l:     nome colonna stato commit/exclude (colonna L sorgente).
         df_per_calc:      DataFrame filtrato per i calcoli.
         col_actual:       nome colonna ore consuntivate.
+        col_estimated:    nome colonna ore stimate (peso per scegliere il colore se K/L misti).
     """
     def write_pivot(ws, start_row, df, title, border_group=False, extra_center_cols=None):
         """Scrive una pivot su un worksheet a partire da start_row.
@@ -699,10 +876,6 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
             except Exception:
                 pass
 
-    fill_verde_past  = PatternFill(fill_type="solid", fgColor="C8E6C9")
-    fill_rosso_past  = PatternFill(fill_type="solid", fgColor="FFCDD2")
-    fill_giallo_past = PatternFill(fill_type="solid", fgColor="FFF9C4")
-    fill_viola_past  = PatternFill(fill_type="solid", fgColor="E1BEE7")
     no_fill          = PatternFill(fill_type=None)
 
     data_start_row = 5
@@ -762,18 +935,10 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
                 if subset.empty:
                     continue
 
-                k_vals = set(subset[col_status_k].astype(str).str.strip().str.lower().unique())
-                l_vals = set(subset[col_status_l].astype(str).str.strip().str.lower().unique())
-
                 cella = ws_dr.cell(row=r, column=c)
-                if k_vals == {'scheduled'} and l_vals == {'commit'}:
-                    cella.fill = fill_verde_past
-                elif k_vals == {'tentative'} and l_vals == {'exclude'}:
-                    cella.fill = fill_rosso_past
-                elif k_vals == {'tentative'} and l_vals == {'upside'}:
-                    cella.fill = fill_giallo_past
-                else:
-                    cella.fill = fill_viola_past
+                kk, ll = coppia_dominante_stato_kl(
+                    subset, col_status_k, col_status_l, col_estimated)
+                cella.fill = FILLS_COMBO_KL.get((kk, ll), FILLS_VIOLA_KL)
 
     # Colonna Actual Hours (Giornate) — ultima_col + 2 (lascia una colonna vuota)
     act_col = ultima_col + 2
@@ -815,11 +980,10 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
         green_med  = Side(style='medium', color='00B050')
         green_thin = Side(style='thin',   color='00B050')
         leggenda = [
-            ("Scheduled", "Commit",  fill_verde_past),
-            ("Tentative",  "Exclude", fill_rosso_past),
-            ("Tentative",  "Upside",  fill_giallo_past),
-            ("Altro",      "",        fill_viola_past),
+            (_lt1, _lt2, FILLS_COMBO_KL[_pair])
+            for _pair, _hx, (_lt1, _lt2) in COMBO_KL_LEGENDA
         ]
+        leggenda.append(("Non mappato", "", FILLS_VIOLA_KL))
         leg_start = ultima_riga_ws + 3
         lc1, lc2  = current_week_col_dr, current_week_col_dr + 1
         n_leg     = len(leggenda)
@@ -846,6 +1010,64 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
             start_row=leg_start + n_leg - 1, start_column=lc1,
             end_row=leg_start + n_leg - 1,   end_column=lc2
         )
+
+def formatta_foglio_tentative(ws_t, df_dati_comp, col_proj, col_role_name, col_period,
+                              col_estimated, col_status_k, col_status_l,
+                              bold, center):
+    """Foglio 'Tentative': non solo Scheduled/Commit, più bucket K×L misti.
+
+    Esclude righe con stimate ore = 0; nella colonna stime mostra giornate (ore/8).
+    Colori riga come Dettaglio Ruoli (per coppia sulla singola riga).
+    """
+    def pick_src(intestazione, fb):
+        if isinstance(fb, str) and fb in df_dati_comp.columns:
+            return fb
+        if intestazione in df_dati_comp.columns:
+            return intestazione
+        log.warning("Foglio Tentative: colonna mancante nel sorgente (%s)", intestazione)
+        return None
+
+    header_src = (
+        ('Project: Project Name', col_proj),
+        ('Resource: Full Name', 'Resource: Full Name'),
+        ('Estimated Hours', col_estimated),
+        ('Time Period: Time Period Name', col_period),
+        ('Assignment: Status', col_status_k),
+        ('Assignment: Forecast Category', col_status_l),
+        ('Sotto progetto', 'Sotto progetto'),
+        ('Riferimento tabella 1', 'Riferimento tabella 1'),
+        ('Sotto Riferimento tabella 1', 'Sotto Riferimento tabella 1'),
+        ('Commento', 'Commento'),
+    )
+    headers = [t[0] for t in header_src]
+    src_cols = [pick_src(d, fb) for d, fb in header_src]
+
+    df_nt = dataframe_foglio_tentative(
+        df_dati_comp, col_proj, col_role_name, col_period, col_status_k, col_status_l)
+    est_num = pd.to_numeric(df_nt[col_estimated], errors='coerce').fillna(0.0)
+    df_nt = df_nt.loc[est_num != 0].copy()
+
+    hdr_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    for jc, hdr in enumerate(headers, start=1):
+        hc = ws_t.cell(row=1, column=jc)
+        hc.value = hdr
+        hc.font = bold
+        hc.alignment = hdr_alignment
+
+    for jr, (_, row) in enumerate(df_nt.iterrows(), start=2):
+        nk = _norm_val_stato_kl(row[col_status_k])
+        nl = _norm_val_stato_kl(row[col_status_l])
+        row_fill = FILLS_COMBO_KL.get((nk, nl), FILLS_VIOLA_KL)
+        for jc, sk in enumerate(src_cols, start=1):
+            cell = ws_t.cell(row=jr, column=jc)
+            if sk is not None:
+                if sk == col_estimated:
+                    raw = pd.to_numeric(row[sk], errors='coerce')
+                    cell.value = (float(raw) / 8.0) if pd.notna(raw) else 0.0
+                else:
+                    cell.value = row[sk]
+            cell.fill = row_fill
+            cell.alignment = center
 
 # --- FORMATTAZIONE TAB EXPORT ---
 
@@ -1781,13 +2003,29 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
 
     Args:
         file_excel_input: percorso del file Excel sorgente.
-        file_cust_config: config specifica del cliente (contratti, Export, contatti).
+        file_cust_config: config specifica del cliente (contratti, Export, contatti);
+                          se percorso relativo, cercata accanto allo script (.py).
         file_output:      percorso del file Excel di output da generare.
         cliente_filter:   se non vuoto, filtra le righe dove la colonna "Cliente"
                           corrisponde a questo valore (confronto case-insensitive).
     """
     try:
-        config = {**carica_config('script.config'), **carica_config(file_cust_config)}
+        path_script_cfg = risolvi_percorso('script.config')
+        path_cust_cfg = risolvi_percorso(file_cust_config)
+        if not os.path.isfile(path_cust_cfg):
+            log.error(
+                "ERRORE: cust.config non trovato (%s).\n"
+                "   Il foglio 'progetti' e la 'Tabella di Export' leggono intestazioni "
+                "e righe Export da quel file.\n"
+                "   Posiziona cust.config nella stessa cartella di elabora_progetti.py "
+                "oppure passa un percorso assoluto a elabora_dati(..., file_cust_config=...).",
+                os.path.abspath(path_cust_cfg),
+            )
+            return
+        config = {
+            **carica_config(path_script_cfg),
+            **carica_config(path_cust_cfg),
+        }
         contratti_idx = indicizza_contratti(config)
 
         start_w = int(config.get('StartWeek', 0))
@@ -1860,12 +2098,15 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
                            pivot_actual, pivot_estimated, pivot_role_est,
                            current_week_str, bold, center, green_fill, red_thick,
                            df_dati_comp, col_proj, col_role_name, col_period, col_status_k, col_status_l,
-                           df_per_calc, col_actual)
+                           df_per_calc, col_actual, col_estimated)
 
         riga_export = formatta_tab_export(
             wb['Tabella di Export'], config, df_per_calc, col_rif, col_actual,
             fill_verde, fill_nero, font_bianco_bold, center, right_align
         )
+
+        formatta_foglio_tentative(wb['Tentative'], df_dati_comp, col_proj, col_role_name, col_period,
+                                   col_estimated, col_status_k, col_status_l, bold, center)
 
         if weeks_limit_active:
             aggiungi_note(wb['progetti'], wb['Tabella di Export'], anno_corrente,
@@ -1881,7 +2122,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
                     col_proj, col_period, col_estimated, file_output)
 
         for sheet_name in ['dati', 'progetti', 'Riepilogo Settimanale',
-                            'Dettaglio Ruoli', 'Tabella di Export']:
+                            'Dettaglio Ruoli', 'Tabella di Export', 'Tentative']:
             autofit_columns(wb[sheet_name])
 
         wb.save(file_output)
@@ -1895,12 +2136,24 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
 if __name__ == "__main__":
     import argparse
     _argv = sys.argv[1:]
-    if len(_argv) == 1 and _argv[0].lower().endswith(('.xlsx', '.xlsm', '.xls')):
+    if '--list-kl-combos' in _argv:
+        rest = [a for a in _argv if a != '--list-kl-combos']
+        if len(rest) == 1 and rest[0].lower().endswith(('.xlsx', '.xlsm', '.xls')):
+            list_kl_combos_su_file(rest[0], cliente_filter='Intesa')
+        elif len(rest) >= 2:
+            list_kl_combos_su_file(rest[1], cliente_filter=rest[0])
+        elif len(rest) == 1:
+            list_kl_combos_su_file('input.xlsx', cliente_filter=rest[0])
+        else:
+            list_kl_combos_su_file('input.xlsx', cliente_filter='Intesa')
+    elif len(_argv) == 1 and _argv[0].lower().endswith(('.xlsx', '.xlsm', '.xls')):
         elabora_dati(_argv[0], 'cust.config', 'output_elaborato.xlsx',
                      cliente_filter='Intesa')
     else:
         ap = argparse.ArgumentParser(
             description='Report settimanale risorse Red Hat Italy')
+        ap.add_argument('--list-kl-combos', action='store_true',
+                        help='Elenca le coppie colonna K×L nel sorgente e termina (no output Excel)')
         ap.add_argument('cliente', nargs='?', default='Intesa',
                         help='Filtro colonna Cliente (case-insensitive; default Intesa; vuoto = tutti)')
         ap.add_argument('input_file', nargs='?', default='input.xlsx',
@@ -1908,5 +2161,8 @@ if __name__ == "__main__":
         ap.add_argument('output_file', nargs='?', default='output_elaborato.xlsx',
                         help='File Excel di output')
         args = ap.parse_args()
-        elabora_dati(args.input_file, 'cust.config', args.output_file,
-                     cliente_filter=args.cliente)
+        if args.list_kl_combos:
+            list_kl_combos_su_file(args.input_file, cliente_filter=args.cliente)
+        else:
+            elabora_dati(args.input_file, 'cust.config', args.output_file,
+                         cliente_filter=args.cliente)
