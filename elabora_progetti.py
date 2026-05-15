@@ -1282,18 +1282,40 @@ def _week_vline_indices(all_weeks):
     return _cw_idx, _me_idx
 
 
-def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_actual, bold, center):
-    """Crea il foglio 'Grafici RH': line chart giornate rimaste per contratto nel tempo."""
+def _etichetta_solo_num_settimana(periodo):
+    """Estrae il solo numero settimana ISO (es. CY2026-W14 → 14) per l'asse categorie."""
+    m = re.search(r'W(\d+)', str(periodo), re.IGNORECASE)
+    return int(m.group(1)) if m else periodo
+
+
+def _applica_stile_assi_grafico_giornate(lc, x_font_sz=600):
+    """Titoli assi Y/X, tick sulle ordinate visibili, etichette ascisse compatte."""
     from openpyxl.chart.text import RichText
     from openpyxl.drawing.text import CharacterProperties, Paragraph, ParagraphProperties
+
+    lc.display_blanks = 'gap'
+    lc.y_axis.title = "Giornate rimaste"
+    lc.x_axis.title = "Settimana (n°)"
+    try:
+        lc.y_axis.tickLblPos = 'nextTo'
+    except Exception:
+        pass
+    try:
+        lc.y_axis.scaling.min = 0
+    except Exception:
+        pass
+
+    x_para = Paragraph()
+    x_para.pPr = ParagraphProperties(defRPr=CharacterProperties(sz=float(x_font_sz)))
+    lc.x_axis.txPr = RichText(p=[x_para])
+
+
+def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_actual, bold, center):
+    """Crea il foglio 'Grafici RH': line chart giornate rimaste per contratto nel tempo."""
 
     def _sk(s):
         m = re.search(r'(\d{4}).*W(\d+)', str(s), re.IGNORECASE)
         return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
-
-    def _solo_num_settimana(s):
-        m = re.search(r'W(\d+)', str(s), re.IGNORECASE)
-        return int(m.group(1)) if m else s
 
     all_weeks = sorted(df_per_calc[col_period].dropna().unique(), key=_sk)
     n_weeks = len(all_weeks)
@@ -1301,6 +1323,7 @@ def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_ac
         return
 
     week_to_idx = {w: i for i, w in enumerate(all_weeks)}
+    _cw_idx, _me_idx = _week_vline_indices(all_weeks)
 
     # Pivot project × week → giorni consumati cumulati
     pivot = (
@@ -1343,9 +1366,12 @@ def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_ac
     axis_max = 10.0
     for wi, week in enumerate(all_weeks):
         r_idx = wi + 2
-        ws.cell(row=r_idx, column=1).value = _solo_num_settimana(week)
+        ws.cell(row=r_idx, column=1).value = _etichetta_solo_num_settimana(week)
         for j, (row, first_i, last_i) in enumerate(chart_rows, start=2):
-            if wi < first_i or wi > last_i:
+            eff_last = last_i
+            if 0 <= _cw_idx < n_weeks:
+                eff_last = min(last_i, _cw_idx)
+            if wi < first_i or wi > eff_last:
                 ws.cell(row=r_idx, column=j).value = None
                 continue
             proj = row['A']
@@ -1358,35 +1384,10 @@ def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_ac
     axis_max = axis_max * 1.1
 
     lc = LineChart()
-    lc.display_blanks = 'gap'
     lc.title = "Giorni Rimasti per Contratto nel Tempo"
-    lc.y_axis.title = "Giornate rimaste"
-    lc.x_axis.title = "Settimana (n°)"
     lc.width = 30
     lc.height = 16
-    try:
-        lc.y_axis.scaling.min = 0
-        lc.y_axis.scaling.max = axis_max
-    except Exception:
-        pass
-    try:
-        lc.y_axis.numFmt = '0.0'
-    except Exception:
-        pass
-    try:
-        span = max(float(axis_max), 1e-6)
-        major = span / 10.0
-        if major >= 1:
-            major_u = max(1.0, round(major))
-        else:
-            major_u = max(0.5, round(major * 2.0) / 2.0)
-        lc.y_axis.majorUnit = float(major_u)
-    except Exception:
-        pass
-
-    x_para = Paragraph()
-    x_para.pPr = ParagraphProperties(defRPr=CharacterProperties(sz=720))
-    lc.x_axis.txPr = RichText(p=[x_para])
+    _applica_stile_assi_grafico_giornate(lc, x_font_sz=600)
 
     cats = Reference(ws, min_col=1, min_row=2, max_row=1 + n_weeks)
     for j in range(2, 2 + n_proj):
@@ -1394,13 +1395,12 @@ def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_ac
         lc.add_data(ref, titles_from_data=True)
     lc.set_categories(cats)
 
-    _cw_idx, _me_idx = _week_vline_indices(all_weeks)
     _col_vl = 2 + n_proj
     if 0 <= _cw_idx < n_weeks:
         _vline(lc, ws, _col_vl, _cw_idx + 2, n_weeks, 'DC2626', axis_max * 100)
         _col_vl += 1
     for _mi in _me_idx:
-        if 0 <= _mi < n_weeks:
+        if 0 <= _mi < n_weeks and (_cw_idx < 0 or _mi < _cw_idx):
             _vline(lc, ws, _col_vl, _mi + 2, n_weeks, '000000', axis_max * 100)
             _col_vl += 1
 
@@ -1411,7 +1411,6 @@ def crea_grafici_rh(wb, rows_progetti, df_per_calc, col_proj, col_period, col_ac
 
 def crea_grafici_intesa(wb, df_per_calc, col_period, col_actual, col_rif, config, bold, center):
     """Crea il foglio 'Grafici Intesa': line chart giornate rimaste per voce nel tempo."""
-    ws = wb.create_sheet("Grafici Intesa")
 
     def _sk(s):
         m = re.search(r'(\d{4}).*W(\d+)', str(s), re.IGNORECASE)
@@ -1422,10 +1421,13 @@ def crea_grafici_intesa(wb, df_per_calc, col_period, col_actual, col_rif, config
     if not all_weeks:
         return
 
+    week_to_idx = {w: i for i, w in enumerate(all_weeks)}
+    _cw_idx, _me_idx = _week_vline_indices(all_weeks)
+
     col_sotto_rif = "Sotto Riferimento tabella 1"
 
     # Voci dalla config (skip separatori '-')
-    voci = []
+    voci_cfg = []
     idx = 3
     while f"Export{idx}" in config:
         vals = [v.strip() for v in config[f"Export{idx}"].split(',')]
@@ -1436,13 +1438,11 @@ def crea_grafici_intesa(wb, df_per_calc, col_period, col_actual, col_rif, config
                 acq = float(vals[8] if len(vals) > 8 else '0')
             except (ValueError, TypeError):
                 acq = 0.0
-            voci.append((desc, ref_key, acq))
+            voci_cfg.append((desc, ref_key, acq))
         idx += 1
 
-    if not voci:
+    if not voci_cfg:
         return
-
-    n_voci = len(voci)
 
     # Cumsum settimanale per ogni ref_key (rif + sotto-rif)
     def _weekly(ref_key):
@@ -1453,7 +1453,7 @@ def crea_grafici_intesa(wb, df_per_calc, col_period, col_actual, col_rif, config
         return df_per_calc[mask].groupby(col_period)[col_actual].sum() / 8.0
 
     cumsum_voci = {}
-    for _, ref_key, _ in voci:
+    for _, ref_key, _ in voci_cfg:
         wc = _weekly(ref_key)
         cum, cs = 0.0, {}
         for w in all_weeks:
@@ -1461,40 +1461,60 @@ def crea_grafici_intesa(wb, df_per_calc, col_period, col_actual, col_rif, config
             cs[w] = cum
         cumsum_voci[ref_key] = cs
 
-    # Tabella dati: col 1 = settimana, col 2+ = rimasti per voce
+    # Solo voci con righe nei dati filtrati; intervallo prima/ultima settimana valorizzata
+    chart_voci = []
+    for desc, ref_key, acq in voci_cfg:
+        mask = (
+            (df_per_calc[col_rif].astype(str).str.strip() == ref_key) |
+            (df_per_calc[col_sotto_rif].astype(str).str.strip() == ref_key)
+        )
+        sub = df_per_calc[mask]
+        if sub.empty:
+            continue
+        idxs = sorted(
+            week_to_idx[w] for w in sub[col_period].dropna().unique() if w in week_to_idx)
+        if not idxs:
+            continue
+        chart_voci.append((desc, ref_key, acq, idxs[0], idxs[-1]))
+
+    if not chart_voci:
+        return
+
+    n_voci = len(chart_voci)
+    ws = wb.create_sheet("Grafici Intesa")
+
+    # Tabella dati: col 1 = n° settimana ISO, col 2+ = rimasti (solo settimane valorizzate, fino settimana corrente)
     ws.cell(row=1, column=1).value = "Settimana"
     ws.cell(row=1, column=1).font = bold
     ws.cell(row=1, column=1).alignment = center
-    for j, (desc, _, _) in enumerate(voci, 2):
+    for j, (desc, _rk, _acq, _fi, _li) in enumerate(chart_voci, start=2):
         c = ws.cell(row=1, column=j)
         c.value = desc
         c.font = bold
         c.alignment = center
 
-    for i, week in enumerate(all_weeks, 2):
-        ws.cell(row=i, column=1).value = str(week)
-        for j, (_, ref_key, acq) in enumerate(voci, 2):
-            ws.cell(row=i, column=j).value = round(acq - cumsum_voci[ref_key].get(week, 0.0), 2)
-
-    # Calcola il massimo delle giornate rimaste per impostare i bounds dell'asse Y
     axis_max = 10.0
-    for _, ref_key, acq in voci:
-        for w in all_weeks:
-            axis_max = max(axis_max, acq - cumsum_voci[ref_key].get(w, 0.0))
+    for wi, week in enumerate(all_weeks):
+        r_idx = wi + 2
+        ws.cell(row=r_idx, column=1).value = _etichetta_solo_num_settimana(week)
+        for j, (_desc, ref_key, acq, first_i, last_i) in enumerate(chart_voci, start=2):
+            eff_last = last_i
+            if 0 <= _cw_idx < n_weeks:
+                eff_last = min(last_i, _cw_idx)
+            if wi < first_i or wi > eff_last:
+                ws.cell(row=r_idx, column=j).value = None
+                continue
+            rim = round(acq - cumsum_voci[ref_key].get(week, 0.0), 2)
+            ws.cell(row=r_idx, column=j).value = rim
+            axis_max = max(axis_max, rim)
+
     axis_max = axis_max * 1.1
 
-    # Line chart: ascisse = settimane, ordinate = giornate rimaste, una linea per voce
     lc = LineChart()
     lc.title = "Giorni Rimasti per Voce nel Tempo"
-    lc.y_axis.title = "Giornate Rimaste"
-    lc.x_axis.title = "Settimana"
     lc.width = 30
     lc.height = 16
-    try:
-        lc.y_axis.scaling.min = 0
-        lc.y_axis.scaling.max = axis_max
-    except Exception:
-        pass
+    _applica_stile_assi_grafico_giornate(lc, x_font_sz=600)
 
     cats = Reference(ws, min_col=1, min_row=2, max_row=1 + n_weeks)
     for j in range(2, 2 + n_voci):
@@ -1502,13 +1522,12 @@ def crea_grafici_intesa(wb, df_per_calc, col_period, col_actual, col_rif, config
         lc.add_data(ref, titles_from_data=True)
     lc.set_categories(cats)
 
-    _cw_idx, _me_idx = _week_vline_indices(all_weeks)
     _col_vl = 2 + n_voci
     if 0 <= _cw_idx < n_weeks:
         _vline(lc, ws, _col_vl, _cw_idx + 2, n_weeks, 'DC2626', axis_max * 100)
         _col_vl += 1
     for _mi in _me_idx:
-        if 0 <= _mi < n_weeks:
+        if 0 <= _mi < n_weeks and (_cw_idx < 0 or _mi < _cw_idx):
             _vline(lc, ws, _col_vl, _mi + 2, n_weeks, '000000', axis_max * 100)
             _col_vl += 1
 
