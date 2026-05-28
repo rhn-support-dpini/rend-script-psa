@@ -902,6 +902,8 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
 
         ultima_riga = start_row + 2 + len(df) - 1
         ultima_col = len(df.columns)
+        hdr_row = start_row + 1
+        data_first = start_row + 2
 
         for r in range(start_row + 1, ultima_riga + 1):
             cella_tot_col = ws.cell(row=r, column=ultima_col)
@@ -910,8 +912,6 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
             else:
                 cella_tot_col.font = bold
 
-        hdr_row = start_row + 1
-        data_first = start_row + 2
         for c in range(1, ultima_col):
             if current_week_str in str(ws.cell(row=hdr_row, column=c).value):
                 for r in range(data_first if export_style else hdr_row, ultima_riga + 2):
