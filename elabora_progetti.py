@@ -475,8 +475,38 @@ def calcola_pivot(df_dati_comp, col_period, col_actual, col_estimated,
     pivot_role_est = pivot_role_est.rename(columns={col_role_name: 'Milestone'})
     pivot_role_est = aggiungi_colonna_risorse_dettaglio_ruoli(
         pivot_role_est, df_per_calc, col_proj, col_role_name)
+    pivot_role_est = aggiungi_colonna_commenti_dettaglio_ruoli(
+        pivot_role_est, df_per_calc, col_proj, col_role_name)
 
     return df_per_calc, pivot_actual, pivot_estimated, pivot_role_est
+
+
+def _lookup_valori_aggregati_attivita(df_per_calc, col_proj, col_role_name, col_valore):
+    """Valori distinti non vuoti per chiave attività, uniti con virgola e a capo."""
+    col_rif = 'Riferimento tabella 1'
+    col_sotto = 'Sotto progetto'
+
+    def _valori_univoci(series):
+        vals = series.dropna().astype(str).str.strip()
+        return sorted(v for v in vals.unique() if v)
+
+    lookup = {}
+    for keys, grp in df_per_calc.groupby([col_proj, col_sotto, col_role_name, col_rif], dropna=False):
+        lookup[keys] = ',\n'.join(_valori_univoci(grp[col_valore]))
+    return lookup
+
+
+def _inserisci_colonna_dopo_milestone(pivot_role_est, df_per_calc, col_proj, col_role_name,
+                                      col_hdr, col_valore):
+    col_rif = 'Riferimento tabella 1'
+    col_sotto = 'Sotto progetto'
+    lookup = _lookup_valori_aggregati_attivita(df_per_calc, col_proj, col_role_name, col_valore)
+    valori = pivot_role_est.apply(
+        lambda row: lookup.get(
+            (row[col_proj], row[col_sotto], row['Milestone'], row[col_rif]), ''), axis=1)
+    out = pivot_role_est.copy()
+    out.insert(out.columns.get_loc('Milestone') + 1, col_hdr, valori)
+    return out
 
 
 def aggiungi_colonna_risorse_dettaglio_ruoli(pivot_role_est, df_per_calc, col_proj, col_role_name):
@@ -486,28 +516,19 @@ def aggiungi_colonna_risorse_dettaglio_ruoli(pivot_role_est, df_per_calc, col_pr
     (stesse chiavi progetto / sotto progetto / milestone / riferimento), una per riga
     nella cella, separate da virgola.
     """
-    col_rif = 'Riferimento tabella 1'
-    col_sotto = 'Sotto progetto'
-    col_hdr = 'Resource: Full Name'
-    col_res = col_hdr if col_hdr in df_per_calc.columns else 'Nome risorsa'
+    col_res = 'Resource: Full Name' if 'Resource: Full Name' in df_per_calc.columns else 'Nome risorsa'
+    return _inserisci_colonna_dopo_milestone(
+        pivot_role_est, df_per_calc, col_proj, col_role_name, 'Resource: Full Name', col_res)
 
-    def _nomi_risorsa(series):
-        nomi = series.dropna().astype(str).str.strip()
-        return sorted(n for n in nomi.unique() if n)
 
-    lookup = {}
-    for keys, grp in df_per_calc.groupby([col_proj, col_sotto, col_role_name, col_rif], dropna=False):
-        nomi = _nomi_risorsa(grp[col_res])
-        lookup[keys] = ',\n'.join(nomi)
+def aggiungi_colonna_commenti_dettaglio_ruoli(pivot_role_est, df_per_calc, col_proj, col_role_name):
+    """Inserisce 'Commento' tra Milestone e le colonne successive (es. Resource).
 
-    risorse = pivot_role_est.apply(
-        lambda row: lookup.get(
-            (row[col_proj], row[col_sotto], row['Milestone'], row[col_rif]), ''), axis=1)
-
-    out = pivot_role_est.copy()
-    mile_idx = out.columns.get_loc('Milestone') + 1
-    out.insert(mile_idx, col_hdr, risorse)
-    return out
+    Stessa logica della colonna risorse: valori distinti per attività, uno per riga
+    nella cella, separati da virgola.
+    """
+    return _inserisci_colonna_dopo_milestone(
+        pivot_role_est, df_per_calc, col_proj, col_role_name, 'Commento', 'Commento')
 
 # --- PREPARAZIONE RIGHE PROGETTI ---
 
@@ -739,7 +760,8 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
       tra le righe che collassano nella cella (stesse chiavi pivot + settimana);
       viola solo per coppie davvero sconosciute o valori mancanti dopo normalizzazione.
     - Bordo blu spesso sulla settimana corrente
-    - Colonna "Resource: Full Name" tra Milestone e Riferimento Interno
+    - Colonna "Commento" tra Milestone e Resource: Full Name
+    - Colonna "Resource: Full Name" tra Commento e Riferimento Interno
     - Colonna extra "Actual Hours (Giornate)" a destra della tabella
     - Legenda colori in fondo alla tabella
 
@@ -859,7 +881,7 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
     pivot_role_display = pivot_role_est.rename(columns={'Riferimento tabella 1': 'Riferimento Interno'})
     dr_next = write_pivot(ws_dr, 1, pivot_role_display,
                           f"DETTAGLIO RUOLI - ESTIMATED HOURS - {data_prod}",
-                          border_group=True, extra_center_cols={1, 4})
+                          border_group=True, extra_center_cols={1, 5})
     ultima_riga_dr = dr_next - 5
 
     # Inserisce riga 3 (date settimane) e riga 4 (mesi)
@@ -918,9 +940,10 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
 
     wrap_center = Alignment(horizontal='center', vertical='center', wrap_text=True)
     for r in range(data_start_row, ultima_riga_ws + 1):
-        c_res = ws_dr.cell(row=r, column=4)
-        if c_res.value:
-            c_res.alignment = wrap_center
+        for col_wrap in (4, 5):
+            c_cell = ws_dr.cell(row=r, column=col_wrap)
+            if c_cell.value:
+                c_cell.alignment = wrap_center
 
     # Rimuove green_fill dalla colonna settimana corrente e aggiunge bordi blu spessi
     if current_week_col_dr is not None:
@@ -962,7 +985,7 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
                     continue
                 sottoprog = ws_dr.cell(row=r, column=2).value
                 milestone = ws_dr.cell(row=r, column=3).value
-                rif       = ws_dr.cell(row=r, column=5).value
+                rif       = ws_dr.cell(row=r, column=6).value
 
                 mask = (
                     (df_dati_comp[col_proj].astype(str)        == str(proj))      &
@@ -1003,7 +1026,7 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
             continue
         sottoprog = ws_dr.cell(row=r, column=2).value
         milestone = ws_dr.cell(row=r, column=3).value
-        rif       = ws_dr.cell(row=r, column=5).value
+        rif       = ws_dr.cell(row=r, column=6).value
         val = actual_grp.get((proj, sottoprog, milestone, rif), 0.0)
         c_act = ws_dr.cell(row=r, column=act_col)
         c_act.value = val
@@ -1748,14 +1771,14 @@ tr.sep-progetto:hover{background:transparent !important}
         out.append('</tr></thead><tbody>')
         ncols = len(df.columns)
         rows_iter = list(df.iterrows())
-        res_col_idx = next(
-            (j for j, c in enumerate(df.columns) if str(c) == 'Resource: Full Name'), None)
+        multiline_cols = {
+            j for j, c in enumerate(df.columns) if str(c) in ('Resource: Full Name', 'Commento')}
         for i, (_, row) in enumerate(rows_iter):
             out.append('<tr>')
             for j, v in enumerate(row):
                 out.append(_cell(v, week_highlight=(
                     highlight_week_col_idx is not None and j == highlight_week_col_idx),
-                    multiline=(res_col_idx is not None and j == res_col_idx)))
+                    multiline=(j in multiline_cols)))
             out.append('</tr>')
             if i + 1 < len(rows_iter):
                 cur_p = row.iloc[0]
