@@ -839,24 +839,20 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
     ws_p.cell(row=leg_start, column=1).value = 'Legenda colori'
     ws_p.cell(row=leg_start, column=1).font = bold
     legenda_voci = (
-        (gray_past_fill,
-         'End Date scaduta — intera riga grigio chiaro'),
-        (light_red_fill,
-         'Col. I (Rem. PM) < 5 oppure col. J (Rem. Cons.) < 10 — solo la cella'),
-        (light_yellow_fill,
-         'Col. I (Rem. PM) < 40 oppure col. J (Rem. Cons.) < 80 — solo la cella'),
+        (gray_past_fill, 'End Date scaduta'),
+        (light_red_fill, '<5 opp <10'),
+        (light_yellow_fill, '<40 opp <80'),
     )
     thin = Side(style='thin', color='999999')
     leg_border = Border(left=thin, right=thin, top=thin, bottom=thin)
     for i, (fill, testo) in enumerate(legenda_voci, start=1):
         r = leg_start + i
-        swatch = ws_p.cell(row=r, column=1)
-        swatch.fill = fill
-        swatch.border = leg_border
-        desc = ws_p.cell(row=r, column=2)
-        desc.value = testo
-        desc.alignment = Alignment(horizontal='left', vertical='center')
-        ws_p.merge_cells(start_row=r, start_column=2, end_row=r, end_column=11)
+        ws_p.merge_cells(start_row=r, start_column=1, end_row=r, end_column=11)
+        cell = ws_p.cell(row=r, column=1)
+        cell.value = testo
+        cell.fill = fill
+        cell.border = leg_border
+        cell.alignment = Alignment(horizontal='left', vertical='center')
         for c in range(2, 12):
             ws_p.cell(row=r, column=c).border = leg_border
 
@@ -1863,9 +1859,9 @@ tbody tr.row-end-past:hover{background:#dcdcdc !important}
   border-radius:6px;font-size:.78rem;max-width:42rem}
 .proj-legend h4{margin:0 0 .5rem;font-size:.82rem;color:var(--pri-d)}
 .proj-legend ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.35rem}
-.proj-legend li{display:flex;align-items:center;gap:.55rem}
-.proj-legend .swatch{display:inline-block;width:1.25rem;height:1rem;border:1px solid #999;
-  border-radius:2px;flex-shrink:0}
+.proj-legend li{display:block}
+.proj-legend .swatch{display:inline-block;padding:.25rem .55rem;border:1px solid #999;
+  border-radius:2px}
 .row-count{padding:.35rem 1.2rem;font-size:.72rem;color:var(--mut);
   border-top:1px solid var(--brd);background:#f8fafc}
 .empty{padding:1.25rem;color:var(--mut);font-style:italic}
@@ -1968,12 +1964,9 @@ tbody tr.row-end-past:hover{background:#dcdcdc !important}
             '<div class="proj-legend">'
             '<h4>Legenda colori</h4>'
             '<ul>'
-            '<li><span class="swatch" style="background:#e8e8e8"></span>'
-            'End Date scaduta — intera riga grigio chiaro</li>'
-            '<li><span class="swatch" style="background:#ffebee"></span>'
-            'Col. I (Rem. PM) &lt; 5 oppure col. J (Rem. Cons.) &lt; 10 — solo la cella</li>'
-            '<li><span class="swatch" style="background:#fffde7"></span>'
-            'Col. I (Rem. PM) &lt; 40 oppure col. J (Rem. Cons.) &lt; 80 — solo la cella</li>'
+            '<li><span class="swatch" style="background:#e8e8e8">End Date scaduta</span></li>'
+            '<li><span class="swatch" style="background:#ffebee">&lt;5 opp &lt;10</span></li>'
+            '<li><span class="swatch" style="background:#fffde7">&lt;40 opp &lt;80</span></li>'
             '</ul></div>'
         )
 
