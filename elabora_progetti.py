@@ -674,6 +674,17 @@ def _stato_end_date_progetto(end_date, oggi=None):
         return 'next_month'
     return None
 
+
+def _riga_legenda_progetti(n_righe):
+    """Prima riga della legenda colori dopo le due tabelle del foglio progetti."""
+    dup_header_row = 10 + n_righe + 6
+    return dup_header_row + n_righe + 3
+
+
+def _riga_note_progetti(n_righe):
+    """Prima riga libera sotto legenda colori (prima delle eventuali note filtro)."""
+    return _riga_legenda_progetti(n_righe) + 5
+
 # --- FORMATTAZIONE TAB PROGETTI ---
 
 def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold, center):
@@ -685,6 +696,7 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
       - Righe 9-10 : header tabella (con merge per gruppi di colonne)
       - Righe 11+  : dati progetti
       - Tabella duplicata a distanza fissa (per layout di stampa)
+      - Legenda colori End Date sotto le due tabelle (colonna A)
 
     Le date di scadenza entro 2 settimane vengono evidenziate in giallo (solo colonna D).
     Righe con End Date precedente a oggi: grigio pastello chiaro.
@@ -796,6 +808,28 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
 
     scrivi_intestazione(dup_header_row)
     scrivi_dati(dup_header_row + 2)
+
+    leg_start = _riga_legenda_progetti(n)
+    ws_p.cell(row=leg_start, column=1).value = 'Legenda colori'
+    ws_p.cell(row=leg_start, column=1).font = bold
+    legenda_voci = (
+        (gray_past_fill, 'End Date scaduta (anteriore alla data odierna) — intera riga'),
+        (red_past_fill, 'End Date nel mese successivo — intera riga'),
+        (yellow_fill, 'End Date entro 2 settimane — colonna End Date'),
+    )
+    thin = Side(style='thin', color='999999')
+    leg_border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    for i, (fill, testo) in enumerate(legenda_voci, start=1):
+        r = leg_start + i
+        swatch = ws_p.cell(row=r, column=1)
+        swatch.fill = fill
+        swatch.border = leg_border
+        desc = ws_p.cell(row=r, column=2)
+        desc.value = testo
+        desc.alignment = Alignment(horizontal='left', vertical='center')
+        ws_p.merge_cells(start_row=r, start_column=2, end_row=r, end_column=11)
+        for c in range(2, 12):
+            ws_p.cell(row=r, column=c).border = leg_border
 
 # --- FORMATTAZIONE TAB RIEPILOGO SETTIMANALE ---
 
@@ -1357,7 +1391,7 @@ def aggiungi_note(ws_p, ws_e, anno_corrente, start_w, end_w, rows_progetti, riga
     nota1 = "NOTA: Limiti settimane ATTIVATI:"
     nota2 = f"    Range: {start_w} - {end_w} [{d_s} - {d_e}]"
     n = len(rows_progetti)
-    lr_p = 17 + 2 * n  # dopo la tabella duplicata (10+n+6+2+n-1)
+    lr_p = _riga_note_progetti(n)
     for ws_t, lr_t in [(ws_p, lr_p), (ws_e, riga_export)]:
         ws_t[f'A{lr_t + 2}'] = nota1
         ws_t[f'A{lr_t + 2}'].font = Font(italic=True)
@@ -1798,6 +1832,13 @@ tbody tr.row-end-next-month:hover{background:#ffb4b4 !important}
   border-bottom:2px solid #333}
 .tbl-riepilogo-title{background:#006400;color:#fff;padding:.45rem .72rem;font-size:.85rem;
   font-weight:600;border-radius:4px 4px 0 0;margin-bottom:0;display:block}
+.proj-legend{margin-top:1rem;padding:.75rem 1rem;background:#f8fafc;border:1px solid var(--brd);
+  border-radius:6px;font-size:.78rem;max-width:42rem}
+.proj-legend h4{margin:0 0 .5rem;font-size:.82rem;color:var(--pri-d)}
+.proj-legend ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.35rem}
+.proj-legend li{display:flex;align-items:center;gap:.55rem}
+.proj-legend .swatch{display:inline-block;width:1.25rem;height:1rem;border:1px solid #999;
+  border-radius:2px;flex-shrink:0}
 .row-count{padding:.35rem 1.2rem;font-size:.72rem;color:var(--mut);
   border-top:1px solid var(--brd);background:#f8fafc}
 .empty{padding:1.25rem;color:var(--mut);font-style:italic}
@@ -1887,6 +1928,20 @@ tbody tr.row-end-next-month:hover{background:#ffb4b4 !important}
         out.append(f'<p class="row-count">{len(df):,} record</p>')
         return ''.join(out)
 
+    def _legenda_progetti_html():
+        return (
+            '<div class="proj-legend">'
+            '<h4>Legenda colori</h4>'
+            '<ul>'
+            '<li><span class="swatch" style="background:#e8e8e8"></span>'
+            'End Date scaduta (anteriore alla data odierna) — intera riga</li>'
+            '<li><span class="swatch" style="background:#ffcdd2"></span>'
+            'End Date nel mese successivo — intera riga</li>'
+            '<li><span class="swatch" style="background:#ffff00"></span>'
+            'End Date entro 2 settimane — colonna End Date</li>'
+            '</ul></div>'
+        )
+
     def _tbl_dettaglio_ruoli(df, highlight_week_col_idx=None):
         if df is None or df.empty:
             return '<p class="empty">Nessun dato disponibile.</p>'
@@ -1934,7 +1989,7 @@ tbody tr.row-end-next-month:hover{background:#ffb4b4 !important}
     sec_proj = f"""
 <section class="sec" id="progetti">
   <div class="sec-hdr"><h2>Progetti</h2><span class="badge">{len(df_proj)} contratti</span></div>
-  <div class="sub-sec">{_tbl_progetti(df_proj)}</div>
+  <div class="sub-sec">{_tbl_progetti(df_proj)}{_legenda_progetti_html()}</div>
 </section>"""
 
     sec_riep = f"""
