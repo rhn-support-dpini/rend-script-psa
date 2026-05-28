@@ -5,7 +5,7 @@ Legge un file Excel di input (export da PSA/pianificazione) e produce un file
 Excel di output multi-foglio con:
   - dati     : dati sorgente arricchiti con colonne derivate
   - progetti : riepilogo contratti con giorni consuntivati vs. riscattati
-  - Riepilogo Settimanale : pivot actual/estimated per progetto e settimana
+  - Riepilogo Settimanale : pivot actual/estimated per attività e settimana
   - Dettaglio Ruoli       : pivot estimated con breakdown per ruolo/milestone
   - Tentative             : stati ≠ Scheduled/Commit più righe in aggregazioni miste K×L
   - Tabella di Export     : riepilogo giornate per codice ordine
@@ -468,17 +468,27 @@ def calcola_pivot(df_dati_comp, col_period, col_actual, col_estimated,
         pivot['TOTALE RIGA'] = pivot.sum(axis=1)
         return pivot.reset_index()
 
-    index_base = [col_proj, col_sottoproj, col_rif]
-    pivot_actual = create_pivot(df_per_calc, col_actual, index_base)
-    pivot_estimated = create_pivot(df_per_calc, col_estimated, index_base)
-    pivot_role_est = create_pivot(df_per_calc, col_estimated, [col_proj, col_sottoproj, col_role_name, col_rif])
-    pivot_role_est = pivot_role_est.rename(columns={col_role_name: 'Milestone'})
-    pivot_role_est = aggiungi_colonna_risorse_dettaglio_ruoli(
-        pivot_role_est, df_per_calc, col_proj, col_role_name)
-    pivot_role_est = aggiungi_colonna_commenti_dettaglio_ruoli(
+    index_attivita = [col_proj, col_sottoproj, col_role_name, col_rif]
+    pivot_actual = create_pivot(df_per_calc, col_actual, index_attivita)
+    pivot_estimated = create_pivot(df_per_calc, col_estimated, index_attivita)
+    pivot_role_est = create_pivot(df_per_calc, col_estimated, index_attivita)
+
+    pivot_actual = aggiungi_colonne_attivita_dettaglio_ruoli(
+        pivot_actual, df_per_calc, col_proj, col_role_name)
+    pivot_estimated = aggiungi_colonne_attivita_dettaglio_ruoli(
+        pivot_estimated, df_per_calc, col_proj, col_role_name)
+    pivot_role_est = aggiungi_colonne_attivita_dettaglio_ruoli(
         pivot_role_est, df_per_calc, col_proj, col_role_name)
 
     return df_per_calc, pivot_actual, pivot_estimated, pivot_role_est
+
+
+def aggiungi_colonne_attivita_dettaglio_ruoli(pivot_df, df_per_calc, col_proj, col_role_name):
+    """Aggiunge Milestone, Commento e Resource: Full Name prima del riferimento."""
+    out = pivot_df.rename(columns={col_role_name: 'Milestone'})
+    out = aggiungi_colonna_risorse_dettaglio_ruoli(out, df_per_calc, col_proj, col_role_name)
+    out = aggiungi_colonna_commenti_dettaglio_ruoli(out, df_per_calc, col_proj, col_role_name)
+    return out
 
 
 def _lookup_valori_aggregati_attivita(df_per_calc, col_proj, col_role_name, col_valore):
@@ -629,6 +639,33 @@ def autofit_columns(ws, scan_rows=12, min_width=8, max_width=60):
                     pass
         ws.column_dimensions[get_column_letter(col[0].column)].width = min(max_len + 2, max_width)
 
+
+def _parse_end_date_progetto(val):
+    """Converte End Date progetto (dd/mm/yyyy) in date, o None se non valida."""
+    if not val:
+        return None
+    try:
+        return datetime.strptime(str(val).strip(), "%d/%m/%Y").date()
+    except ValueError:
+        return None
+
+
+def _stato_end_date_progetto(end_date, oggi=None):
+    """Classifica la scadenza: 'past' se precedente a oggi, 'next_month' se nel mese successivo."""
+    if end_date is None:
+        return None
+    if oggi is None:
+        oggi = datetime.now().date()
+    if end_date < oggi:
+        return 'past'
+    if oggi.month == 12:
+        next_month, next_year = 1, oggi.year + 1
+    else:
+        next_month, next_year = oggi.month + 1, oggi.year
+    if end_date.year == next_year and end_date.month == next_month:
+        return 'next_month'
+    return None
+
 # --- FORMATTAZIONE TAB PROGETTI ---
 
 def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold, center):
@@ -641,7 +678,9 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
       - Righe 11+  : dati progetti
       - Tabella duplicata a distanza fissa (per layout di stampa)
 
-    Le date di scadenza entro 2 settimane vengono evidenziate in giallo.
+    Le date di scadenza entro 2 settimane vengono evidenziate in giallo (solo colonna D).
+    Righe con End Date precedente a oggi: grigio pastello chiaro.
+    Righe con End Date nel mese successivo: rosso pastello.
 
     Args:
         ws_p:               worksheet 'progetti' openpyxl.
@@ -666,6 +705,8 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
     ws_p['A7'] = config.get('Intestazione10a', '')
 
     yellow_fill = PatternFill(fill_type="solid", fgColor="FFFF00")
+    gray_past_fill = PatternFill(fill_type="solid", fgColor="E8E8E8")
+    red_past_fill = PatternFill(fill_type="solid", fgColor="FFCDD2")
     oggi = datetime.now().date()
     limite_due_sett = oggi + timedelta(weeks=2)
 
@@ -706,13 +747,19 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
             ws_p.cell(row=r, column=7).value = g_val
             ws_p.cell(row=r, column=8).value = h_val
             ws_p.cell(row=r, column=11).value = row['K']
-            if row['D']:
-                try:
-                    end_date = datetime.strptime(str(row['D']), "%d/%m/%Y").date()
-                    if end_date <= limite_due_sett:
-                        ws_p.cell(row=r, column=4).fill = yellow_fill
-                except ValueError:
-                    pass
+            end_date = _parse_end_date_progetto(row['D'])
+            stato_end = _stato_end_date_progetto(end_date, oggi)
+            if stato_end == 'past':
+                row_fill = gray_past_fill
+            elif stato_end == 'next_month':
+                row_fill = red_past_fill
+            else:
+                row_fill = None
+            if row_fill:
+                for col in range(1, 12):
+                    ws_p.cell(row=r, column=col).fill = row_fill
+            elif end_date and end_date <= limite_due_sett:
+                ws_p.cell(row=r, column=4).fill = yellow_fill
             try:
                 ws_p.cell(row=r, column=9).value  = float(row['E']) - float(g_val)
             except (ValueError, TypeError):
@@ -750,7 +797,8 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
                        df_per_calc, col_actual, col_estimated):
     """Riempie i fogli 'Riepilogo Settimanale' e 'Dettaglio Ruoli'.
 
-    Riepilogo Settimanale: due pivot (actual e estimated) in sequenza verticale.
+    Riepilogo Settimanale: due pivot (actual e estimated) in sequenza verticale,
+    con colonne Milestone, Commento e Resource: Full Name come in Dettaglio Ruoli.
 
     Dettaglio Ruoli: pivot estimated per ruolo con:
     - Riga 3: intervallo date di ogni settimana (lun-dom)
@@ -786,7 +834,8 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
         col_actual:       nome colonna ore consuntivate.
         col_estimated:    nome colonna ore stimate (peso per scegliere il colore se K/L misti).
     """
-    def write_pivot(ws, start_row, df, title, border_group=False, extra_center_cols=None):
+    def write_pivot(ws, start_row, df, title, border_group=False, extra_center_cols=None,
+                    wrap_text_cols=None):
         """Scrive una pivot su un worksheet a partire da start_row.
 
         Aggiunge:
@@ -803,6 +852,9 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
         """
         if extra_center_cols is None:
             extra_center_cols = set()
+        if wrap_text_cols is None:
+            wrap_text_cols = set()
+        wrap_center = Alignment(horizontal='center', vertical='center', wrap_text=True)
         ws.cell(row=start_row, column=1).value = title
         ws.cell(row=start_row, column=1).font = Font(bold=True, sz=12)
 
@@ -819,6 +871,8 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
                 cella.value = val
                 if c_idx == 2 or c_idx >= num_cols_idx or c_idx in extra_center_cols:
                     cella.alignment = center
+                if c_idx in wrap_text_cols and val:
+                    cella.alignment = wrap_center
 
         ultima_riga = start_row + 2 + len(df) - 1
         ultima_col = len(df.columns)
@@ -875,13 +929,17 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
         return ultima_riga + 5
 
     data_prod = datetime.now().strftime('%d/%m/%Y')
-    r_next = write_pivot(ws_rs, 1, pivot_actual, f"ACTUAL HOURS (GIORNATE) - {data_prod}")
-    r_next = write_pivot(ws_rs, r_next, pivot_estimated, f"ESTIMATED HOURS (GIORNATE) - {data_prod}")
+    wrap_attivita = {3, 4}
+    r_next = write_pivot(ws_rs, 1, pivot_actual, f"ACTUAL HOURS (GIORNATE) - {data_prod}",
+                         wrap_text_cols=wrap_attivita)
+    r_next = write_pivot(ws_rs, r_next, pivot_estimated, f"ESTIMATED HOURS (GIORNATE) - {data_prod}",
+                         wrap_text_cols=wrap_attivita)
 
     pivot_role_display = pivot_role_est.rename(columns={'Riferimento tabella 1': 'Riferimento Interno'})
     dr_next = write_pivot(ws_dr, 1, pivot_role_display,
                           f"DETTAGLIO RUOLI - ESTIMATED HOURS - {data_prod}",
-                          border_group=True, extra_center_cols={1, 5})
+                          border_group=True, extra_center_cols={1, 5},
+                          wrap_text_cols=wrap_attivita)
     ultima_riga_dr = dr_next - 5
 
     # Inserisce riga 3 (date settimane) e riga 4 (mesi)
@@ -937,13 +995,6 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
     data_start_row = 5
     ultima_riga_ws = ultima_riga_dr + 2
     col_rif_src    = 'Riferimento tabella 1'
-
-    wrap_center = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    for r in range(data_start_row, ultima_riga_ws + 1):
-        for col_wrap in (4, 5):
-            c_cell = ws_dr.cell(row=r, column=col_wrap)
-            if c_cell.value:
-                c_cell.alignment = wrap_center
 
     # Rimuove green_fill dalla colonna settimana corrente e aggiunge bordi blu spessi
     if current_week_col_dr is not None:
@@ -1704,6 +1755,10 @@ tr.sep-progetto td{height:0;padding:0 !important;line-height:0;border-top:3px so
   background:linear-gradient(transparent,#fee2e2);vertical-align:middle}
 tr.sep-progetto{background:transparent !important}
 tr.sep-progetto:hover{background:transparent !important}
+tbody tr.row-end-past{background:#e8e8e8 !important}
+tbody tr.row-end-past:hover{background:#dcdcdc !important}
+tbody tr.row-end-next-month{background:#ffcdd2 !important}
+tbody tr.row-end-next-month:hover{background:#ffb4b4 !important}
 .row-count{padding:.35rem 1.2rem;font-size:.72rem;color:var(--mut);
   border-top:1px solid var(--brd);background:#f8fafc}
 .empty{padding:1.25rem;color:var(--mut);font-style:italic}
@@ -1735,11 +1790,15 @@ tr.sep-progetto:hover{background:transparent !important}
             return f'<td class="week-curr">{esc}</td>'
         return f'<td>{esc}</td>'
 
+    def _multiline_col_indices(df):
+        return {j for j, c in enumerate(df.columns) if str(c) in ('Resource: Full Name', 'Commento')}
+
     def _tbl(df, highlight_week_col_idx=None):
         if df is None or df.empty:
             return '<p class="empty">Nessun dato disponibile.</p>'
         tbl_cls = 'tbl-week-highlight' if highlight_week_col_idx is not None else ''
         t_open = f'<table class="{tbl_cls}">' if tbl_cls else '<table>'
+        multiline_cols = _multiline_col_indices(df)
         out = [f'<div class="tbl-wrap">{t_open}<thead><tr>']
         for j, col in enumerate(df.columns):
             wh = highlight_week_col_idx is not None and j == highlight_week_col_idx
@@ -1751,9 +1810,36 @@ tr.sep-progetto:hover{background:transparent !important}
             out.append('<tr>')
             for j, v in enumerate(row):
                 out.append(_cell(v, week_highlight=(
-                    highlight_week_col_idx is not None and j == highlight_week_col_idx)))
+                    highlight_week_col_idx is not None and j == highlight_week_col_idx),
+                    multiline=(j in multiline_cols)))
             out.append('</tr>')
         out.append(f'</tbody></table></div>')
+        out.append(f'<p class="row-count">{len(df):,} record</p>')
+        return ''.join(out)
+
+    def _tbl_progetti(df):
+        if df is None or df.empty:
+            return '<p class="empty">Nessun dato disponibile.</p>'
+        oggi_html = datetime.now().date()
+        out = ['<div class="tbl-wrap"><table><thead><tr>']
+        for col in df.columns:
+            esc_h = str(col).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            out.append(f'<th>{esc_h}</th>')
+        out.append('</tr></thead><tbody>')
+        for _, row in df.iterrows():
+            end_date = _parse_end_date_progetto(row.get('End Date'))
+            stato = _stato_end_date_progetto(end_date, oggi_html)
+            if stato == 'past':
+                tr_cls = ' class="row-end-past"'
+            elif stato == 'next_month':
+                tr_cls = ' class="row-end-next-month"'
+            else:
+                tr_cls = ''
+            out.append(f'<tr{tr_cls}>')
+            for v in row:
+                out.append(_cell(v))
+            out.append('</tr>')
+        out.append('</tbody></table></div>')
         out.append(f'<p class="row-count">{len(df):,} record</p>')
         return ''.join(out)
 
@@ -1771,8 +1857,7 @@ tr.sep-progetto:hover{background:transparent !important}
         out.append('</tr></thead><tbody>')
         ncols = len(df.columns)
         rows_iter = list(df.iterrows())
-        multiline_cols = {
-            j for j, c in enumerate(df.columns) if str(c) in ('Resource: Full Name', 'Commento')}
+        multiline_cols = _multiline_col_indices(df)
         for i, (_, row) in enumerate(rows_iter):
             out.append('<tr>')
             for j, v in enumerate(row):
@@ -1805,7 +1890,7 @@ tr.sep-progetto:hover{background:transparent !important}
     sec_proj = f"""
 <section class="sec" id="progetti">
   <div class="sec-hdr"><h2>Progetti</h2><span class="badge">{len(df_proj)} contratti</span></div>
-  <div class="sub-sec">{_tbl(df_proj)}</div>
+  <div class="sub-sec">{_tbl_progetti(df_proj)}</div>
 </section>"""
 
     sec_riep = f"""
