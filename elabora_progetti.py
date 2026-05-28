@@ -799,6 +799,7 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
 
     Riepilogo Settimanale: due pivot (actual e estimated) in sequenza verticale,
     con colonne Milestone, Commento e Resource: Full Name come in Dettaglio Ruoli.
+    Nella tabella Actual, righe con TOTALE RIGA zero sono barrate.
 
     Dettaglio Ruoli: pivot estimated per ruolo con:
     - Riga 3: intervallo date di ogni settimana (lun-dom)
@@ -835,7 +836,7 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
         col_estimated:    nome colonna ore stimate (peso per scegliere il colore se K/L misti).
     """
     def write_pivot(ws, start_row, df, title, border_group=False, extra_center_cols=None,
-                    wrap_text_cols=None):
+                    wrap_text_cols=None, strikethrough_zero_totale=False):
         """Scrive una pivot su un worksheet a partire da start_row.
 
         Aggiunge:
@@ -846,6 +847,7 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
         - bordi rossi spessi per raggruppare righe con stesso progetto
           (solo se border_group=True)
         - riga TOTALE SETTIMANA in fondo
+        - opzionale: barrato su tutta la riga se TOTALE RIGA è zero
 
         Returns:
             int: prima riga disponibile dopo la sezione (start_row + altezza + 5).
@@ -874,11 +876,42 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
                 if c_idx in wrap_text_cols and val:
                     cella.alignment = wrap_center
 
+        tot_col_idx = None
+        if strikethrough_zero_totale and 'TOTALE RIGA' in df.columns:
+            tot_col_idx = df.columns.get_loc('TOTALE RIGA')
+
+        if tot_col_idx is not None:
+            for r_idx, row in enumerate(df.values):
+                try:
+                    tot_zero = float(row[tot_col_idx]) == 0
+                except (TypeError, ValueError):
+                    tot_zero = False
+                if not tot_zero:
+                    continue
+                excel_row = start_row + 2 + r_idx
+                for c_idx in range(len(row)):
+                    cella = ws.cell(row=excel_row, column=c_idx + 1)
+                    prev = cella.font
+                    cella.font = Font(
+                        bold=prev.bold if prev else False,
+                        strike=True,
+                        sz=prev.sz if prev else None,
+                    )
+
         ultima_riga = start_row + 2 + len(df) - 1
         ultima_col = len(df.columns)
 
         for r in range(start_row + 1, ultima_riga + 1):
-            ws.cell(row=r, column=ultima_col).font = bold
+            cella_tot_col = ws.cell(row=r, column=ultima_col)
+            if (strikethrough_zero_totale and tot_col_idx is not None
+                    and r >= start_row + 2):
+                try:
+                    if float(df.values[r - start_row - 2][tot_col_idx]) == 0:
+                        cella_tot_col.font = Font(bold=True, strike=True)
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            cella_tot_col.font = bold
 
         for c in range(1, ultima_col):
             if current_week_str in str(ws.cell(row=start_row + 1, column=c).value):
@@ -931,7 +964,7 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
     data_prod = datetime.now().strftime('%d/%m/%Y')
     wrap_attivita = {3, 4}
     r_next = write_pivot(ws_rs, 1, pivot_actual, f"ACTUAL HOURS (GIORNATE) - {data_prod}",
-                         wrap_text_cols=wrap_attivita)
+                         wrap_text_cols=wrap_attivita, strikethrough_zero_totale=True)
     r_next = write_pivot(ws_rs, r_next, pivot_estimated, f"ESTIMATED HOURS (GIORNATE) - {data_prod}",
                          wrap_text_cols=wrap_attivita)
 
@@ -1759,6 +1792,8 @@ tbody tr.row-end-past{background:#e8e8e8 !important}
 tbody tr.row-end-past:hover{background:#dcdcdc !important}
 tbody tr.row-end-next-month{background:#ffcdd2 !important}
 tbody tr.row-end-next-month:hover{background:#ffb4b4 !important}
+tbody tr.row-strike td{text-decoration:line-through;color:var(--mut)}
+tbody tr.row-strike:hover td{color:#64748b}
 .row-count{padding:.35rem 1.2rem;font-size:.72rem;color:var(--mut);
   border-top:1px solid var(--brd);background:#f8fafc}
 .empty{padding:1.25rem;color:var(--mut);font-style:italic}
@@ -1793,12 +1828,14 @@ tbody tr.row-end-next-month:hover{background:#ffb4b4 !important}
     def _multiline_col_indices(df):
         return {j for j, c in enumerate(df.columns) if str(c) in ('Resource: Full Name', 'Commento')}
 
-    def _tbl(df, highlight_week_col_idx=None):
+    def _tbl(df, highlight_week_col_idx=None, strikethrough_zero_totale=False):
         if df is None or df.empty:
             return '<p class="empty">Nessun dato disponibile.</p>'
         tbl_cls = 'tbl-week-highlight' if highlight_week_col_idx is not None else ''
         t_open = f'<table class="{tbl_cls}">' if tbl_cls else '<table>'
         multiline_cols = _multiline_col_indices(df)
+        tot_col_idx = df.columns.get_loc('TOTALE RIGA') if (
+            strikethrough_zero_totale and 'TOTALE RIGA' in df.columns) else None
         out = [f'<div class="tbl-wrap">{t_open}<thead><tr>']
         for j, col in enumerate(df.columns):
             wh = highlight_week_col_idx is not None and j == highlight_week_col_idx
@@ -1807,7 +1844,14 @@ tbody tr.row-end-next-month:hover{background:#ffb4b4 !important}
             out.append(f'<th{th_cls}>{esc_h}</th>')
         out.append('</tr></thead><tbody>')
         for _, row in df.iterrows():
-            out.append('<tr>')
+            strike = False
+            if tot_col_idx is not None:
+                try:
+                    strike = float(row.iloc[tot_col_idx]) == 0
+                except (TypeError, ValueError):
+                    strike = False
+            tr_cls = ' class="row-strike"' if strike else ''
+            out.append(f'<tr{tr_cls}>')
             for j, v in enumerate(row):
                 out.append(_cell(v, week_highlight=(
                     highlight_week_col_idx is not None and j == highlight_week_col_idx),
@@ -1898,7 +1942,7 @@ tbody tr.row-end-next-month:hover{background:#ffb4b4 !important}
   <div class="sec-hdr"><h2>Riepilogo Settimanale</h2></div>
   <div class="sub-sec" id="actual">
     <h3>Actual Hours (Giornate)</h3>
-    {_tbl(pivot_actual, hi_week_actual)}
+    {_tbl(pivot_actual, hi_week_actual, strikethrough_zero_totale=True)}
   </div>
   <div class="sub-sec" id="estimated">
     <h3>Estimated Hours (Giornate)</h3>
