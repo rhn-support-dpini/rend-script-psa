@@ -39,7 +39,8 @@ import sys
 import logging
 import subprocess
 import traceback
-from datetime import datetime, timedelta
+import calendar
+from datetime import datetime, timedelta, date
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
@@ -658,20 +659,41 @@ def _parse_end_date_progetto(val):
         return None
 
 
-def _stato_end_date_progetto(end_date, oggi=None):
-    """Classifica la scadenza: 'past' se precedente a oggi, 'next_month' se nel mese successivo."""
+def _limite_due_mesi_da(oggi):
+    """Data limite (oggi + 2 mesi di calendario, stesso giorno se possibile)."""
+    m = oggi.month - 1 + 2
+    y = oggi.year + m // 12
+    m = m % 12 + 1
+    d = min(oggi.day, calendar.monthrange(y, m)[1])
+    return date(y, m, d)
+
+
+def _entro_due_mesi(end_date, oggi):
     if end_date is None:
-        return None
+        return False
+    return oggi <= end_date <= _limite_due_mesi_da(oggi)
+
+
+def _float_rem(val):
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _colorazione_riga_progetto(end_date, rem_i, rem_j, oggi=None, limite_due_sett=None):
+    """Ritorna 'gray', 'light_red', 'yellow_d' o None per la riga progetti."""
     if oggi is None:
         oggi = datetime.now().date()
-    if end_date < oggi:
-        return 'past'
-    if oggi.month == 12:
-        next_month, next_year = 1, oggi.year + 1
-    else:
-        next_month, next_year = oggi.month + 1, oggi.year
-    if end_date.year == next_year and end_date.month == next_month:
-        return 'next_month'
+    if limite_due_sett is None:
+        limite_due_sett = oggi + timedelta(weeks=2)
+    ri, rj = _float_rem(rem_i), _float_rem(rem_j)
+    if end_date and end_date < oggi and ri == 0 and rj == 0:
+        return 'gray'
+    if _entro_due_mesi(end_date, oggi) or ri < 40 or rj < 40:
+        return 'light_red'
+    if end_date and end_date <= limite_due_sett:
+        return 'yellow_d'
     return None
 
 
@@ -699,8 +721,8 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
       - Legenda colori End Date sotto le due tabelle (colonna A)
 
     Le date di scadenza entro 2 settimane vengono evidenziate in giallo (solo colonna D).
-    Righe con End Date precedente a oggi: grigio pastello chiaro.
-    Righe con End Date nel mese successivo: rosso pastello.
+    Grigio: End Date scaduta e colonne I/J (Days remaining) entrambe a 0.
+    Rosso chiaro: End Date entro 2 mesi, oppure I o J minore di 40.
 
     Args:
         ws_p:               worksheet 'progetti' openpyxl.
@@ -726,7 +748,7 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
 
     yellow_fill = PatternFill(fill_type="solid", fgColor="FFFF00")
     gray_past_fill = PatternFill(fill_type="solid", fgColor="E8E8E8")
-    red_past_fill = PatternFill(fill_type="solid", fgColor="FFCDD2")
+    light_red_fill = PatternFill(fill_type="solid", fgColor="FFEBEE")
     oggi = datetime.now().date()
     limite_due_sett = oggi + timedelta(weeks=2)
 
@@ -767,27 +789,30 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
             ws_p.cell(row=r, column=7).value = g_val
             ws_p.cell(row=r, column=8).value = h_val
             ws_p.cell(row=r, column=11).value = row['K']
+            try:
+                rem_i = float(row['E']) - float(g_val)
+            except (ValueError, TypeError):
+                rem_i = 0.0
+            try:
+                rem_j = float(row['F']) - float(h_val)
+            except (ValueError, TypeError):
+                rem_j = 0.0
+            ws_p.cell(row=r, column=9).value = rem_i
+            ws_p.cell(row=r, column=10).value = rem_j
             end_date = _parse_end_date_progetto(row['D'])
-            stato_end = _stato_end_date_progetto(end_date, oggi)
-            if stato_end == 'past':
+            stato = _colorazione_riga_progetto(
+                end_date, rem_i, rem_j, oggi, limite_due_sett)
+            if stato == 'gray':
                 row_fill = gray_past_fill
-            elif stato_end == 'next_month':
-                row_fill = red_past_fill
+            elif stato == 'light_red':
+                row_fill = light_red_fill
             else:
                 row_fill = None
             if row_fill:
                 for col in range(1, 12):
                     ws_p.cell(row=r, column=col).fill = row_fill
-            elif end_date and end_date <= limite_due_sett:
+            elif stato == 'yellow_d':
                 ws_p.cell(row=r, column=4).fill = yellow_fill
-            try:
-                ws_p.cell(row=r, column=9).value  = float(row['E']) - float(g_val)
-            except (ValueError, TypeError):
-                ws_p.cell(row=r, column=9).value  = 0.0
-            try:
-                ws_p.cell(row=r, column=10).value = float(row['F']) - float(h_val)
-            except (ValueError, TypeError):
-                ws_p.cell(row=r, column=10).value = 0.0
             ws_p.cell(row=r, column=2).alignment = center
             ws_p.cell(row=r, column=5).alignment = center
             for col in range(6, 11):
@@ -813,8 +838,10 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
     ws_p.cell(row=leg_start, column=1).value = 'Legenda colori'
     ws_p.cell(row=leg_start, column=1).font = bold
     legenda_voci = (
-        (gray_past_fill, 'End Date scaduta (anteriore alla data odierna) — intera riga'),
-        (red_past_fill, 'End Date nel mese successivo — intera riga'),
+        (gray_past_fill,
+         'End Date scaduta e Days remaining PM/Cons. (col. I e J) entrambi a 0 — intera riga'),
+        (light_red_fill,
+         'End Date entro 2 mesi, oppure I o J minore di 40 — intera riga'),
         (yellow_fill, 'End Date entro 2 settimane — colonna End Date'),
     )
     thin = Side(style='thin', color='999999')
@@ -997,7 +1024,7 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
     data_prod = datetime.now().strftime('%d/%m/%Y')
     wrap_attivita = {3, 4}
     pivot_actual_rs = filtra_pivot_senza_totale_zero(pivot_actual)
-    rs_style = dict(export_style=True)
+    rs_style = dict(export_style=True, border_group=True)
     r_next = write_pivot(ws_rs, 1, pivot_actual_rs, f"ACTUAL HOURS (GIORNATE) - {data_prod}",
                          wrap_text_cols=wrap_attivita, **rs_style)
     r_next = write_pivot(ws_rs, r_next, pivot_estimated, f"ESTIMATED HOURS (GIORNATE) - {data_prod}",
@@ -1826,8 +1853,8 @@ tr.sep-progetto{background:transparent !important}
 tr.sep-progetto:hover{background:transparent !important}
 tbody tr.row-end-past{background:#e8e8e8 !important}
 tbody tr.row-end-past:hover{background:#dcdcdc !important}
-tbody tr.row-end-next-month{background:#ffcdd2 !important}
-tbody tr.row-end-next-month:hover{background:#ffb4b4 !important}
+tbody tr.row-end-light-red{background:#ffebee !important}
+tbody tr.row-end-light-red:hover{background:#ffe4e4 !important}
 .tbl-export-style thead th{background:#000 !important;color:#fff !important;
   border-bottom:2px solid #333}
 .tbl-riepilogo-title{background:#006400;color:#fff;padding:.45rem .72rem;font-size:.85rem;
@@ -1913,16 +1940,23 @@ tbody tr.row-end-next-month:hover{background:#ffb4b4 !important}
         out.append('</tr></thead><tbody>')
         for _, row in df.iterrows():
             end_date = _parse_end_date_progetto(row.get('End Date'))
-            stato = _stato_end_date_progetto(end_date, oggi_html)
-            if stato == 'past':
+            rem_i = row.get('Rem. PM', 0)
+            rem_j = row.get('Rem. Cons.', 0)
+            stato = _colorazione_riga_progetto(
+                end_date, rem_i, rem_j, oggi_html, oggi_html + timedelta(weeks=2))
+            if stato == 'gray':
                 tr_cls = ' class="row-end-past"'
-            elif stato == 'next_month':
-                tr_cls = ' class="row-end-next-month"'
+            elif stato == 'light_red':
+                tr_cls = ' class="row-end-light-red"'
             else:
                 tr_cls = ''
             out.append(f'<tr{tr_cls}>')
-            for v in row:
-                out.append(_cell(v))
+            for j, v in enumerate(row):
+                if stato == 'yellow_d' and df.columns[j] == 'End Date':
+                    esc = '' if pd.isna(v) else str(v).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                    out.append(f'<td style="background:#ffff00">{esc}</td>')
+                else:
+                    out.append(_cell(v))
             out.append('</tr>')
         out.append('</tbody></table></div>')
         out.append(f'<p class="row-count">{len(df):,} record</p>')
@@ -1934,9 +1968,9 @@ tbody tr.row-end-next-month:hover{background:#ffb4b4 !important}
             '<h4>Legenda colori</h4>'
             '<ul>'
             '<li><span class="swatch" style="background:#e8e8e8"></span>'
-            'End Date scaduta (anteriore alla data odierna) — intera riga</li>'
-            '<li><span class="swatch" style="background:#ffcdd2"></span>'
-            'End Date nel mese successivo — intera riga</li>'
+            'End Date scaduta e Days remaining PM/Cons. (I e J) entrambi a 0 — intera riga</li>'
+            '<li><span class="swatch" style="background:#ffebee"></span>'
+            'End Date entro 2 mesi, oppure I o J minore di 40 — intera riga</li>'
             '<li><span class="swatch" style="background:#ffff00"></span>'
             'End Date entro 2 settimane — colonna End Date</li>'
             '</ul></div>'
