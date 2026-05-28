@@ -39,7 +39,6 @@ import sys
 import logging
 import subprocess
 import traceback
-import calendar
 from datetime import datetime, timedelta, date
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
@@ -659,21 +658,6 @@ def _parse_end_date_progetto(val):
         return None
 
 
-def _limite_due_mesi_da(oggi):
-    """Data limite (oggi + 2 mesi di calendario, stesso giorno se possibile)."""
-    m = oggi.month - 1 + 2
-    y = oggi.year + m // 12
-    m = m % 12 + 1
-    d = min(oggi.day, calendar.monthrange(y, m)[1])
-    return date(y, m, d)
-
-
-def _entro_due_mesi(end_date, oggi):
-    if end_date is None:
-        return False
-    return oggi <= end_date <= _limite_due_mesi_da(oggi)
-
-
 def _float_rem(val):
     try:
         return float(val)
@@ -681,22 +665,37 @@ def _float_rem(val):
         return 0.0
 
 
-def _colorazione_riga_progetto(end_date, rem_i, rem_j, oggi=None, limite_due_sett=None):
-    """Ritorna 'gray', 'light_red', 'light_yellow' o None per la riga progetti."""
+def _end_date_scaduta(end_date, oggi=None):
     if oggi is None:
         oggi = datetime.now().date()
-    if limite_due_sett is None:
-        limite_due_sett = oggi + timedelta(weeks=2)
-    ri, rj = _float_rem(rem_i), _float_rem(rem_j)
-    scaduta = end_date is not None and end_date < oggi
-    if scaduta or ri == 0 or rj == 0:
-        return 'gray'
-    if ((end_date and oggi <= end_date <= limite_due_sett)
-            or ri < 40 or rj < 40):
+    return end_date is not None and end_date < oggi
+
+
+def _colorazione_cella_rem_i(rem_i):
+    """Rosso chiaro se < 5, giallo chiaro se < 40."""
+    ri = _float_rem(rem_i)
+    if ri < 5:
         return 'light_red'
-    if _entro_due_mesi(end_date, oggi):
+    if ri < 40:
         return 'light_yellow'
     return None
+
+
+def _colorazione_cella_rem_j(rem_j):
+    """Rosso chiaro se < 10, giallo chiaro se < 80."""
+    rj = _float_rem(rem_j)
+    if rj < 10:
+        return 'light_red'
+    if rj < 80:
+        return 'light_yellow'
+    return None
+
+
+_PROJETTI_FILL = {
+    'gray': 'E8E8E8',
+    'light_red': 'FFEBEE',
+    'light_yellow': 'FFFDE7',
+}
 
 
 def _riga_legenda_progetti(n_righe):
@@ -722,9 +721,9 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
       - Tabella duplicata a distanza fissa (per layout di stampa)
       - Legenda colori End Date sotto le due tabelle (colonna A)
 
-    Grigio: End Date scaduta e/o I e/o J (Days remaining) a 0.
-    Rosso chiaro: End Date entro 2 settimane e/o I < 40 e/o J < 40 (se non già grigia).
-    Giallo chiaro: End Date entro 2 mesi (se non già grigia o rosso chiaro).
+    Grigio (intera riga): End Date scaduta.
+    Colonna I: rosso chiaro se < 5, giallo chiaro se < 40.
+    Colonna J: rosso chiaro se < 10, giallo chiaro se < 80.
 
     Args:
         ws_p:               worksheet 'progetti' openpyxl.
@@ -751,8 +750,11 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
     gray_past_fill = PatternFill(fill_type="solid", fgColor="E8E8E8")
     light_red_fill = PatternFill(fill_type="solid", fgColor="FFEBEE")
     light_yellow_fill = PatternFill(fill_type="solid", fgColor="FFFDE7")
+    fill_by_stato = {
+        'light_red': light_red_fill,
+        'light_yellow': light_yellow_fill,
+    }
     oggi = datetime.now().date()
-    limite_due_sett = oggi + timedelta(weeks=2)
 
     def scrivi_intestazione(base_row):
         """Scrive l'intestazione a due righe della tabella contratti."""
@@ -802,19 +804,16 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
             ws_p.cell(row=r, column=9).value = rem_i
             ws_p.cell(row=r, column=10).value = rem_j
             end_date = _parse_end_date_progetto(row['D'])
-            stato = _colorazione_riga_progetto(
-                end_date, rem_i, rem_j, oggi, limite_due_sett)
-            if stato == 'gray':
-                row_fill = gray_past_fill
-            elif stato == 'light_red':
-                row_fill = light_red_fill
-            elif stato == 'light_yellow':
-                row_fill = light_yellow_fill
-            else:
-                row_fill = None
-            if row_fill:
+            if _end_date_scaduta(end_date, oggi):
                 for col in range(1, 12):
-                    ws_p.cell(row=r, column=col).fill = row_fill
+                    ws_p.cell(row=r, column=col).fill = gray_past_fill
+            else:
+                stato_i = _colorazione_cella_rem_i(rem_i)
+                if stato_i:
+                    ws_p.cell(row=r, column=9).fill = fill_by_stato[stato_i]
+                stato_j = _colorazione_cella_rem_j(rem_j)
+                if stato_j:
+                    ws_p.cell(row=r, column=10).fill = fill_by_stato[stato_j]
             ws_p.cell(row=r, column=2).alignment = center
             ws_p.cell(row=r, column=5).alignment = center
             for col in range(6, 11):
@@ -841,11 +840,11 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
     ws_p.cell(row=leg_start, column=1).font = bold
     legenda_voci = (
         (gray_past_fill,
-         'End Date scaduta e/o Days remaining PM/Cons. (col. I e/o J) a 0 — intera riga'),
+         'End Date scaduta — intera riga grigio chiaro'),
         (light_red_fill,
-         'End Date entro 2 settimane e/o I < 40 e/o J < 40 — intera riga'),
+         'Col. I (Rem. PM) < 5 oppure col. J (Rem. Cons.) < 10 — solo la cella'),
         (light_yellow_fill,
-         'End Date entro 2 mesi (se non già grigia o rosso chiaro) — intera riga'),
+         'Col. I (Rem. PM) < 40 oppure col. J (Rem. Cons.) < 80 — solo la cella'),
     )
     thin = Side(style='thin', color='999999')
     leg_border = Border(left=thin, right=thin, top=thin, bottom=thin)
@@ -1856,10 +1855,6 @@ tr.sep-progetto{background:transparent !important}
 tr.sep-progetto:hover{background:transparent !important}
 tbody tr.row-end-past{background:#e8e8e8 !important}
 tbody tr.row-end-past:hover{background:#dcdcdc !important}
-tbody tr.row-end-light-red{background:#ffebee !important}
-tbody tr.row-end-light-red:hover{background:#ffe4e4 !important}
-tbody tr.row-end-light-yellow{background:#fffde7 !important}
-tbody tr.row-end-light-yellow:hover{background:#fff9c4 !important}
 .tbl-export-style thead th{background:#000 !important;color:#fff !important;
   border-bottom:2px solid #333}
 .tbl-riepilogo-title{background:#006400;color:#fff;padding:.45rem .72rem;font-size:.85rem;
@@ -1888,19 +1883,24 @@ tbody tr.row-end-light-yellow:hover{background:#fff9c4 !important}
 """
 
     # ── Helper: DataFrame → tabella HTML ────────────────────────────────────
-    def _cell(val, week_highlight=False, multiline=False):
+    def _cell(val, week_highlight=False, multiline=False, bg=None):
+        style_attr = ''
+        if bg:
+            style_attr = f' style="background:#{_PROJETTI_FILL[bg]}"'
         wc = ' week-curr' if week_highlight else ''
         if pd.isna(val):
-            return f'<td class="{wc.strip()}"></td>' if week_highlight else '<td></td>'
+            if week_highlight:
+                return f'<td class="{wc.strip()}"{style_attr}></td>'
+            return f'<td{style_attr}></td>'
         if isinstance(val, float):
             cls = 'num' + wc
-            return f'<td class="{cls.strip()}">{val:,.2f}</td>'
+            return f'<td class="{cls.strip()}"{style_attr}>{val:,.2f}</td>'
         esc = str(val).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         if multiline:
             esc = esc.replace('\n', '<br>')
         if week_highlight:
-            return f'<td class="week-curr">{esc}</td>'
-        return f'<td>{esc}</td>'
+            return f'<td class="week-curr"{style_attr}>{esc}</td>'
+        return f'<td{style_attr}>{esc}</td>'
 
     def _multiline_col_indices(df):
         return {j for j, c in enumerate(df.columns) if str(c) in ('Resource: Full Name', 'Commento')}
@@ -1947,19 +1947,17 @@ tbody tr.row-end-light-yellow:hover{background:#fff9c4 !important}
             end_date = _parse_end_date_progetto(row.get('End Date'))
             rem_i = row.get('Rem. PM', 0)
             rem_j = row.get('Rem. Cons.', 0)
-            stato = _colorazione_riga_progetto(
-                end_date, rem_i, rem_j, oggi_html, oggi_html + timedelta(weeks=2))
-            if stato == 'gray':
-                tr_cls = ' class="row-end-past"'
-            elif stato == 'light_red':
-                tr_cls = ' class="row-end-light-red"'
-            elif stato == 'light_yellow':
-                tr_cls = ' class="row-end-light-yellow"'
-            else:
-                tr_cls = ''
+            scaduta = _end_date_scaduta(end_date, oggi_html)
+            tr_cls = ' class="row-end-past"' if scaduta else ''
             out.append(f'<tr{tr_cls}>')
-            for v in row:
-                out.append(_cell(v))
+            for col_name, v in row.items():
+                bg = None
+                if not scaduta:
+                    if col_name == 'Rem. PM':
+                        bg = _colorazione_cella_rem_i(rem_i)
+                    elif col_name == 'Rem. Cons.':
+                        bg = _colorazione_cella_rem_j(rem_j)
+                out.append(_cell(v, bg=bg))
             out.append('</tr>')
         out.append('</tbody></table></div>')
         out.append(f'<p class="row-count">{len(df):,} record</p>')
@@ -1971,11 +1969,11 @@ tbody tr.row-end-light-yellow:hover{background:#fff9c4 !important}
             '<h4>Legenda colori</h4>'
             '<ul>'
             '<li><span class="swatch" style="background:#e8e8e8"></span>'
-            'End Date scaduta e/o Days remaining PM/Cons. (I e/o J) a 0 — intera riga</li>'
+            'End Date scaduta — intera riga grigio chiaro</li>'
             '<li><span class="swatch" style="background:#ffebee"></span>'
-            'End Date entro 2 settimane e/o I < 40 e/o J < 40 — intera riga</li>'
+            'Col. I (Rem. PM) &lt; 5 oppure col. J (Rem. Cons.) &lt; 10 — solo la cella</li>'
             '<li><span class="swatch" style="background:#fffde7"></span>'
-            'End Date entro 2 mesi (se non già grigia o rosso chiaro) — intera riga</li>'
+            'Col. I (Rem. PM) &lt; 40 oppure col. J (Rem. Cons.) &lt; 80 — solo la cella</li>'
             '</ul></div>'
         )
 
