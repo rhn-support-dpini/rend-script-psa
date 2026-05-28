@@ -671,24 +671,33 @@ def _end_date_scaduta(end_date, oggi=None):
     return end_date is not None and end_date < oggi
 
 
-def _colorazione_cella_rem_i(rem_i):
-    """Rosso chiaro se < 5, giallo chiaro se < 40."""
+def _applica_colori_progetto(end_date, rem_i, rem_j, oggi=None):
+    """Colori progetti in cascata: grigio (riga), poi rosso, poi giallo su I/J.
+
+    Returns:
+        (stato_riga, stato_i, stato_j) — stato_riga='gray' colora tutta la riga;
+        altrimenti stato_i/stato_j valgono solo per le colonne Rem. PM / Rem. Cons.
+    """
+    if oggi is None:
+        oggi = datetime.now().date()
+    if _end_date_scaduta(end_date, oggi):
+        return 'gray', None, None
+
+    stato_i = None
     ri = _float_rem(rem_i)
     if ri < 5:
-        return 'light_red'
-    if ri < 40:
-        return 'light_yellow'
-    return None
+        stato_i = 'light_red'
+    elif ri < 40:
+        stato_i = 'light_yellow'
 
-
-def _colorazione_cella_rem_j(rem_j):
-    """Rosso chiaro se < 10, giallo chiaro se < 80."""
+    stato_j = None
     rj = _float_rem(rem_j)
     if rj < 10:
-        return 'light_red'
-    if rj < 80:
-        return 'light_yellow'
-    return None
+        stato_j = 'light_red'
+    elif rj < 80:
+        stato_j = 'light_yellow'
+
+    return None, stato_i, stato_j
 
 
 _PROJETTI_FILL = {
@@ -804,14 +813,14 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
             ws_p.cell(row=r, column=9).value = rem_i
             ws_p.cell(row=r, column=10).value = rem_j
             end_date = _parse_end_date_progetto(row['D'])
-            if _end_date_scaduta(end_date, oggi):
+            stato_riga, stato_i, stato_j = _applica_colori_progetto(
+                end_date, rem_i, rem_j, oggi)
+            if stato_riga == 'gray':
                 for col in range(1, 12):
                     ws_p.cell(row=r, column=col).fill = gray_past_fill
             else:
-                stato_i = _colorazione_cella_rem_i(rem_i)
                 if stato_i:
                     ws_p.cell(row=r, column=9).fill = fill_by_stato[stato_i]
-                stato_j = _colorazione_cella_rem_j(rem_j)
                 if stato_j:
                     ws_p.cell(row=r, column=10).fill = fill_by_stato[stato_j]
             ws_p.cell(row=r, column=2).alignment = center
@@ -1943,16 +1952,17 @@ tbody tr.row-end-past:hover{background:#dcdcdc !important}
             end_date = _parse_end_date_progetto(row.get('End Date'))
             rem_i = row.get('Rem. PM', 0)
             rem_j = row.get('Rem. Cons.', 0)
-            scaduta = _end_date_scaduta(end_date, oggi_html)
-            tr_cls = ' class="row-end-past"' if scaduta else ''
+            stato_riga, stato_i, stato_j = _applica_colori_progetto(
+                end_date, rem_i, rem_j, oggi_html)
+            tr_cls = ' class="row-end-past"' if stato_riga == 'gray' else ''
             out.append(f'<tr{tr_cls}>')
             for col_name, v in row.items():
                 bg = None
-                if not scaduta:
+                if stato_riga != 'gray':
                     if col_name == 'Rem. PM':
-                        bg = _colorazione_cella_rem_i(rem_i)
+                        bg = stato_i
                     elif col_name == 'Rem. Cons.':
-                        bg = _colorazione_cella_rem_j(rem_j)
+                        bg = stato_j
                 out.append(_cell(v, bg=bg))
             out.append('</tr>')
         out.append('</tbody></table></div>')
