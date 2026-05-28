@@ -540,6 +540,14 @@ def aggiungi_colonna_commenti_dettaglio_ruoli(pivot_role_est, df_per_calc, col_p
     return _inserisci_colonna_dopo_milestone(
         pivot_role_est, df_per_calc, col_proj, col_role_name, 'Commento', 'Commento')
 
+
+def filtra_pivot_senza_totale_zero(df):
+    """Esclude righe con TOTALE RIGA uguale a zero."""
+    if df is None or df.empty or 'TOTALE RIGA' not in df.columns:
+        return df
+    tot = pd.to_numeric(df['TOTALE RIGA'], errors='coerce').fillna(0.0)
+    return df.loc[tot != 0].copy()
+
 # --- PREPARAZIONE RIGHE PROGETTI ---
 
 def prepara_righe_progetti(df_src, df_dati_comp, df_per_calc, col_proj, col_actual, config, contratti_idx):
@@ -793,13 +801,15 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
 
 def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_est,
                        current_week_str, bold, center, green_fill, red_thick,
+                       fill_verde, fill_nero, font_bianco_bold,
                        df_dati_comp, col_proj, col_role_name, col_period, col_status_k, col_status_l,
                        df_per_calc, col_actual, col_estimated):
     """Riempie i fogli 'Riepilogo Settimanale' e 'Dettaglio Ruoli'.
 
     Riepilogo Settimanale: due pivot (actual e estimated) in sequenza verticale,
     con colonne Milestone, Commento e Resource: Full Name come in Dettaglio Ruoli.
-    Nella tabella Actual, righe con TOTALE RIGA zero sono barrate.
+    Nella tabella Actual, righe con TOTALE RIGA zero sono omesse.
+    Intestazioni del foglio Riepilogo con stile Tabella di Export (titolo verde, header nero).
 
     Dettaglio Ruoli: pivot estimated per ruolo con:
     - Riga 3: intervallo date di ogni settimana (lun-dom)
@@ -825,6 +835,9 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
         center:           Alignment(horizontal='center').
         green_fill:       PatternFill verde chiaro per evidenziare la settimana corrente.
         red_thick:        Side(style='thick', color='FF0000') per bordi gruppi.
+        fill_verde:       PatternFill verde scuro per titoli sezione Riepilogo.
+        fill_nero:        PatternFill nero per header colonne Riepilogo.
+        font_bianco_bold: Font bianco grassetto per titoli/header Riepilogo.
         df_dati_comp:     DataFrame arricchito (per lookup stato schedulazione).
         col_proj:         nome colonna progetto.
         col_role_name:    nome colonna ruolo.
@@ -836,18 +849,17 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
         col_estimated:    nome colonna ore stimate (peso per scegliere il colore se K/L misti).
     """
     def write_pivot(ws, start_row, df, title, border_group=False, extra_center_cols=None,
-                    wrap_text_cols=None, strikethrough_zero_totale=False):
+                    wrap_text_cols=None, export_style=False):
         """Scrive una pivot su un worksheet a partire da start_row.
 
         Aggiunge:
-        - riga titolo in grassetto
-        - riga header colonne in grassetto/centrato
+        - riga titolo in grassetto (verde/bianco se export_style)
+        - riga header colonne in grassetto/centrato (nero/bianco se export_style)
         - righe dati con allineamento numerico centrato
         - evidenziazione verde sulla colonna della settimana corrente
         - bordi rossi spessi per raggruppare righe con stesso progetto
           (solo se border_group=True)
         - riga TOTALE SETTIMANA in fondo
-        - opzionale: barrato su tutta la riga se TOTALE RIGA è zero
 
         Returns:
             int: prima riga disponibile dopo la sezione (start_row + altezza + 5).
@@ -857,13 +869,25 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
         if wrap_text_cols is None:
             wrap_text_cols = set()
         wrap_center = Alignment(horizontal='center', vertical='center', wrap_text=True)
-        ws.cell(row=start_row, column=1).value = title
-        ws.cell(row=start_row, column=1).font = Font(bold=True, sz=12)
+        n_cols = len(df.columns)
+        tcell = ws.cell(row=start_row, column=1)
+        tcell.value = title
+        if export_style:
+            ws.merge_cells(start_row=start_row, start_column=1, end_row=start_row, end_column=n_cols)
+            tcell.fill = fill_verde
+            tcell.font = font_bianco_bold
+            tcell.alignment = center
+        else:
+            tcell.font = Font(bold=True, sz=12)
 
         for c_idx, col in enumerate(df.columns):
             cella = ws.cell(row=start_row + 1, column=c_idx + 1)
             cella.value = str(col)
-            cella.font = bold
+            if export_style:
+                cella.fill = fill_nero
+                cella.font = font_bianco_bold
+            else:
+                cella.font = bold
             cella.alignment = center
 
         num_cols_idx = len(df.columns) - len(df.select_dtypes(include=['number']).columns)
@@ -876,46 +900,21 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
                 if c_idx in wrap_text_cols and val:
                     cella.alignment = wrap_center
 
-        tot_col_idx = None
-        if strikethrough_zero_totale and 'TOTALE RIGA' in df.columns:
-            tot_col_idx = df.columns.get_loc('TOTALE RIGA')
-
-        if tot_col_idx is not None:
-            for r_idx, row in enumerate(df.values):
-                try:
-                    tot_zero = float(row[tot_col_idx]) == 0
-                except (TypeError, ValueError):
-                    tot_zero = False
-                if not tot_zero:
-                    continue
-                excel_row = start_row + 2 + r_idx
-                for c_idx in range(len(row)):
-                    cella = ws.cell(row=excel_row, column=c_idx + 1)
-                    prev = cella.font
-                    cella.font = Font(
-                        bold=prev.bold if prev else False,
-                        strike=True,
-                        sz=prev.sz if prev else None,
-                    )
-
         ultima_riga = start_row + 2 + len(df) - 1
         ultima_col = len(df.columns)
 
         for r in range(start_row + 1, ultima_riga + 1):
             cella_tot_col = ws.cell(row=r, column=ultima_col)
-            if (strikethrough_zero_totale and tot_col_idx is not None
-                    and r >= start_row + 2):
-                try:
-                    if float(df.values[r - start_row - 2][tot_col_idx]) == 0:
-                        cella_tot_col.font = Font(bold=True, strike=True)
-                        continue
-                except (TypeError, ValueError):
-                    pass
-            cella_tot_col.font = bold
+            if export_style and r == hdr_row:
+                cella_tot_col.font = font_bianco_bold
+            else:
+                cella_tot_col.font = bold
 
+        hdr_row = start_row + 1
+        data_first = start_row + 2
         for c in range(1, ultima_col):
-            if current_week_str in str(ws.cell(row=start_row + 1, column=c).value):
-                for r in range(start_row + 1, ultima_riga + 2):
+            if current_week_str in str(ws.cell(row=hdr_row, column=c).value):
+                for r in range(data_first if export_style else hdr_row, ultima_riga + 2):
                     ws.cell(row=r, column=c).fill = green_fill
 
         if border_group:
@@ -963,10 +962,12 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
 
     data_prod = datetime.now().strftime('%d/%m/%Y')
     wrap_attivita = {3, 4}
-    r_next = write_pivot(ws_rs, 1, pivot_actual, f"ACTUAL HOURS (GIORNATE) - {data_prod}",
-                         wrap_text_cols=wrap_attivita, strikethrough_zero_totale=True)
+    pivot_actual_rs = filtra_pivot_senza_totale_zero(pivot_actual)
+    rs_style = dict(export_style=True)
+    r_next = write_pivot(ws_rs, 1, pivot_actual_rs, f"ACTUAL HOURS (GIORNATE) - {data_prod}",
+                         wrap_text_cols=wrap_attivita, **rs_style)
     r_next = write_pivot(ws_rs, r_next, pivot_estimated, f"ESTIMATED HOURS (GIORNATE) - {data_prod}",
-                         wrap_text_cols=wrap_attivita)
+                         wrap_text_cols=wrap_attivita, **rs_style)
 
     pivot_role_display = pivot_role_est.rename(columns={'Riferimento tabella 1': 'Riferimento Interno'})
     dr_next = write_pivot(ws_dr, 1, pivot_role_display,
@@ -1494,6 +1495,7 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
         df_exp = pd.DataFrame()
 
     pv_ruoli = pivot_role_est.rename(columns={'Riferimento tabella 1': 'Riferimento'})
+    pivot_actual_riep = filtra_pivot_senza_totale_zero(pivot_actual)
 
     _oggi_h = datetime.now()
     _cw_canon_html = f"CY{_oggi_h.year}-W{_oggi_h.isocalendar()[1]:02d}"
@@ -1792,8 +1794,10 @@ tbody tr.row-end-past{background:#e8e8e8 !important}
 tbody tr.row-end-past:hover{background:#dcdcdc !important}
 tbody tr.row-end-next-month{background:#ffcdd2 !important}
 tbody tr.row-end-next-month:hover{background:#ffb4b4 !important}
-tbody tr.row-strike td{text-decoration:line-through;color:var(--mut)}
-tbody tr.row-strike:hover td{color:#64748b}
+.tbl-export-style thead th{background:#000 !important;color:#fff !important;
+  border-bottom:2px solid #333}
+.tbl-riepilogo-title{background:#006400;color:#fff;padding:.45rem .72rem;font-size:.85rem;
+  font-weight:600;border-radius:4px 4px 0 0;margin-bottom:0;display:block}
 .row-count{padding:.35rem 1.2rem;font-size:.72rem;color:var(--mut);
   border-top:1px solid var(--brd);background:#f8fafc}
 .empty{padding:1.25rem;color:var(--mut);font-style:italic}
@@ -1828,14 +1832,17 @@ tbody tr.row-strike:hover td{color:#64748b}
     def _multiline_col_indices(df):
         return {j for j, c in enumerate(df.columns) if str(c) in ('Resource: Full Name', 'Commento')}
 
-    def _tbl(df, highlight_week_col_idx=None, strikethrough_zero_totale=False):
+    def _tbl(df, highlight_week_col_idx=None, export_style=False):
         if df is None or df.empty:
             return '<p class="empty">Nessun dato disponibile.</p>'
-        tbl_cls = 'tbl-week-highlight' if highlight_week_col_idx is not None else ''
+        tbl_cls_parts = []
+        if highlight_week_col_idx is not None:
+            tbl_cls_parts.append('tbl-week-highlight')
+        if export_style:
+            tbl_cls_parts.append('tbl-export-style')
+        tbl_cls = ' '.join(tbl_cls_parts)
         t_open = f'<table class="{tbl_cls}">' if tbl_cls else '<table>'
         multiline_cols = _multiline_col_indices(df)
-        tot_col_idx = df.columns.get_loc('TOTALE RIGA') if (
-            strikethrough_zero_totale and 'TOTALE RIGA' in df.columns) else None
         out = [f'<div class="tbl-wrap">{t_open}<thead><tr>']
         for j, col in enumerate(df.columns):
             wh = highlight_week_col_idx is not None and j == highlight_week_col_idx
@@ -1844,14 +1851,7 @@ tbody tr.row-strike:hover td{color:#64748b}
             out.append(f'<th{th_cls}>{esc_h}</th>')
         out.append('</tr></thead><tbody>')
         for _, row in df.iterrows():
-            strike = False
-            if tot_col_idx is not None:
-                try:
-                    strike = float(row.iloc[tot_col_idx]) == 0
-                except (TypeError, ValueError):
-                    strike = False
-            tr_cls = ' class="row-strike"' if strike else ''
-            out.append(f'<tr{tr_cls}>')
+            out.append('<tr>')
             for j, v in enumerate(row):
                 out.append(_cell(v, week_highlight=(
                     highlight_week_col_idx is not None and j == highlight_week_col_idx),
@@ -1941,12 +1941,12 @@ tbody tr.row-strike:hover td{color:#64748b}
 <section class="sec" id="riepilogo">
   <div class="sec-hdr"><h2>Riepilogo Settimanale</h2></div>
   <div class="sub-sec" id="actual">
-    <h3>Actual Hours (Giornate)</h3>
-    {_tbl(pivot_actual, hi_week_actual, strikethrough_zero_totale=True)}
+    <h3 class="tbl-riepilogo-title">Actual Hours (Giornate)</h3>
+    {_tbl(pivot_actual_riep, hi_week_actual, export_style=True)}
   </div>
   <div class="sub-sec" id="estimated">
-    <h3>Estimated Hours (Giornate)</h3>
-    {_tbl(pivot_estimated, hi_week_estimated)}
+    <h3 class="tbl-riepilogo-title">Estimated Hours (Giornate)</h3>
+    {_tbl(pivot_estimated, hi_week_estimated, export_style=True)}
   </div>
 </section>"""
 
@@ -2334,6 +2334,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
         formatta_riepilogo(wb['Riepilogo Settimanale'], wb['Dettaglio Ruoli'],
                            pivot_actual, pivot_estimated, pivot_role_est,
                            current_week_str, bold, center, green_fill, red_thick,
+                           fill_verde, fill_nero, font_bianco_bold,
                            df_dati_comp, col_proj, col_role_name, col_period, col_status_k, col_status_l,
                            df_per_calc, col_actual, col_estimated)
 
