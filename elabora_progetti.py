@@ -39,6 +39,7 @@ import sys
 import logging
 import subprocess
 import traceback
+import calendar
 from datetime import datetime, timedelta, date
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
@@ -688,23 +689,38 @@ def _float_rem(val):
         return 0.0
 
 
-def _end_date_scaduta(end_date, oggi=None):
+def _aggiungi_mesi(d, mesi):
+    """Aggiunge mesi di calendario a una data (stesso giorno se possibile)."""
+    m = d.month - 1 + mesi
+    y = d.year + m // 12
+    m = m % 12 + 1
+    return date(y, m, min(d.day, calendar.monthrange(y, m)[1]))
+
+
+def _stato_end_date_ad(end_date, oggi=None):
+    """Colore pastel colonne A–D in cascata: scaduta, entro 1 mese, entro 2 mesi."""
+    if end_date is None:
+        return None
     if oggi is None:
         oggi = datetime.now().date()
-    return end_date is not None and end_date < oggi
+    if end_date < oggi:
+        return 'gray'
+    if end_date <= _aggiungi_mesi(oggi, 1):
+        return 'light_red'
+    if end_date <= _aggiungi_mesi(oggi, 2):
+        return 'light_yellow'
+    return None
 
 
 def _applica_colori_progetto(end_date, rem_i, rem_j, oggi=None):
-    """Colori progetti in cascata: grigio (riga), poi rosso, poi giallo su I/J.
+    """Colori progetti: A–D da End Date, I/J da giorni residui (senza sovrapposizioni).
 
     Returns:
-        (stato_riga, stato_i, stato_j) — stato_riga='gray' colora tutta la riga;
-        altrimenti stato_i/stato_j valgono solo per le colonne Rem. PM / Rem. Cons.
+        (stato_ad, stato_i, stato_j) — stato_ad per colonne A–D; stato_i/stato_j per I/J.
     """
     if oggi is None:
         oggi = datetime.now().date()
-    if _end_date_scaduta(end_date, oggi):
-        return 'gray', None, None
+    stato_ad = _stato_end_date_ad(end_date, oggi)
 
     stato_i = None
     ri = _float_rem(rem_i)
@@ -720,7 +736,7 @@ def _applica_colori_progetto(end_date, rem_i, rem_j, oggi=None):
     elif rj < 80:
         stato_j = 'light_yellow'
 
-    return None, stato_i, stato_j
+    return stato_ad, stato_i, stato_j
 
 
 _PROJETTI_FILL = {
@@ -753,7 +769,8 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
       - Tabella duplicata a distanza fissa (per layout di stampa)
       - Legenda colori End Date sotto le due tabelle (colonna A)
 
-    Grigio (intera riga): End Date scaduta.
+    Grigio (col. A–D): End Date scaduta.
+    Rosso/giallo pastello (col. A–D): End Date entro 1 / 2 mesi.
     Colonna I: rosso chiaro se < 5, giallo chiaro se < 40.
     Colonna J: rosso chiaro se < 10, giallo chiaro se < 80.
 
@@ -783,6 +800,7 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
     light_red_fill = PatternFill(fill_type="solid", fgColor="FFEBEE")
     light_yellow_fill = PatternFill(fill_type="solid", fgColor="FFFDE7")
     fill_by_stato = {
+        'gray': gray_past_fill,
         'light_red': light_red_fill,
         'light_yellow': light_yellow_fill,
     }
@@ -837,16 +855,15 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
             ws_p.cell(row=r, column=9).value = rem_i
             ws_p.cell(row=r, column=10).value = rem_j
             end_date = _parse_end_date_progetto(d_cell.value)
-            stato_riga, stato_i, stato_j = _applica_colori_progetto(
+            stato_ad, stato_i, stato_j = _applica_colori_progetto(
                 end_date, rem_i, rem_j, oggi)
-            if stato_riga == 'gray':
-                for col in range(1, 12):
-                    ws_p.cell(row=r, column=col).fill = gray_past_fill
-            else:
-                if stato_i:
-                    ws_p.cell(row=r, column=9).fill = fill_by_stato[stato_i]
-                if stato_j:
-                    ws_p.cell(row=r, column=10).fill = fill_by_stato[stato_j]
+            if stato_ad:
+                for col in range(1, 5):
+                    ws_p.cell(row=r, column=col).fill = fill_by_stato[stato_ad]
+            if stato_i:
+                ws_p.cell(row=r, column=9).fill = fill_by_stato[stato_i]
+            if stato_j:
+                ws_p.cell(row=r, column=10).fill = fill_by_stato[stato_j]
             ws_p.cell(row=r, column=2).alignment = center
             ws_p.cell(row=r, column=5).alignment = center
             for col in range(6, 11):
@@ -872,9 +889,11 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
     ws_p.cell(row=leg_start, column=1).value = 'Legenda colori'
     ws_p.cell(row=leg_start, column=1).font = bold
     legenda_voci = (
-        (gray_past_fill, 'End Date scaduta'),
-        (light_red_fill, '<5 opp <10'),
-        (light_yellow_fill, '<40 opp <80'),
+        (gray_past_fill, 'End Date scaduta (col. A–D)'),
+        (light_red_fill, 'End Date entro 1 mese (col. A–D)'),
+        (light_yellow_fill, 'End Date entro 2 mesi (col. A–D)'),
+        (light_red_fill, 'Rem. PM < 5 / Rem. Cons. < 10'),
+        (light_yellow_fill, 'Rem. PM < 40 / Rem. Cons. < 80'),
     )
     thin = Side(style='thin', color='999999')
     leg_border = Border(left=thin, right=thin, top=thin, bottom=thin)
@@ -1882,8 +1901,6 @@ tr.sep-progetto td{height:0;padding:0 !important;line-height:0;border-top:3px so
   background:linear-gradient(transparent,#fee2e2);vertical-align:middle}
 tr.sep-progetto{background:transparent !important}
 tr.sep-progetto:hover{background:transparent !important}
-tbody tr.row-end-past{background:#e8e8e8 !important}
-tbody tr.row-end-past:hover{background:#dcdcdc !important}
 .tbl-export-style thead th{background:#000 !important;color:#fff !important;
   border-bottom:2px solid #333}
 .tbl-riepilogo-title{background:#006400;color:#fff;padding:.45rem .72rem;font-size:.85rem;
@@ -1963,6 +1980,8 @@ tbody tr.row-end-past:hover{background:#dcdcdc !important}
         out.append(f'<p class="row-count">{len(df):,} record</p>')
         return ''.join(out)
 
+    _COLS_END_DATE = frozenset({'Contract Name', 'OPA Number', 'Opportunity', 'End Date'})
+
     def _tbl_progetti(df):
         if df is None or df.empty:
             return '<p class="empty">Nessun dato disponibile.</p>'
@@ -1976,17 +1995,17 @@ tbody tr.row-end-past:hover{background:#dcdcdc !important}
             end_date = _parse_end_date_progetto(row.get('End Date'))
             rem_i = row.get('Rem. PM', 0)
             rem_j = row.get('Rem. Cons.', 0)
-            stato_riga, stato_i, stato_j = _applica_colori_progetto(
+            stato_ad, stato_i, stato_j = _applica_colori_progetto(
                 end_date, rem_i, rem_j, oggi_html)
-            tr_cls = ' class="row-end-past"' if stato_riga == 'gray' else ''
-            out.append(f'<tr{tr_cls}>')
+            out.append('<tr>')
             for col_name, v in row.items():
                 bg = None
-                if stato_riga != 'gray':
-                    if col_name == 'Rem. PM':
-                        bg = stato_i
-                    elif col_name == 'Rem. Cons.':
-                        bg = stato_j
+                if col_name in _COLS_END_DATE and stato_ad:
+                    bg = stato_ad
+                elif col_name == 'Rem. PM':
+                    bg = stato_i
+                elif col_name == 'Rem. Cons.':
+                    bg = stato_j
                 out.append(_cell(v, bg=bg))
             out.append('</tr>')
         out.append('</tbody></table></div>')
@@ -1998,9 +2017,11 @@ tbody tr.row-end-past:hover{background:#dcdcdc !important}
             '<div class="proj-legend">'
             '<h4>Legenda colori</h4>'
             '<ul>'
-            '<li><span class="swatch" style="background:#e8e8e8">End Date scaduta</span></li>'
-            '<li><span class="swatch" style="background:#ffebee">&lt;5 opp &lt;10</span></li>'
-            '<li><span class="swatch" style="background:#fffde7">&lt;40 opp &lt;80</span></li>'
+            '<li><span class="swatch" style="background:#e8e8e8">End Date scaduta (col. A–D)</span></li>'
+            '<li><span class="swatch" style="background:#ffebee">End Date entro 1 mese (col. A–D)</span></li>'
+            '<li><span class="swatch" style="background:#fffde7">End Date entro 2 mesi (col. A–D)</span></li>'
+            '<li><span class="swatch" style="background:#ffebee">Rem. PM &lt; 5 / Rem. Cons. &lt; 10</span></li>'
+            '<li><span class="swatch" style="background:#fffde7">Rem. PM &lt; 40 / Rem. Cons. &lt; 80</span></li>'
             '</ul></div>'
         )
 
