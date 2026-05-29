@@ -1633,8 +1633,12 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
         m = re.search(r'(\d{4}).*W(\d+)', str(s), re.IGNORECASE)
         return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
 
-    trend = df_per_calc.groupby(col_period)[col_actual].sum() / 8.0
-    trend = trend.loc[sorted(trend.index, key=_sort_key)]
+    trend_actual = df_per_calc.groupby(col_period)[col_actual].sum() / 8.0
+    trend_estimated = df_per_calc.groupby(col_period)[col_estimated].sum() / 8.0
+    trend_weeks = sorted(
+        set(trend_actual.index) | set(trend_estimated.index),
+        key=_sort_key,
+    )
 
     risorse_s = (
         df_per_calc[df_per_calc['Nome risorsa'].astype(str).str.strip().ne('') &
@@ -1801,8 +1805,9 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
             'estimated': [round(float(estimated_pp.get(p, 0.0)), 2) for p in progetti_list],
         },
         'trend': {
-            'labels': [str(w) for w in trend.index],
-            'values': [round(float(v), 2) for v in trend.values],
+            'labels': [str(w) for w in trend_weeks],
+            'actual': [round(float(trend_actual.get(w, 0.0)), 2) for w in trend_weeks],
+            'estimated': [round(float(trend_estimated.get(w, 0.0)), 2) for w in trend_weeks],
         },
         'risorse': {
             'labels': list(risorse_s.index),
@@ -2113,7 +2118,7 @@ tr.sep-progetto:hover{background:transparent !important}
       <canvas id="chart-ae"></canvas>
     </div>
     <div class="chart-card">
-      <h3>Trend Settimanale Giornate Actual</h3>
+      <h3>Trend Settimanale Giornate Actual/Estimated</h3>
       <canvas id="chart-trend"></canvas>
     </div>
     <div class="chart-card">
@@ -2198,12 +2203,15 @@ tr.sep-progetto:hover{background:transparent !important}
         '\n'
         'new Chart(document.getElementById("chart-trend"),{\n'
         '  type:"line",\n'
-        '  data:{labels:D.trend.labels,datasets:[{\n'
-        '    label:"Giornate Actual",data:D.trend.values,\n'
-        '    borderColor:"#1a56db",backgroundColor:"rgba(26,86,219,0.12)",\n'
-        '    fill:true,tension:0.3,pointRadius:3\n'
-        '  }]},\n'
-        '  options:{responsive:true,plugins:{legend:{display:false}},\n'
+        '  data:{labels:D.trend.labels,datasets:[\n'
+        '    {label:"Giornate Actual",data:D.trend.actual,\n'
+        '     borderColor:"#1a56db",backgroundColor:"rgba(26,86,219,0.12)",\n'
+        '     fill:true,tension:0.3,pointRadius:3},\n'
+        '    {label:"Giornate Estimated",data:D.trend.estimated,\n'
+        '     borderColor:"#f59e0b",backgroundColor:"rgba(245,158,11,0.12)",\n'
+        '     fill:true,tension:0.3,pointRadius:3}\n'
+        '  ]},\n'
+        '  options:{responsive:true,plugins:{legend:{position:"top"}},\n'
         '    scales:{x:{ticks:{maxRotation:45}},y:{beginAtZero:true}}}\n'
         '});\n'
         '\n'
