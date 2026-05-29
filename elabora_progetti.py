@@ -43,6 +43,7 @@ from datetime import datetime, timedelta, date
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.utils.datetime import from_excel
 import json
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
@@ -649,13 +650,35 @@ def autofit_columns(ws, scan_rows=12, min_width=8, max_width=60):
 
 
 def _parse_end_date_progetto(val):
-    """Converte End Date progetto (dd/mm/yyyy) in date, o None se non valida."""
-    if not val:
+    """Converte End Date progetto in date, o None se non valida.
+
+    Accetta date/datetime, seriali Excel e stringhe dd/mm/yyyy o yyyy-mm-dd.
+    """
+    if val is None or val == "":
         return None
-    try:
-        return datetime.strptime(str(val).strip(), "%d/%m/%Y").date()
-    except ValueError:
+    if isinstance(val, float) and pd.isna(val):
         return None
+    if isinstance(val, datetime):
+        return val.date()
+    if isinstance(val, date):
+        return val
+    if isinstance(val, pd.Timestamp):
+        return val.date()
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        try:
+            dt = from_excel(val)
+            return dt.date() if isinstance(dt, datetime) else dt
+        except (ValueError, OverflowError, TypeError):
+            return None
+    s = str(val).strip()
+    if not s:
+        return None
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 def _float_rem(val):
@@ -790,7 +813,8 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
             ws_p.cell(row=r, column=1).value = row['A']
             ws_p.cell(row=r, column=2).value = row['B']
             ws_p.cell(row=r, column=3).value = row['C']
-            ws_p.cell(row=r, column=4).value = row['D']
+            d_cell = ws_p.cell(row=r, column=4)
+            d_cell.value = row['D']
             ws_p.cell(row=r, column=5).value = row['E']
             ws_p.cell(row=r, column=6).value = row['F']
             g_val, h_val = row['G'], row['H']
@@ -812,7 +836,7 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
                 rem_j = 0.0
             ws_p.cell(row=r, column=9).value = rem_i
             ws_p.cell(row=r, column=10).value = rem_j
-            end_date = _parse_end_date_progetto(row['D'])
+            end_date = _parse_end_date_progetto(d_cell.value)
             stato_riga, stato_i, stato_j = _applica_colori_progetto(
                 end_date, rem_i, rem_j, oggi)
             if stato_riga == 'gray':
