@@ -11,7 +11,7 @@ Utilizzo:
     Output: stesso percorso e nome del CSV con estensione .xlsx
     Le righe Description con prefisso "#" generano sotto-righe da colonna J;
     A–I sono merge verticali per Title, con bordo rosso pastello per card.
-    Colonne J (Giorni = End Date − Start Date) e K (TAG Temporali).
+    Colonne J (Giorni = diff. tra 1ª e 2ª data nel TAG Temporali) e K (TAG Temporali).
 """
 
 import csv
@@ -47,6 +47,7 @@ COL_GIORNI = 10  # J
 COL_TAG = 11  # K
 COL_LAST = 11
 PASTEL_RED_BORDER = Side(style="medium", color="E8A0A0")
+DATE_IN_TAG_RE = re.compile(r"(\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2})")
 
 
 def risolvi_percorso(nome_o_path):
@@ -233,29 +234,48 @@ def parse_data(valore):
     return None
 
 
-def giorni_tra_date(start_date, end_date):
-    start = parse_data(start_date)
-    end = parse_data(end_date)
-    if start is None or end is None:
-        return None
-    return (end - start).days
+def estrai_date_da_tag(tag):
+    """Estrae le date presenti nel testo di un TAG Temporale, in ordine di apparizione."""
+    if not tag:
+        return []
+    date = []
+    for match in DATE_IN_TAG_RE.finditer(str(tag)):
+        parsed = parse_data(match.group(1))
+        if parsed is not None:
+            date.append(parsed)
+    return date
+
+
+def giorni_da_tag_temporale(tag, tag_successivo=None):
+    """
+    Giorni tra la prima e la seconda data nel TAG Temporale.
+    Se nel tag c'è una sola data, usa la prima data del tag successivo (stessa card).
+    """
+    date = estrai_date_da_tag(tag)
+    if len(date) >= 2:
+        return (date[1] - date[0]).days
+    if tag_successivo:
+        date_succ = estrai_date_da_tag(tag_successivo)
+        if date and date_succ:
+            return (date_succ[0] - date[0]).days
+    return None
 
 
 def espandi_card_con_tag(card):
-    """Replica ogni card per tag temporale; aggiunge colonna TAG Temporali."""
+    """Replica ogni card per tag temporale; aggiunge colonne Giorni e TAG Temporali."""
     righe = []
     for record in card:
         tag_list = estrai_tag_temporali(record.get("Description", ""))
-        giorni = giorni_tra_date(record.get("Start Date"), record.get("End Date"))
         if not tag_list:
             nuova = dict(record)
-            nuova[GIORNI_COL] = giorni
+            nuova[GIORNI_COL] = None
             nuova[TAG_TEMPORALI_COL] = ""
             righe.append(nuova)
             continue
-        for tag in tag_list:
+        for i, tag in enumerate(tag_list):
+            tag_next = tag_list[i + 1] if i + 1 < len(tag_list) else None
             nuova = dict(record)
-            nuova[GIORNI_COL] = giorni
+            nuova[GIORNI_COL] = giorni_da_tag_temporale(tag, tag_next)
             nuova[TAG_TEMPORALI_COL] = tag
             righe.append(nuova)
     return righe
@@ -338,14 +358,6 @@ def scrivi_excel(card, output_path):
 
     wb = load_workbook(output_path)
     ws = wb[OUTPUT_SHEET]
-
-    for row_idx in range(2, ws.max_row + 1):
-        giorni = giorni_tra_date(
-            ws.cell(row=row_idx, column=5).value,
-            ws.cell(row=row_idx, column=6).value,
-        )
-        ws.cell(row=row_idx, column=COL_GIORNI).value = giorni
-
     formatta_foglio_card(ws)
     wb.save(output_path)
 
