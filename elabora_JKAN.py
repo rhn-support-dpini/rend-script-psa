@@ -2,20 +2,26 @@
 elabora_JKAN.py — Estrae le card dalla Kanban MIRO "JBOSS-Barison"
 
 Legge un export CSV di una board MIRO, individua la sezione Kanban con quel nome
-e produce un file Excel con una riga per card.
+e produce un file Excel con una riga per card (espansa per tag temporali in Description).
 
 Utilizzo:
-    python elabora_JKAN.py [input.csv] [output.xlsx]
+    python elabora_JKAN.py [input.csv]
 
-    Default: input=2026-06-06-WIP.csv, output=elaborato_JKAN.xlsx
+    Default: input=2026-06-06-WIP.csv
+    Output: stesso percorso e nome del CSV con estensione .xlsx
+    Le righe Description con prefisso "#" generano righe replicate; colonne
+    aggiuntive in coda: Giorni (Start Date → End Date) e TAG Temporali (testo tag).
 """
 
 import csv
 import os
 import re
 import sys
+from datetime import datetime
 
 import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.styles import Alignment
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -31,13 +37,21 @@ KANBAN_COLUMNS = [
     "Priority",
     "Tags",
 ]
+GIORNI_COL = "Giorni"
+TAG_TEMPORALI_COL = "TAG Temporali"
 OUTPUT_SHEET = "data"
+CENTER_COLS = {3, 4, 7}  # C=Status, D=Assignee, G=Estimate
 
 
 def risolvi_percorso(nome_o_path):
     if os.path.isabs(nome_o_path):
         return nome_o_path
     return os.path.normpath(os.path.join(SCRIPT_DIR, nome_o_path))
+
+
+def percorso_output_da_csv(input_path):
+    base, _ = os.path.splitext(input_path)
+    return base + ".xlsx"
 
 
 def normalizza_testo(valore, compatta_spazi=False):
@@ -177,15 +191,103 @@ def estrai_card_kanban(rows, kanban_name=KANBAN_NAME):
     return nome_sezione, card
 
 
+def estrai_tag_temporali(description):
+    """Restituisce le righe di Description che iniziano con '#'."""
+    if not description:
+        return []
+    tag = []
+    for line in str(description).splitlines():
+        if line.lstrip().startswith("#"):
+            tag.append(line.strip())
+    return tag
+
+
+def parse_data(valore):
+    if valore is None:
+        return None
+    testo = normalizza_testo(valore)
+    if not testo:
+        return None
+
+    if isinstance(valore, datetime):
+        return valore.date()
+
+    iso = re.match(
+        r"^(\d{4})-(\d{2})-(\d{2})",
+        testo,
+    )
+    if iso:
+        return datetime(int(iso.group(1)), int(iso.group(2)), int(iso.group(3))).date()
+
+    for fmt in ("%d/%m/%Y", "%d/%m/%y"):
+        try:
+            return datetime.strptime(testo, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def giorni_tra_date(start_date, end_date):
+    start = parse_data(start_date)
+    end = parse_data(end_date)
+    if start is None or end is None:
+        return ""
+    return (end - start).days
+
+
+def espandi_card_con_tag(card):
+    """Replica ogni card per tag temporale; aggiunge colonna TAG Temporali."""
+    righe = []
+    for record in card:
+        tag_list = estrai_tag_temporali(record.get("Description", ""))
+        giorni = giorni_tra_date(record.get("Start Date"), record.get("End Date"))
+        if not tag_list:
+            nuova = dict(record)
+            nuova[GIORNI_COL] = giorni
+            nuova[TAG_TEMPORALI_COL] = ""
+            righe.append(nuova)
+            continue
+        for tag in tag_list:
+            nuova = dict(record)
+            nuova[GIORNI_COL] = giorni
+            nuova[TAG_TEMPORALI_COL] = tag
+            righe.append(nuova)
+    return righe
+
+
+def colonne_output():
+    return KANBAN_COLUMNS + [GIORNI_COL, TAG_TEMPORALI_COL]
+
+
 def scrivi_excel(card, output_path):
-    df = pd.DataFrame(card, columns=KANBAN_COLUMNS)
+    righe = espandi_card_con_tag(card)
+    df = pd.DataFrame(righe, columns=colonne_output())
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         df.to_excel(writer, sheet_name=OUTPUT_SHEET, index=False)
 
+    wb = load_workbook(output_path)
+    ws = wb[OUTPUT_SHEET]
+    center = Alignment(horizontal="center", vertical="center")
+    middle = Alignment(vertical="center")
 
-def elabora(input_csv, output_xlsx):
+    for row in ws.iter_rows(
+        min_row=1,
+        max_row=ws.max_row,
+        min_col=1,
+        max_col=ws.max_column,
+    ):
+        for cell in row:
+            if cell.column in CENTER_COLS:
+                cell.alignment = center
+            else:
+                cell.alignment = middle
+
+    wb.save(output_path)
+
+
+def elabora(input_csv):
     input_path = risolvi_percorso(input_csv)
-    output_path = risolvi_percorso(output_xlsx)
+    output_path = percorso_output_da_csv(input_path)
 
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"File di input non trovato: {input_path}")
@@ -199,16 +301,17 @@ def elabora(input_csv, output_xlsx):
         )
 
     scrivi_excel(card, output_path)
-    print(f'Kanban: {nome_sezione}')
-    print(f'Card estratte: {len(card)}')
-    print(f'Output: {output_path}')
+    righe_output = len(espandi_card_con_tag(card))
+    print(f"Kanban: {nome_sezione}")
+    print(f"Card estratte: {len(card)}")
+    print(f"Righe output: {righe_output}")
+    print(f"Output: {output_path}")
 
 
 def main():
     argv = sys.argv[1:]
     input_csv = argv[0] if len(argv) >= 1 else "2026-06-06-WIP.csv"
-    output_xlsx = argv[1] if len(argv) >= 2 else "elaborato_JKAN.xlsx"
-    elabora(input_csv, output_xlsx)
+    elabora(input_csv)
 
 
 if __name__ == "__main__":
