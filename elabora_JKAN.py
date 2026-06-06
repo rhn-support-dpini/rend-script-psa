@@ -9,8 +9,9 @@ Utilizzo:
 
     Default: input=2026-06-06-WIP.csv
     Output: stesso percorso e nome del CSV con estensione .xlsx
-    Le righe Description con prefisso "#" generano righe replicate; colonne
-    aggiuntive in coda: Giorni (Start Date → End Date) e TAG Temporali (testo tag).
+    Le righe Description con prefisso "#" generano sotto-righe da colonna J;
+    A–I sono merge verticali per Title, con bordo rosso pastello per card.
+    Colonne J (Giorni = End Date − Start Date) e K (TAG Temporali).
 """
 
 import csv
@@ -21,7 +22,7 @@ from datetime import datetime
 
 import pandas as pd
 from openpyxl import load_workbook
-from openpyxl.styles import Alignment
+from openpyxl.styles import Alignment, Border, Side
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -41,6 +42,11 @@ GIORNI_COL = "Giorni"
 TAG_TEMPORALI_COL = "TAG Temporali"
 OUTPUT_SHEET = "data"
 CENTER_COLS = {3, 4, 7}  # C=Status, D=Assignee, G=Estimate
+COL_CARD_END = 9  # A–I: dati card (merge verticali per Title)
+COL_GIORNI = 10  # J
+COL_TAG = 11  # K
+COL_LAST = 11
+PASTEL_RED_BORDER = Side(style="medium", color="E8A0A0")
 
 
 def risolvi_percorso(nome_o_path):
@@ -231,7 +237,7 @@ def giorni_tra_date(start_date, end_date):
     start = parse_data(start_date)
     end = parse_data(end_date)
     if start is None or end is None:
-        return ""
+        return None
     return (end - start).days
 
 
@@ -259,6 +265,71 @@ def colonne_output():
     return KANBAN_COLUMNS + [GIORNI_COL, TAG_TEMPORALI_COL]
 
 
+def gruppi_righe_per_title(ws):
+    """Raggruppa righe dati (dalla 2) consecutivi con stesso Title in colonna A."""
+    gruppi = []
+    max_row = ws.max_row
+    if max_row < 2:
+        return gruppi
+
+    row = 2
+    while row <= max_row:
+        title = ws.cell(row=row, column=1).value
+        start = row
+        while row + 1 <= max_row and ws.cell(row=row + 1, column=1).value == title:
+            row += 1
+        gruppi.append((start, row))
+        row += 1
+    return gruppi
+
+
+def applica_bordo_gruppo(ws, min_row, max_row, min_col, max_col, side):
+    """Applica un bordo perimetrale al rettangolo di celle indicato."""
+    for row in range(min_row, max_row + 1):
+        for col in range(min_col, max_col + 1):
+            cell = ws.cell(row=row, column=col)
+            border = Border(
+                left=side if col == min_col else None,
+                right=side if col == max_col else None,
+                top=side if row == min_row else None,
+                bottom=side if row == max_row else None,
+            )
+            cell.border = border
+
+
+def formatta_foglio_card(ws):
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    middle = Alignment(vertical="center", wrap_text=True)
+
+    for row in ws.iter_rows(
+        min_row=1,
+        max_row=ws.max_row,
+        min_col=1,
+        max_col=COL_LAST,
+    ):
+        for cell in row:
+            if cell.row == 1 or cell.column in CENTER_COLS:
+                cell.alignment = center
+            else:
+                cell.alignment = middle
+
+    for start, end in gruppi_righe_per_title(ws):
+        if end > start:
+            for col in range(1, COL_CARD_END + 1):
+                ws.merge_cells(
+                    start_row=start,
+                    start_column=col,
+                    end_row=end,
+                    end_column=col,
+                )
+                merged = ws.cell(row=start, column=col)
+                if col in CENTER_COLS:
+                    merged.alignment = center
+                else:
+                    merged.alignment = middle
+        applica_bordo_gruppo(ws, start, end, 1, COL_LAST, PASTEL_RED_BORDER)
+
+
 def scrivi_excel(card, output_path):
     righe = espandi_card_con_tag(card)
     df = pd.DataFrame(righe, columns=colonne_output())
@@ -267,21 +338,15 @@ def scrivi_excel(card, output_path):
 
     wb = load_workbook(output_path)
     ws = wb[OUTPUT_SHEET]
-    center = Alignment(horizontal="center", vertical="center")
-    middle = Alignment(vertical="center")
 
-    for row in ws.iter_rows(
-        min_row=1,
-        max_row=ws.max_row,
-        min_col=1,
-        max_col=ws.max_column,
-    ):
-        for cell in row:
-            if cell.column in CENTER_COLS:
-                cell.alignment = center
-            else:
-                cell.alignment = middle
+    for row_idx in range(2, ws.max_row + 1):
+        giorni = giorni_tra_date(
+            ws.cell(row=row_idx, column=5).value,
+            ws.cell(row=row_idx, column=6).value,
+        )
+        ws.cell(row=row_idx, column=COL_GIORNI).value = giorni
 
+    formatta_foglio_card(ws)
     wb.save(output_path)
 
 
