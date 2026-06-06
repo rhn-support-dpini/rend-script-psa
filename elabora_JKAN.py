@@ -12,6 +12,7 @@ Utilizzo:
     Le righe Description con prefisso "#" generano sotto-righe da colonna K;
     A–J sono merge verticali per Title, con bordo rosso pastello per card.
     Colonna J (Tags, somma Giorni), K (Giorni), L (TAG Temporali); sfondo J vs Estimate.
+    Giorni: se manca la 2ª data si usa oggi, eccetto tag Done (solo chiusura).
 """
 
 import csv
@@ -253,11 +254,21 @@ def estrai_date_da_tag(tag):
     return date
 
 
-def giorni_da_tag_temporale(tag, tag_successivo=None):
+def is_tag_done(tag):
+    if not tag:
+        return False
+    return bool(re.search(r"\bdone\b", str(tag), re.IGNORECASE))
+
+
+def giorni_da_tag_temporale(tag, tag_successivo=None, data_oggi=None):
     """
     Giorni tra la prima e la seconda data nel TAG Temporale.
-    Se nel tag c'è una sola data, usa la prima data del tag successivo (stessa card).
+    Con una sola data usa il tag successivo; se assente usa la data odierna,
+    tranne per i tag Done che hanno solo la data di chiusura.
     """
+    if data_oggi is None:
+        data_oggi = datetime.now().date()
+
     date = estrai_date_da_tag(tag)
     if len(date) >= 2:
         return (date[1] - date[0]).days
@@ -265,6 +276,8 @@ def giorni_da_tag_temporale(tag, tag_successivo=None):
         date_succ = estrai_date_da_tag(tag_successivo)
         if date and date_succ:
             return (date_succ[0] - date[0]).days
+    if date and not is_tag_done(tag):
+        return (data_oggi - date[0]).days
     return None
 
 
