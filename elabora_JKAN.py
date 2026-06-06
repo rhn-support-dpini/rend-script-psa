@@ -11,7 +11,7 @@ Utilizzo:
     Output: stesso percorso e nome del CSV con estensione .xlsx
     Le righe Description con prefisso "#" generano sotto-righe da colonna K;
     A–J sono merge verticali per Title, con bordo rosso pastello per card.
-    Colonna J (Tags, somma Giorni), K (Giorni), L (TAG Temporali); sfondo J vs Estimate.
+    Colonna J (Period SUM), K (Giorni), L (TAG Temporali); fogli stat e graph.
     Giorni: se manca la 2ª data si usa oggi, eccetto tag Done (solo chiusura).
 """
 
@@ -19,10 +19,12 @@ import csv
 import os
 import re
 import sys
+from collections import Counter
 from datetime import datetime
 
 import pandas as pd
 from openpyxl import load_workbook
+from openpyxl.chart import BarChart, Reference
 from openpyxl.styles import Alignment, Border, PatternFill, Side
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -42,8 +44,10 @@ KANBAN_COLUMNS = [
 GIORNI_COL = "Giorni"
 TAG_TEMPORALI_COL = "TAG Temporali"
 TAGS_SUM_COL = "Tags_sum"
-TAGS_HEADER = "Tags"
+PERIOD_SUM_HEADER = "Period SUM"
 OUTPUT_SHEET = "data"
+STAT_SHEET = "stat"
+GRAPH_SHEET = "graph"
 CENTER_COLS = {3, 4, 7}  # C=Status, D=Assignee, G=Estimate
 COL_ESTIMATE = 7  # G
 COL_TAGS_ORIG = 9  # I
@@ -381,6 +385,7 @@ def applica_bordo_gruppo(ws, min_row, max_row, min_col, max_col, side):
 def formatta_foglio_card(ws):
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
     middle = Alignment(vertical="center", wrap_text=True)
+    gruppi = gruppi_righe_per_title(ws)
 
     for row in ws.iter_rows(
         min_row=1,
@@ -394,7 +399,7 @@ def formatta_foglio_card(ws):
             else:
                 cell.alignment = middle
 
-    for start, end in gruppi_righe_per_title(ws):
+    for start, end in gruppi:
         if end > start:
             for col in range(1, COL_CARD_END + 1):
                 ws.merge_cells(
@@ -411,6 +416,122 @@ def formatta_foglio_card(ws):
         applica_totale_tags_e_colore(ws, start, end)
         applica_bordo_gruppo(ws, start, end, 1, COL_LAST, PASTEL_RED_BORDER)
 
+    return gruppi
+
+
+def riepilogo_da_gruppi(ws, gruppi):
+    riepilogo = []
+    for start, _end in gruppi:
+        riepilogo.append(
+            {
+                "title": normalizza_testo(ws.cell(row=start, column=1).value),
+                "status": normalizza_testo(ws.cell(row=start, column=3).value),
+                "estimate": parse_numero(ws.cell(row=start, column=COL_ESTIMATE).value),
+                "period_sum": parse_numero(
+                    ws.cell(row=start, column=COL_TAGS_SUM).value
+                ),
+            }
+        )
+    return riepilogo
+
+
+def tempo_mancante(estimate, period_sum):
+    if estimate is None or period_sum is None:
+        return None
+    return max(0.0, estimate - period_sum)
+
+
+def aggiungi_footer_data(ws, gruppi):
+    center = Alignment(horizontal="center", vertical="center")
+    data_last = ws.max_row
+    totals_row = data_last + 2
+    ts_row = data_last + 3
+
+    tot_estimate = 0.0
+    tot_period = 0.0
+    ha_estimate = False
+    ha_period = False
+    for start, _end in gruppi:
+        estimate = parse_numero(ws.cell(row=start, column=COL_ESTIMATE).value)
+        period_sum = parse_numero(ws.cell(row=start, column=COL_TAGS_SUM).value)
+        if estimate is not None:
+            tot_estimate += estimate
+            ha_estimate = True
+        if period_sum is not None:
+            tot_period += period_sum
+            ha_period = True
+
+    ws.cell(row=totals_row, column=1).value = len(gruppi)
+    ws.cell(row=totals_row, column=1).alignment = center
+    if ha_estimate:
+        ws.cell(row=totals_row, column=COL_ESTIMATE).value = tot_estimate
+        ws.cell(row=totals_row, column=COL_ESTIMATE).alignment = center
+    if ha_period:
+        ws.cell(row=totals_row, column=COL_TAGS_SUM).value = tot_period
+        ws.cell(row=totals_row, column=COL_TAGS_SUM).alignment = center
+
+    ws.cell(row=ts_row, column=1).value = datetime.now().strftime(
+        "%d/%m/%Y %H:%M:%S"
+    )
+
+
+def crea_foglio_stat(wb, riepilogo):
+    ws = wb.create_sheet(STAT_SHEET)
+    center = Alignment(horizontal="center", vertical="center")
+    ws.cell(row=1, column=1).value = "Status"
+    ws.cell(row=1, column=2).value = "Conteggio"
+    ws.cell(row=1, column=1).alignment = center
+    ws.cell(row=1, column=2).alignment = center
+
+    conteggi = Counter(
+        r["status"] if r["status"] else "(vuoto)" for r in riepilogo
+    )
+    for idx, (status, count) in enumerate(sorted(conteggi.items()), start=2):
+        ws.cell(row=idx, column=1).value = status
+        ws.cell(row=idx, column=2).value = count
+        ws.cell(row=idx, column=1).alignment = center
+        ws.cell(row=idx, column=2).alignment = center
+
+
+def crea_foglio_graph(wb, riepilogo):
+    ws = wb.create_sheet(GRAPH_SHEET)
+    center = Alignment(horizontal="center", vertical="center")
+    ws.cell(row=1, column=1).value = "Acronimo"
+    ws.cell(row=1, column=2).value = "Tempo mancante"
+    ws.cell(row=1, column=1).alignment = center
+    ws.cell(row=1, column=2).alignment = center
+
+    dati = []
+    for r in riepilogo:
+        if not r["title"]:
+            continue
+        mancante = tempo_mancante(r["estimate"], r["period_sum"])
+        dati.append((r["title"], mancante if mancante is not None else 0))
+
+    if not dati:
+        return
+
+    for idx, (title, mancante) in enumerate(dati, start=2):
+        ws.cell(row=idx, column=1).value = title
+        ws.cell(row=idx, column=2).value = mancante
+        ws.cell(row=idx, column=1).alignment = center
+        ws.cell(row=idx, column=2).alignment = center
+
+    last_row = len(dati) + 1
+    chart = BarChart()
+    chart.type = "col"
+    chart.title = "Tempo mancante per acronimo"
+    chart.y_axis.title = "Giorni"
+    chart.x_axis.title = "Acronimo"
+    chart.height = 12
+    chart.width = 20
+
+    data_ref = Reference(ws, min_col=2, min_row=1, max_row=last_row)
+    cats_ref = Reference(ws, min_col=1, min_row=2, max_row=last_row)
+    chart.add_data(data_ref, titles_from_data=True)
+    chart.set_categories(cats_ref)
+    ws.add_chart(chart, "D2")
+
 
 def scrivi_excel(card, output_path):
     righe = espandi_card_con_tag(card)
@@ -420,8 +541,12 @@ def scrivi_excel(card, output_path):
 
     wb = load_workbook(output_path)
     ws = wb[OUTPUT_SHEET]
-    ws.cell(row=1, column=COL_TAGS_SUM).value = TAGS_HEADER
-    formatta_foglio_card(ws)
+    ws.cell(row=1, column=COL_TAGS_SUM).value = PERIOD_SUM_HEADER
+    gruppi = formatta_foglio_card(ws)
+    riepilogo = riepilogo_da_gruppi(ws, gruppi)
+    aggiungi_footer_data(ws, gruppi)
+    crea_foglio_stat(wb, riepilogo)
+    crea_foglio_graph(wb, riepilogo)
     wb.save(output_path)
 
 
