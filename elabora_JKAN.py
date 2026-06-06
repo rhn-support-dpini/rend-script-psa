@@ -9,9 +9,9 @@ Utilizzo:
 
     Default: input=2026-06-06-WIP.csv
     Output: stesso percorso e nome del CSV con estensione .xlsx
-    Le righe Description con prefisso "#" generano sotto-righe da colonna J;
-    A–I sono merge verticali per Title, con bordo rosso pastello per card.
-    Colonne J (Giorni = diff. tra 1ª e 2ª data nel TAG Temporali) e K (TAG Temporali).
+    Le righe Description con prefisso "#" generano sotto-righe da colonna K;
+    A–J sono merge verticali per Title, con bordo rosso pastello per card.
+    Colonna J (Tags, somma Giorni), K (Giorni), L (TAG Temporali); sfondo J vs Estimate.
 """
 
 import csv
@@ -22,7 +22,7 @@ from datetime import datetime
 
 import pandas as pd
 from openpyxl import load_workbook
-from openpyxl.styles import Alignment, Border, Side
+from openpyxl.styles import Alignment, Border, PatternFill, Side
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -40,13 +40,20 @@ KANBAN_COLUMNS = [
 ]
 GIORNI_COL = "Giorni"
 TAG_TEMPORALI_COL = "TAG Temporali"
+TAGS_SUM_COL = "Tags_sum"
+TAGS_HEADER = "Tags"
 OUTPUT_SHEET = "data"
 CENTER_COLS = {3, 4, 7}  # C=Status, D=Assignee, G=Estimate
-COL_CARD_END = 9  # A–I: dati card (merge verticali per Title)
-COL_GIORNI = 10  # J
-COL_TAG = 11  # K
-COL_LAST = 11
+COL_ESTIMATE = 7  # G
+COL_TAGS_ORIG = 9  # I
+COL_TAGS_SUM = 10  # J: Tags (somma Giorni)
+COL_CARD_END = 10  # A–J: dati card (merge verticali per Title)
+COL_GIORNI = 11  # K
+COL_TAG = 12  # L
+COL_LAST = 12
 PASTEL_RED_BORDER = Side(style="medium", color="E8A0A0")
+PASTEL_GREEN_FILL = PatternFill(fill_type="solid", fgColor="D9EAD3")
+PASTEL_RED_FILL = PatternFill(fill_type="solid", fgColor="FFEBEE")
 DATE_IN_TAG_RE = re.compile(r"(\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2})")
 
 
@@ -261,6 +268,18 @@ def giorni_da_tag_temporale(tag, tag_successivo=None):
     return None
 
 
+def parse_numero(valore):
+    if valore is None or valore == "":
+        return None
+    if isinstance(valore, (int, float)):
+        return float(valore)
+    testo = normalizza_testo(valore).replace(",", ".")
+    try:
+        return float(testo)
+    except ValueError:
+        return None
+
+
 def espandi_card_con_tag(card):
     """Replica ogni card per tag temporale; aggiunge colonne Giorni e TAG Temporali."""
     righe = []
@@ -268,6 +287,7 @@ def espandi_card_con_tag(card):
         tag_list = estrai_tag_temporali(record.get("Description", ""))
         if not tag_list:
             nuova = dict(record)
+            nuova[TAGS_SUM_COL] = None
             nuova[GIORNI_COL] = None
             nuova[TAG_TEMPORALI_COL] = ""
             righe.append(nuova)
@@ -275,6 +295,7 @@ def espandi_card_con_tag(card):
         for i, tag in enumerate(tag_list):
             tag_next = tag_list[i + 1] if i + 1 < len(tag_list) else None
             nuova = dict(record)
+            nuova[TAGS_SUM_COL] = None
             nuova[GIORNI_COL] = giorni_da_tag_temporale(tag, tag_next)
             nuova[TAG_TEMPORALI_COL] = tag
             righe.append(nuova)
@@ -282,7 +303,34 @@ def espandi_card_con_tag(card):
 
 
 def colonne_output():
-    return KANBAN_COLUMNS + [GIORNI_COL, TAG_TEMPORALI_COL]
+    return KANBAN_COLUMNS + [TAGS_SUM_COL, GIORNI_COL, TAG_TEMPORALI_COL]
+
+
+def somma_giorni_gruppo(ws, start, end):
+    totale = 0.0
+    ha_valori = False
+    for row in range(start, end + 1):
+        val = parse_numero(ws.cell(row=row, column=COL_GIORNI).value)
+        if val is not None:
+            totale += val
+            ha_valori = True
+    return totale if ha_valori else None
+
+
+def applica_totale_tags_e_colore(ws, start, end):
+    somma = somma_giorni_gruppo(ws, start, end)
+    cella = ws.cell(row=start, column=COL_TAGS_SUM)
+    cella.value = somma
+    cella.alignment = Alignment(horizontal="center", vertical="center")
+
+    estimate = parse_numero(ws.cell(row=start, column=COL_ESTIMATE).value)
+    if estimate is None or somma is None:
+        return
+
+    if estimate >= somma:
+        cella.fill = PASTEL_GREEN_FILL
+    else:
+        cella.fill = PASTEL_RED_FILL
 
 
 def gruppi_righe_per_title(ws):
@@ -347,6 +395,7 @@ def formatta_foglio_card(ws):
                     merged.alignment = center
                 else:
                     merged.alignment = middle
+        applica_totale_tags_e_colore(ws, start, end)
         applica_bordo_gruppo(ws, start, end, 1, COL_LAST, PASTEL_RED_BORDER)
 
 
@@ -358,6 +407,7 @@ def scrivi_excel(card, output_path):
 
     wb = load_workbook(output_path)
     ws = wb[OUTPUT_SHEET]
+    ws.cell(row=1, column=COL_TAGS_SUM).value = TAGS_HEADER
     formatta_foglio_card(ws)
     wb.save(output_path)
 
