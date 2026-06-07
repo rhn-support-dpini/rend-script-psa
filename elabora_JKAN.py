@@ -9,9 +9,10 @@ Utilizzo:
 
     Default: input=2026-06-06-WIP.csv
     Output: stesso percorso e nome del CSV con estensione .xlsx
-    Le righe Description con prefisso "#" generano sotto-righe da colonna K;
-    A–J sono merge verticali per Title, con bordo rosso pastello per card.
-    Colonna J (Period SUM), K (Giorni), L (TAG Temporali); fogli stat e graph.
+    Le righe Description con prefisso "#" generano sotto-righe da colonna L;
+    A–K sono merge verticali per Title, con bordo rosso pastello per card.
+    Colonna J (Totale Lavorazione), K (Period SUM), L (Giorni), M (TAG Temporali).
+    Period SUM: somma Giorni con tag "in Progress"; Totale Lavorazione: tag "Lavorazione".
     Colonna G (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
     Giorni: se manca la 2ª data si usa oggi, eccetto tag Done (solo chiusura).
 """
@@ -44,19 +45,28 @@ KANBAN_COLUMNS = [
 ]
 GIORNI_COL = "Giorni"
 TAG_TEMPORALI_COL = "TAG Temporali"
+TOTALE_LAVORAZIONE_COL = "Totale Lavorazione"
 TAGS_SUM_COL = "Tags_sum"
 PERIOD_SUM_HEADER = "Period SUM"
 OUTPUT_SHEET = "data"
 STAT_SHEET = "stat"
 GRAPH_SHEET = "graph"
-CENTER_COLS = {3, 4, 7}  # C=Status, D=Assignee, G=Estimate
+CENTER_COLS = {3, 4, 7, 10, 11}  # C, D, G, J, K
 COL_ESTIMATE = 7  # G
 COL_TAGS_ORIG = 9  # I
-COL_TAGS_SUM = 10  # J: Tags (somma Giorni)
-COL_CARD_END = 10  # A–J: dati card (merge verticali per Title)
-COL_GIORNI = 11  # K
-COL_TAG = 12  # L
-COL_LAST = 12
+COL_TOTALE_LAVORAZIONE = 10  # J
+COL_TAGS_SUM = 11  # K: Period SUM
+COL_CARD_END = 11  # A–K: dati card (merge verticali per Title)
+COL_GIORNI = 12  # L
+COL_TAG = 13  # M
+COL_LAST = 13
+LEGENDA_COLONNE = [
+    "A–I: dati card",
+    "J: Totale Lavorazione (merge per card)",
+    "K: Period SUM (merge per card)",
+    "L: Giorni (per riga tag)",
+    "M: TAG Temporali (per riga tag)",
+]
 PASTEL_RED_BORDER = Side(style="medium", color="E8A0A0")
 PASTEL_GREEN_FILL = PatternFill(fill_type="solid", fgColor="D9EAD3")
 PASTEL_RED_FILL = PatternFill(fill_type="solid", fgColor="FFEBEE")
@@ -284,6 +294,18 @@ def is_tag_done(tag):
     return bool(re.search(r"\bdone\b", str(tag), re.IGNORECASE))
 
 
+def tag_contiene_in_progress(tag):
+    if not tag:
+        return False
+    return bool(re.search(r"\bin progress\b", str(tag), re.IGNORECASE))
+
+
+def tag_contiene_lavorazione(tag):
+    if not tag:
+        return False
+    return bool(re.search(r"\blavorazione\b", str(tag), re.IGNORECASE))
+
+
 def giorni_da_tag_temporale(tag, tag_successivo=None, data_oggi=None):
     """
     Giorni tra la prima e la seconda data nel TAG Temporale.
@@ -332,6 +354,7 @@ def espandi_card_con_tag(card):
         ]
         if not tag_list:
             nuova = dict(nuova_base)
+            nuova[TOTALE_LAVORAZIONE_COL] = None
             nuova[TAGS_SUM_COL] = None
             nuova[GIORNI_COL] = None
             nuova[TAG_TEMPORALI_COL] = ""
@@ -340,6 +363,7 @@ def espandi_card_con_tag(card):
         for i, tag in enumerate(tag_list):
             tag_next = tag_list[i + 1] if i + 1 < len(tag_list) else None
             nuova = dict(nuova_base)
+            nuova[TOTALE_LAVORAZIONE_COL] = None
             nuova[TAGS_SUM_COL] = None
             nuova[GIORNI_COL] = giorni_da_tag_temporale(tag, tag_next)
             nuova[TAG_TEMPORALI_COL] = tag
@@ -348,13 +372,21 @@ def espandi_card_con_tag(card):
 
 
 def colonne_output():
-    return KANBAN_COLUMNS + [TAGS_SUM_COL, GIORNI_COL, TAG_TEMPORALI_COL]
+    return KANBAN_COLUMNS + [
+        TOTALE_LAVORAZIONE_COL,
+        TAGS_SUM_COL,
+        GIORNI_COL,
+        TAG_TEMPORALI_COL,
+    ]
 
 
-def somma_giorni_gruppo(ws, start, end):
+def somma_giorni_gruppo(ws, start, end, filtro_tag=None):
     totale = 0.0
     ha_valori = False
     for row in range(start, end + 1):
+        tag = ws.cell(row=row, column=COL_TAG).value
+        if filtro_tag is not None and not filtro_tag(tag):
+            continue
         val = parse_numero(ws.cell(row=row, column=COL_GIORNI).value)
         if val is not None:
             totale += val
@@ -362,11 +394,20 @@ def somma_giorni_gruppo(ws, start, end):
     return totale if ha_valori else None
 
 
-def applica_totale_tags_e_colore(ws, start, end):
-    somma = somma_giorni_gruppo(ws, start, end)
+def applica_totali_gruppo(ws, start, end):
+    center = Alignment(horizontal="center", vertical="center")
+
+    tot_lavorazione = somma_giorni_gruppo(
+        ws, start, end, tag_contiene_lavorazione
+    )
+    cella_lav = ws.cell(row=start, column=COL_TOTALE_LAVORAZIONE)
+    cella_lav.value = tot_lavorazione
+    cella_lav.alignment = center
+
+    somma = somma_giorni_gruppo(ws, start, end, tag_contiene_in_progress)
     cella = ws.cell(row=start, column=COL_TAGS_SUM)
     cella.value = somma
-    cella.alignment = Alignment(horizontal="center", vertical="center")
+    cella.alignment = center
 
     estimate = parse_numero(ws.cell(row=start, column=COL_ESTIMATE).value)
     if estimate is None or somma is None:
@@ -441,7 +482,7 @@ def formatta_foglio_card(ws):
                     merged.alignment = center
                 else:
                     merged.alignment = middle
-        applica_totale_tags_e_colore(ws, start, end)
+        applica_totali_gruppo(ws, start, end)
         applica_bordo_gruppo(ws, start, end, 1, COL_LAST, PASTEL_RED_BORDER)
 
     return gruppi
@@ -472,19 +513,29 @@ def tempo_mancante(estimate, period_sum):
 def aggiungi_footer_data(ws, gruppi):
     center = Alignment(horizontal="center", vertical="center")
     data_last = ws.max_row
-    totals_row = data_last + 2
-    ts_row = data_last + 3
+    legend_start = data_last + 2
+    aggiungi_legenda_colonne(ws, legend_start)
+    totals_row = legend_start + len(LEGENDA_COLONNE)
+    ts_row = totals_row + 1
 
     tot_estimate = 0.0
+    tot_lavorazione = 0.0
     tot_period = 0.0
     ha_estimate = False
+    ha_lavorazione = False
     ha_period = False
     for start, _end in gruppi:
         estimate = parse_numero(ws.cell(row=start, column=COL_ESTIMATE).value)
+        lavorazione = parse_numero(
+            ws.cell(row=start, column=COL_TOTALE_LAVORAZIONE).value
+        )
         period_sum = parse_numero(ws.cell(row=start, column=COL_TAGS_SUM).value)
         if estimate is not None:
             tot_estimate += estimate
             ha_estimate = True
+        if lavorazione is not None:
+            tot_lavorazione += lavorazione
+            ha_lavorazione = True
         if period_sum is not None:
             tot_period += period_sum
             ha_period = True
@@ -494,6 +545,9 @@ def aggiungi_footer_data(ws, gruppi):
     if ha_estimate:
         ws.cell(row=totals_row, column=COL_ESTIMATE).value = tot_estimate
         ws.cell(row=totals_row, column=COL_ESTIMATE).alignment = center
+    if ha_lavorazione:
+        ws.cell(row=totals_row, column=COL_TOTALE_LAVORAZIONE).value = tot_lavorazione
+        ws.cell(row=totals_row, column=COL_TOTALE_LAVORAZIONE).alignment = center
     if ha_period:
         ws.cell(row=totals_row, column=COL_TAGS_SUM).value = tot_period
         ws.cell(row=totals_row, column=COL_TAGS_SUM).alignment = center
@@ -501,6 +555,17 @@ def aggiungi_footer_data(ws, gruppi):
     ws.cell(row=ts_row, column=1).value = datetime.now().strftime(
         "%d/%m/%Y %H:%M:%S"
     )
+
+
+def aggiungi_legenda_colonne(ws, start_row):
+    """Aggiunge la legenda colonne; start_row segue una riga vuota dopo i dati."""
+    left = Alignment(vertical="center", wrap_text=True)
+    row = start_row
+    for testo in LEGENDA_COLONNE:
+        cell = ws.cell(row=row, column=1)
+        cell.value = testo
+        cell.alignment = left
+        row += 1
 
 
 def crea_foglio_stat(wb, riepilogo):
@@ -569,6 +634,7 @@ def scrivi_excel(card, output_path):
 
     wb = load_workbook(output_path)
     ws = wb[OUTPUT_SHEET]
+    ws.cell(row=1, column=COL_TOTALE_LAVORAZIONE).value = TOTALE_LAVORAZIONE_COL
     ws.cell(row=1, column=COL_TAGS_SUM).value = PERIOD_SUM_HEADER
     gruppi = formatta_foglio_card(ws)
     riepilogo = riepilogo_da_gruppi(ws, gruppi)
