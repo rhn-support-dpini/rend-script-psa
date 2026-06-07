@@ -12,7 +12,7 @@ Utilizzo:
     Le righe Description con prefisso "#" generano sotto-righe da colonna L;
     A–K sono merge verticali per Title, con bordo rosso pastello per card.
     Colonna J (Totale Lavorazione), K (Period SUM), L (Giorni), M (TAG Temporali).
-    Period SUM: somma Giorni con tag "in Progress"; Totale Lavorazione: tag "Lavorazione".
+    Period SUM: somma Giorni con tag in Progress; Totale Lavorazione: tag Lavorazione o in Progress.
     Colonna G (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
     Giorni: se manca la 2ª data si usa oggi, eccetto tag Done (solo chiusura).
 """
@@ -62,11 +62,17 @@ COL_TAG = 13  # M
 COL_LAST = 13
 LEGENDA_COLONNE = [
     ("A–I", "", "dati card"),
-    ("J", TOTALE_LAVORAZIONE_COL, "merge per card"),
-    ("K", PERIOD_SUM_HEADER, "merge per card"),
+    (
+        "J",
+        TOTALE_LAVORAZIONE_COL,
+        "totale dei giorni in stato Lavorazione o in Progress",
+    ),
+    ("K", PERIOD_SUM_HEADER, "tempo trascorso dalla prima attivita'"),
     ("L", GIORNI_COL, "per riga tag"),
     ("M", TAG_TEMPORALI_COL, "per riga tag"),
 ]
+LEGENDA_COMMENTO_COL = 3
+LEGENDA_COMMENTO_COL_FIN = 4
 PASTEL_RED_BORDER = Side(style="medium", color="E8A0A0")
 PASTEL_GREEN_FILL = PatternFill(fill_type="solid", fgColor="D9EAD3")
 PASTEL_RED_FILL = PatternFill(fill_type="solid", fgColor="FFEBEE")
@@ -306,6 +312,10 @@ def tag_contiene_lavorazione(tag):
     return bool(re.search(r"\blavorazione\b", str(tag), re.IGNORECASE))
 
 
+def tag_contiene_lavorazione_o_in_progress(tag):
+    return tag_contiene_lavorazione(tag) or tag_contiene_in_progress(tag)
+
+
 def giorni_da_tag_temporale(tag, tag_successivo=None, data_oggi=None):
     """
     Giorni tra la prima e la seconda data nel TAG Temporale.
@@ -394,11 +404,20 @@ def somma_giorni_gruppo(ws, start, end, filtro_tag=None):
     return totale if ha_valori else None
 
 
+def applica_colore_confronto_estimate(cella, estimate, valore):
+    if estimate is None or valore is None:
+        return
+    if estimate >= valore:
+        cella.fill = PASTEL_GREEN_FILL
+    else:
+        cella.fill = PASTEL_RED_FILL
+
+
 def applica_totali_gruppo(ws, start, end):
     center = Alignment(horizontal="center", vertical="center")
 
     tot_lavorazione = somma_giorni_gruppo(
-        ws, start, end, tag_contiene_lavorazione
+        ws, start, end, tag_contiene_lavorazione_o_in_progress
     )
     cella_lav = ws.cell(row=start, column=COL_TOTALE_LAVORAZIONE)
     cella_lav.value = tot_lavorazione
@@ -410,13 +429,8 @@ def applica_totali_gruppo(ws, start, end):
     cella.alignment = center
 
     estimate = parse_numero(ws.cell(row=start, column=COL_ESTIMATE).value)
-    if estimate is None or somma is None:
-        return
-
-    if estimate >= somma:
-        cella.fill = PASTEL_GREEN_FILL
-    else:
-        cella.fill = PASTEL_RED_FILL
+    applica_colore_confronto_estimate(cella_lav, estimate, tot_lavorazione)
+    applica_colore_confronto_estimate(cella, estimate, somma)
 
 
 def gruppi_righe_per_title(ws):
@@ -558,11 +572,12 @@ def aggiungi_footer_data(ws, gruppi):
 
 
 def aggiungi_legenda_colonne(ws, start_row):
-    """Legenda colonne in tre colonne: lettera, titolo, commento."""
-    left = Alignment(vertical="center", wrap_text=True)
-    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    """Legenda colonne: lettera, titolo, commento (C–D senza a capo in C)."""
+    left = Alignment(vertical="center", wrap_text=False)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=False)
+    commento = Alignment(vertical="center", wrap_text=False)
     row = start_row
-    for lettera, titolo, commento in LEGENDA_COLONNE:
+    for lettera, titolo, testo_commento in LEGENDA_COLONNE:
         cell_lettera = ws.cell(row=row, column=1)
         cell_lettera.value = lettera
         cell_lettera.alignment = center
@@ -571,9 +586,15 @@ def aggiungi_legenda_colonne(ws, start_row):
         cell_titolo.value = titolo
         cell_titolo.alignment = left
 
-        cell_commento = ws.cell(row=row, column=3)
-        cell_commento.value = commento
-        cell_commento.alignment = left
+        ws.merge_cells(
+            start_row=row,
+            start_column=LEGENDA_COMMENTO_COL,
+            end_row=row,
+            end_column=LEGENDA_COMMENTO_COL_FIN,
+        )
+        cell_commento = ws.cell(row=row, column=LEGENDA_COMMENTO_COL)
+        cell_commento.value = testo_commento
+        cell_commento.alignment = commento
         row += 1
 
 
