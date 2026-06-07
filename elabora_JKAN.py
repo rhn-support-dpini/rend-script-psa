@@ -61,11 +61,11 @@ COL_GIORNI = 12  # L
 COL_TAG = 13  # M
 COL_LAST = 13
 LEGENDA_COLONNE = [
-    "A–I: dati card",
-    "J: Totale Lavorazione (merge per card)",
-    "K: Period SUM (merge per card)",
-    "L: Giorni (per riga tag)",
-    "M: TAG Temporali (per riga tag)",
+    ("A–I", "", "dati card"),
+    ("J", TOTALE_LAVORAZIONE_COL, "merge per card"),
+    ("K", PERIOD_SUM_HEADER, "merge per card"),
+    ("L", GIORNI_COL, "per riga tag"),
+    ("M", TAG_TEMPORALI_COL, "per riga tag"),
 ]
 PASTEL_RED_BORDER = Side(style="medium", color="E8A0A0")
 PASTEL_GREEN_FILL = PatternFill(fill_type="solid", fgColor="D9EAD3")
@@ -513,10 +513,9 @@ def tempo_mancante(estimate, period_sum):
 def aggiungi_footer_data(ws, gruppi):
     center = Alignment(horizontal="center", vertical="center")
     data_last = ws.max_row
-    legend_start = data_last + 2
-    aggiungi_legenda_colonne(ws, legend_start)
-    totals_row = legend_start + len(LEGENDA_COLONNE)
+    totals_row = data_last + 2
     ts_row = totals_row + 1
+    legend_start = ts_row + 2
 
     tot_estimate = 0.0
     tot_lavorazione = 0.0
@@ -555,16 +554,26 @@ def aggiungi_footer_data(ws, gruppi):
     ws.cell(row=ts_row, column=1).value = datetime.now().strftime(
         "%d/%m/%Y %H:%M:%S"
     )
+    aggiungi_legenda_colonne(ws, legend_start)
 
 
 def aggiungi_legenda_colonne(ws, start_row):
-    """Aggiunge la legenda colonne; start_row segue una riga vuota dopo i dati."""
+    """Legenda colonne in tre colonne: lettera, titolo, commento."""
     left = Alignment(vertical="center", wrap_text=True)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
     row = start_row
-    for testo in LEGENDA_COLONNE:
-        cell = ws.cell(row=row, column=1)
-        cell.value = testo
-        cell.alignment = left
+    for lettera, titolo, commento in LEGENDA_COLONNE:
+        cell_lettera = ws.cell(row=row, column=1)
+        cell_lettera.value = lettera
+        cell_lettera.alignment = center
+
+        cell_titolo = ws.cell(row=row, column=2)
+        cell_titolo.value = titolo
+        cell_titolo.alignment = left
+
+        cell_commento = ws.cell(row=row, column=3)
+        cell_commento.value = commento
+        cell_commento.alignment = left
         row += 1
 
 
