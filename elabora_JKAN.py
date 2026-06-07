@@ -12,6 +12,7 @@ Utilizzo:
     Le righe Description con prefisso "#" generano sotto-righe da colonna K;
     A–J sono merge verticali per Title, con bordo rosso pastello per card.
     Colonna J (Period SUM), K (Giorni), L (TAG Temporali); fogli stat e graph.
+    Colonna G (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
     Giorni: se manca la 2ª data si usa oggi, eccetto tag Done (solo chiusura).
 """
 
@@ -60,6 +61,10 @@ PASTEL_RED_BORDER = Side(style="medium", color="E8A0A0")
 PASTEL_GREEN_FILL = PatternFill(fill_type="solid", fgColor="D9EAD3")
 PASTEL_RED_FILL = PatternFill(fill_type="solid", fgColor="FFEBEE")
 DATE_IN_TAG_RE = re.compile(r"(\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2})")
+ESTIMATE_TAG_RE = re.compile(
+    r"^#\s*Estimate\s*[:-]?\s*([\d.,]+)",
+    re.IGNORECASE,
+)
 
 
 def risolvi_percorso(nome_o_path):
@@ -221,6 +226,21 @@ def estrai_tag_temporali(description):
     return tag
 
 
+def is_tag_estimate(tag):
+    if not tag:
+        return False
+    return bool(ESTIMATE_TAG_RE.match(str(tag).strip()))
+
+
+def estrai_estimate_da_description(description):
+    """Estrae il valore numerico dal tag '# Estimate' nella Description."""
+    for tag in estrai_tag_temporali(description):
+        match = ESTIMATE_TAG_RE.match(tag.strip())
+        if match:
+            return parse_numero(match.group(1))
+    return None
+
+
 def parse_data(valore):
     if valore is None:
         return None
@@ -301,9 +321,17 @@ def espandi_card_con_tag(card):
     """Replica ogni card per tag temporale; aggiunge colonne Giorni e TAG Temporali."""
     righe = []
     for record in card:
-        tag_list = estrai_tag_temporali(record.get("Description", ""))
+        nuova_base = dict(record)
+        estimate = estrai_estimate_da_description(record.get("Description", ""))
+        nuova_base["Estimate"] = estimate if estimate is not None else ""
+
+        tag_list = [
+            tag
+            for tag in estrai_tag_temporali(record.get("Description", ""))
+            if not is_tag_estimate(tag)
+        ]
         if not tag_list:
-            nuova = dict(record)
+            nuova = dict(nuova_base)
             nuova[TAGS_SUM_COL] = None
             nuova[GIORNI_COL] = None
             nuova[TAG_TEMPORALI_COL] = ""
@@ -311,7 +339,7 @@ def espandi_card_con_tag(card):
             continue
         for i, tag in enumerate(tag_list):
             tag_next = tag_list[i + 1] if i + 1 < len(tag_list) else None
-            nuova = dict(record)
+            nuova = dict(nuova_base)
             nuova[TAGS_SUM_COL] = None
             nuova[GIORNI_COL] = giorni_da_tag_temporale(tag, tag_next)
             nuova[TAG_TEMPORALI_COL] = tag
