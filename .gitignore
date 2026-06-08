@@ -1,7 +1,10 @@
-# Tracciati solo elabora_progetti.py, elabora_JKAN.py e questo file (.gitignore).
+# Tracciati: script, .gitignore e regole Cursor per elabora_JKAN.
 # Tutto il resto (config cliente, Excel, output, artefatti) resta fuori dal repo.
 
 /*
 !.gitignore
 !elabora_progetti.py
 !elabora_JKAN.py
+!.cursor/
+!.cursor/rules/
+!.cursor/rules/**

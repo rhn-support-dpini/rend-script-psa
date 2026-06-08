@@ -1,0 +1,52 @@
+---
+description: Convenzioni e dominio per elabora_JKAN.py (export Kanban MIRO JBOSS-Barison)
+globs: elabora_JKAN.py
+alwaysApply: false
+---
+
+# elabora_JKAN.py
+
+Script che legge un export CSV MIRO, estrae la Kanban **JBOSS-Barison** e produce un `.xlsx` omonimo.
+
+```bash
+python elabora_JKAN.py [input.csv]   # default: 2026-06-06-WIP.csv
+```
+
+## Output Excel
+
+Fogli: `data` (principale), `stat`, `graph`.
+
+### Colonne foglio `data`
+
+| Col | Titolo | Logica |
+|-----|--------|--------|
+| A–I | campi card CSV | merge verticali per Title |
+| J | InizioLavorazione(GG) | giorni da oggi alla data nel tag `# Inizio Attivita' - <data>` |
+| K | Waiting # | se l'**ultimo** tag temporale inizia con `# Waiting -`, giorni da oggi alla data nel tag; sfondo giallo pastello `#FFFDE7`; altrimenti vuoto |
+| L | Totale Lavorazione | somma Giorni (col. N) con tag Lavorazione o in Progress |
+| M | Period SUM | somma Giorni con tag in Progress |
+| N | Giorni | per riga tag: diff date nel tag; se manca 2ª data usa oggi (tranne Done) |
+| O | TAG Temporali | testo del tag `#` della riga |
+
+Righe Description con `#` generano sotto-righe da colonna N. Colonne A–M: merge verticali + bordo rosso pastello per card.
+
+Colonna G (Estimate): valore dal tag `# Estimate` in Description, non dal CSV.
+
+## Tag temporali (prefissi esatti)
+
+- `# Estimate` — escluso dall'espansione righe; valorizza solo col. G
+- `# Inizio Attivita' - <data>` — valorizza col. J (regex: `^#\s*Inizio\s+Attivit[aà]'?\s*-\s*`)
+- `# Waiting - <data>` — solo se è l'ultimo tag temporale; valorizza col. K (regex: `^#\s*Waiting\s*-\s*`)
+- Altri `# <data> - testo` — espansione righe; Giorni calcolati come sopra
+
+Date supportate: `dd/mm/yyyy`, `dd/mm/yy`, `yyyy-mm-dd`.
+
+## Modifiche al layout colonne
+
+Aggiornare sempre insieme: costanti `COL_*`, `COL_CARD_END`, `COL_LAST`, `CENTER_COLS`, `colonne_output()`, `LEGENDA_COLONNE`, docstring iniziale.
+
+Colori esistenti: verde/rosso pastello su L/M vs Estimate; giallo pastello su K.
+
+## Commit
+
+Stile: `feat(jkan): <descrizione breve>` — solo su richiesta esplicita dell'utente.
