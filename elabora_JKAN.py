@@ -9,9 +9,10 @@ Utilizzo:
 
     Default: input=2026-06-06-WIP.csv
     Output: stesso percorso e nome del CSV con estensione .xlsx
-    Le righe Description con prefisso "#" generano sotto-righe da colonna L;
-    A–K sono merge verticali per Title, con bordo rosso pastello per card.
-    Colonna J (Totale Lavorazione), K (Period SUM), L (Giorni), M (TAG Temporali).
+    Le righe Description con prefisso "#" generano sotto-righe da colonna M;
+    A–L sono merge verticali per Title, con bordo rosso pastello per card.
+    Colonna J (InizioLavorazione(GG)), K (Totale Lavorazione), L (Period SUM),
+    M (Giorni), N (TAG Temporali).
     Period SUM: somma Giorni con tag in Progress; Totale Lavorazione: tag Lavorazione o in Progress.
     Colonna G (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
     Giorni: se manca la 2ª data si usa oggi, eccetto tag Done (solo chiusura).
@@ -45,31 +46,38 @@ KANBAN_COLUMNS = [
 ]
 GIORNI_COL = "Giorni"
 TAG_TEMPORALI_COL = "TAG Temporali"
+INIZIO_LAVORAZIONE_COL = "InizioLavorazione(GG)"
 TOTALE_LAVORAZIONE_COL = "Totale Lavorazione"
 TAGS_SUM_COL = "Tags_sum"
 PERIOD_SUM_HEADER = "Period SUM"
 OUTPUT_SHEET = "data"
 STAT_SHEET = "stat"
 GRAPH_SHEET = "graph"
-CENTER_COLS = {3, 4, 7, 10, 11}  # C, D, G, J, K
+CENTER_COLS = {3, 4, 7, 10, 11, 12}  # C, D, G, J, K, L
 COL_ESTIMATE = 7  # G
 COL_TAGS_ORIG = 9  # I
-COL_TOTALE_LAVORAZIONE = 10  # J
-COL_TAGS_SUM = 11  # K: Period SUM
-COL_CARD_END = 11  # A–K: dati card (merge verticali per Title)
-COL_GIORNI = 12  # L
-COL_TAG = 13  # M
-COL_LAST = 13
+COL_INIZIO_LAVORAZIONE = 10  # J
+COL_TOTALE_LAVORAZIONE = 11  # K
+COL_TAGS_SUM = 12  # L: Period SUM
+COL_CARD_END = 12  # A–L: dati card (merge verticali per Title)
+COL_GIORNI = 13  # M
+COL_TAG = 14  # N
+COL_LAST = 14
 LEGENDA_COLONNE = [
     ("A–I", "", "dati card"),
     (
         "J",
+        INIZIO_LAVORAZIONE_COL,
+        "giorni dal tag '# Inizio Attivita' - <data>' a oggi",
+    ),
+    (
+        "K",
         TOTALE_LAVORAZIONE_COL,
         "totale dei giorni in stato Lavorazione o in Progress",
     ),
-    ("K", PERIOD_SUM_HEADER, "tempo trascorso dalla prima attivita'"),
-    ("L", GIORNI_COL, "per riga tag"),
-    ("M", TAG_TEMPORALI_COL, "per riga tag"),
+    ("L", PERIOD_SUM_HEADER, "tempo trascorso dalla prima attivita'"),
+    ("M", GIORNI_COL, "per riga tag"),
+    ("N", TAG_TEMPORALI_COL, "per riga tag"),
 ]
 LEGENDA_COMMENTO_COL = 3
 LEGENDA_COMMENTO_COL_FIN = 4
@@ -79,6 +87,10 @@ PASTEL_RED_FILL = PatternFill(fill_type="solid", fgColor="FFEBEE")
 DATE_IN_TAG_RE = re.compile(r"(\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2})")
 ESTIMATE_TAG_RE = re.compile(
     r"^#\s*Estimate\s*[:-]?\s*([\d.,]+)",
+    re.IGNORECASE,
+)
+INIZIO_ATTIVITA_TAG_RE = re.compile(
+    r"^#\s*Inizio\s+Attivit[aà]'?\s*-\s*",
     re.IGNORECASE,
 )
 
@@ -248,6 +260,25 @@ def is_tag_estimate(tag):
     return bool(ESTIMATE_TAG_RE.match(str(tag).strip()))
 
 
+def is_tag_inizio_attivita(tag):
+    if not tag:
+        return False
+    return bool(INIZIO_ATTIVITA_TAG_RE.match(str(tag).strip()))
+
+
+def giorni_da_inizio_attivita(description, data_oggi=None):
+    """Giorni tra la data nel tag '# Inizio Attivita' - <data>' e oggi."""
+    if data_oggi is None:
+        data_oggi = datetime.now().date()
+    for tag in estrai_tag_temporali(description):
+        if not is_tag_inizio_attivita(tag):
+            continue
+        date = estrai_date_da_tag(tag)
+        if date:
+            return (data_oggi - date[0]).days
+    return None
+
+
 def estrai_estimate_da_description(description):
     """Estrae il valore numerico dal tag '# Estimate' nella Description."""
     for tag in estrai_tag_temporali(description):
@@ -356,6 +387,10 @@ def espandi_card_con_tag(card):
         nuova_base = dict(record)
         estimate = estrai_estimate_da_description(record.get("Description", ""))
         nuova_base["Estimate"] = estimate if estimate is not None else ""
+        inizio_lavorazione = giorni_da_inizio_attivita(
+            record.get("Description", "")
+        )
+        nuova_base[INIZIO_LAVORAZIONE_COL] = inizio_lavorazione
 
         tag_list = [
             tag
@@ -383,6 +418,7 @@ def espandi_card_con_tag(card):
 
 def colonne_output():
     return KANBAN_COLUMNS + [
+        INIZIO_LAVORAZIONE_COL,
         TOTALE_LAVORAZIONE_COL,
         TAGS_SUM_COL,
         GIORNI_COL,
