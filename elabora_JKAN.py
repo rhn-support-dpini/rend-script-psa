@@ -9,10 +9,11 @@ Utilizzo:
 
     Default: input=2026-06-06-WIP.csv
     Output: stesso percorso e nome del CSV con estensione .xlsx
-    Le righe Description con prefisso "#" generano sotto-righe da colonna M;
-    A–L sono merge verticali per Title, con bordo rosso pastello per card.
-    Colonna J (InizioLavorazione(GG)), K (Totale Lavorazione), L (Period SUM),
-    M (Giorni), N (TAG Temporali).
+    Le righe Description con prefisso "#" generano sotto-righe da colonna N;
+    A–M sono merge verticali per Title, con bordo rosso pastello per card.
+    Colonna J (InizioLavorazione(GG)), K (Waiting #), L (Totale Lavorazione),
+    M (Period SUM), N (Giorni), O (TAG Temporali).
+    Waiting #: giorni dall'ultimo tag "# Waiting -" a oggi, con sfondo giallo pastello.
     Period SUM: somma Giorni con tag in Progress; Totale Lavorazione: tag Lavorazione o in Progress.
     Colonna G (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
     Giorni: se manca la 2ª data si usa oggi, eccetto tag Done (solo chiusura).
@@ -47,22 +48,24 @@ KANBAN_COLUMNS = [
 GIORNI_COL = "Giorni"
 TAG_TEMPORALI_COL = "TAG Temporali"
 INIZIO_LAVORAZIONE_COL = "InizioLavorazione(GG)"
+WAITING_COL = "Waiting #"
 TOTALE_LAVORAZIONE_COL = "Totale Lavorazione"
 TAGS_SUM_COL = "Tags_sum"
 PERIOD_SUM_HEADER = "Period SUM"
 OUTPUT_SHEET = "data"
 STAT_SHEET = "stat"
 GRAPH_SHEET = "graph"
-CENTER_COLS = {3, 4, 7, 10, 11, 12}  # C, D, G, J, K, L
+CENTER_COLS = {3, 4, 7, 10, 11, 12, 13}  # C, D, G, J, K, L, M
 COL_ESTIMATE = 7  # G
 COL_TAGS_ORIG = 9  # I
 COL_INIZIO_LAVORAZIONE = 10  # J
-COL_TOTALE_LAVORAZIONE = 11  # K
-COL_TAGS_SUM = 12  # L: Period SUM
-COL_CARD_END = 12  # A–L: dati card (merge verticali per Title)
-COL_GIORNI = 13  # M
-COL_TAG = 14  # N
-COL_LAST = 14
+COL_WAITING = 11  # K
+COL_TOTALE_LAVORAZIONE = 12  # L
+COL_TAGS_SUM = 13  # M: Period SUM
+COL_CARD_END = 13  # A–M: dati card (merge verticali per Title)
+COL_GIORNI = 14  # N
+COL_TAG = 15  # O
+COL_LAST = 15
 LEGENDA_COLONNE = [
     ("A–I", "", "dati card"),
     (
@@ -72,18 +75,24 @@ LEGENDA_COLONNE = [
     ),
     (
         "K",
+        WAITING_COL,
+        "giorni dall'ultimo tag '# Waiting -' a oggi (sfondo giallo)",
+    ),
+    (
+        "L",
         TOTALE_LAVORAZIONE_COL,
         "totale dei giorni in stato Lavorazione o in Progress",
     ),
-    ("L", PERIOD_SUM_HEADER, "tempo trascorso dalla prima attivita'"),
-    ("M", GIORNI_COL, "per riga tag"),
-    ("N", TAG_TEMPORALI_COL, "per riga tag"),
+    ("M", PERIOD_SUM_HEADER, "tempo trascorso dalla prima attivita'"),
+    ("N", GIORNI_COL, "per riga tag"),
+    ("O", TAG_TEMPORALI_COL, "per riga tag"),
 ]
 LEGENDA_COMMENTO_COL = 3
 LEGENDA_COMMENTO_COL_FIN = 4
 PASTEL_RED_BORDER = Side(style="medium", color="E8A0A0")
 PASTEL_GREEN_FILL = PatternFill(fill_type="solid", fgColor="D9EAD3")
 PASTEL_RED_FILL = PatternFill(fill_type="solid", fgColor="FFEBEE")
+PASTEL_YELLOW_FILL = PatternFill(fill_type="solid", fgColor="FFFDE7")
 DATE_IN_TAG_RE = re.compile(r"(\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2})")
 ESTIMATE_TAG_RE = re.compile(
     r"^#\s*Estimate\s*[:-]?\s*([\d.,]+)",
@@ -91,6 +100,10 @@ ESTIMATE_TAG_RE = re.compile(
 )
 INIZIO_ATTIVITA_TAG_RE = re.compile(
     r"^#\s*Inizio\s+Attivit[aà]'?\s*-\s*",
+    re.IGNORECASE,
+)
+WAITING_TAG_RE = re.compile(
+    r"^#\s*Waiting\s*-\s*",
     re.IGNORECASE,
 )
 
@@ -279,6 +292,32 @@ def giorni_da_inizio_attivita(description, data_oggi=None):
     return None
 
 
+def is_tag_waiting(tag):
+    if not tag:
+        return False
+    return bool(WAITING_TAG_RE.match(str(tag).strip()))
+
+
+def giorni_da_ultimo_tag_waiting(description, data_oggi=None):
+    """Giorni tra la data nell'ultimo tag '# Waiting -' e oggi."""
+    if data_oggi is None:
+        data_oggi = datetime.now().date()
+    tag_list = [
+        tag
+        for tag in estrai_tag_temporali(description)
+        if not is_tag_estimate(tag)
+    ]
+    if not tag_list:
+        return None
+    ultimo = tag_list[-1]
+    if not is_tag_waiting(ultimo):
+        return None
+    date = estrai_date_da_tag(ultimo)
+    if not date:
+        return None
+    return (data_oggi - date[0]).days
+
+
 def estrai_estimate_da_description(description):
     """Estrae il valore numerico dal tag '# Estimate' nella Description."""
     for tag in estrai_tag_temporali(description):
@@ -391,6 +430,8 @@ def espandi_card_con_tag(card):
             record.get("Description", "")
         )
         nuova_base[INIZIO_LAVORAZIONE_COL] = inizio_lavorazione
+        waiting_gg = giorni_da_ultimo_tag_waiting(record.get("Description", ""))
+        nuova_base[WAITING_COL] = waiting_gg
 
         tag_list = [
             tag
@@ -419,6 +460,7 @@ def espandi_card_con_tag(card):
 def colonne_output():
     return KANBAN_COLUMNS + [
         INIZIO_LAVORAZIONE_COL,
+        WAITING_COL,
         TOTALE_LAVORAZIONE_COL,
         TAGS_SUM_COL,
         GIORNI_COL,
@@ -449,6 +491,12 @@ def applica_colore_confronto_estimate(cella, estimate, valore):
         cella.fill = PASTEL_RED_FILL
 
 
+def applica_colore_waiting(ws, start):
+    cella = ws.cell(row=start, column=COL_WAITING)
+    if parse_numero(cella.value) is not None:
+        cella.fill = PASTEL_YELLOW_FILL
+
+
 def applica_totali_gruppo(ws, start, end):
     center = Alignment(horizontal="center", vertical="center")
 
@@ -467,6 +515,10 @@ def applica_totali_gruppo(ws, start, end):
     estimate = parse_numero(ws.cell(row=start, column=COL_ESTIMATE).value)
     applica_colore_confronto_estimate(cella_lav, estimate, tot_lavorazione)
     applica_colore_confronto_estimate(cella, estimate, somma)
+
+    cella_waiting = ws.cell(row=start, column=COL_WAITING)
+    cella_waiting.alignment = center
+    applica_colore_waiting(ws, start)
 
 
 def gruppi_righe_per_title(ws):
