@@ -8,3 +8,5 @@
 !.cursor/
 !.cursor/rules/
 !.cursor/rules/**
+!docs/
+!docs/**
