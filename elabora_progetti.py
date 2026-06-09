@@ -12,26 +12,32 @@ Excel di output multi-foglio con:
 
 Utilizzo:
     python elabora_progetti.py [cliente] [input.xlsx] [output.xlsx]
+    python elabora_progetti.py <input.xlsx>
+    python elabora_progetti.py --list-kl-combos [cliente] [input.xlsx]
+    python elabora_progetti.py -h
 
-    Gli argomenti sono opzionali; i default sono:
-        cliente=Intesa, input.xlsx, output_elaborato.xlsx
+Parametri posizionali (tutti opzionali):
+    cliente       Filtro sulla colonna "Cliente" (case-insensitive).
+                  Default: Intesa. Per nessun filtro passare "" da shell, es.:
+                  python elabora_progetti.py "" input.xlsx
+    input.xlsx    File Excel di input (export PSA/pianificazione).
+                  Default: input.xlsx nella cartella dello script.
+    output.xlsx   File Excel di output generato.
+                  Default: output_elaborato.xlsx nella cartella dello script.
 
-    cliente: filtro sulla colonna "Cliente" (case-insensitive). Default Intesa
-              (adatto ai test; usa "" da shell per nessun filtro, es. python ... "" file.xlsx).
+    Se viene passato un solo argomento ed è un file .xlsx/.xlsm/.xls, viene
+    interpretato come input; cliente resta Intesa e output il default.
 
-    Se passi un solo argomento ed è un file .xlsx, viene usato come input e il filtro
-    cliente resta il default (Intesa).
+Opzioni:
+    --list-kl-combos   Elenca le coppie uniche colonna K×L del sorgente
+                       (scheduling × commit/exclude) e termina senza Excel.
 
-    Solo analisi combinazioni stato (colonne K e L export, senza generare Excel):
-        python elabora_progetti.py --list-kl-combos [cliente] input.xlsx
-        Se omiti cliente, viene usato il default sopra (es. Intesa).
-
-    La configurazione cliente è letta da cust.config nella stessa cartella dello script (o
-    dal percorso assoluto indicato a elabora_dati).
-
-    Le impostazioni generiche vengono sempre lette da script.config (fisso).
+Configurazione (cartella dello script):
+    script.config   Impostazioni generiche (sempre letto).
+    cust.config     Configurazione cliente.
 """
 
+import argparse
 import pandas as pd
 import os
 import re
@@ -2513,36 +2519,95 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
         traceback.print_exc()
 
 
-if __name__ == "__main__":
-    import argparse
-    _argv = sys.argv[1:]
-    if '--list-kl-combos' in _argv:
-        rest = [a for a in _argv if a != '--list-kl-combos']
-        if len(rest) == 1 and rest[0].lower().endswith(('.xlsx', '.xlsm', '.xls')):
-            list_kl_combos_su_file(rest[0], cliente_filter='Intesa')
-        elif len(rest) >= 2:
-            list_kl_combos_su_file(rest[1], cliente_filter=rest[0])
-        elif len(rest) == 1:
-            list_kl_combos_su_file('input.xlsx', cliente_filter=rest[0])
+def _argomento_e_file_excel(valore):
+    return valore.lower().endswith((".xlsx", ".xlsm", ".xls"))
+
+
+def _normalizza_argomenti_posizionali(argv):
+    """Se c'è un solo argomento posizionale ed è un Excel, è l'input (cliente=Intesa)."""
+    positionals = [a for a in argv if not a.startswith("-")]
+    if len(positionals) == 1 and _argomento_e_file_excel(positionals[0]):
+        return "Intesa", positionals[0], "output_elaborato.xlsx"
+    return None
+
+
+def crea_parser():
+    epilog = """\
+Esempi:
+  python elabora_progetti.py
+  python elabora_progetti.py export-psa.xlsx
+  python elabora_progetti.py Intesa input.xlsx output_elaborato.xlsx
+  python elabora_progetti.py "" input.xlsx
+  python elabora_progetti.py --list-kl-combos Intesa input.xlsx
+
+Parametri posizionali (tutti opzionali):
+  cliente       Filtro colonna "Cliente" (default: Intesa; "" = tutti i clienti).
+  input.xlsx    Export Excel PSA (default: input.xlsx).
+  output.xlsx   File Excel generato (default: output_elaborato.xlsx).
+
+  Con un solo argomento .xlsx/.xlsm/.xls viene usato come input; cliente=Intesa.
+
+Opzioni:
+  --list-kl-combos   Elenca coppie K×L nel sorgente, senza generare Excel.
+
+Configurazione (cartella script): script.config, cust.config.
+"""
+    parser = argparse.ArgumentParser(
+        description="Report settimanale risorse consulenza Red Hat Italy",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=epilog,
+    )
+    parser.add_argument(
+        "--list-kl-combos",
+        action="store_true",
+        help="elenca le coppie colonna K×L nel sorgente e termina (no output Excel)",
+    )
+    parser.add_argument(
+        "cliente",
+        nargs="?",
+        default="Intesa",
+        metavar="cliente",
+        help='filtro colonna Cliente (default: Intesa; "" = tutti)',
+    )
+    parser.add_argument(
+        "input_file",
+        nargs="?",
+        default="input.xlsx",
+        metavar="input.xlsx",
+        help="file Excel di input, export PSA (default: %(default)s)",
+    )
+    parser.add_argument(
+        "output_file",
+        nargs="?",
+        default="output_elaborato.xlsx",
+        metavar="output.xlsx",
+        help="file Excel di output (default: %(default)s)",
+    )
+    return parser
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    normalizzati = _normalizza_argomenti_posizionali(argv)
+    if normalizzati is not None:
+        cliente, input_file, output_file = normalizzati
+        if "--list-kl-combos" in argv:
+            list_kl_combos_su_file(input_file, cliente_filter=cliente)
         else:
-            list_kl_combos_su_file('input.xlsx', cliente_filter='Intesa')
-    elif len(_argv) == 1 and _argv[0].lower().endswith(('.xlsx', '.xlsm', '.xls')):
-        elabora_dati(_argv[0], 'cust.config', 'output_elaborato.xlsx',
-                     cliente_filter='Intesa')
+            elabora_dati(input_file, "cust.config", output_file, cliente_filter=cliente)
+        return
+
+    args = crea_parser().parse_args(argv)
+    if args.list_kl_combos:
+        list_kl_combos_su_file(args.input_file, cliente_filter=args.cliente)
     else:
-        ap = argparse.ArgumentParser(
-            description='Report settimanale risorse Red Hat Italy')
-        ap.add_argument('--list-kl-combos', action='store_true',
-                        help='Elenca le coppie colonna K×L nel sorgente e termina (no output Excel)')
-        ap.add_argument('cliente', nargs='?', default='Intesa',
-                        help='Filtro colonna Cliente (case-insensitive; default Intesa; vuoto = tutti)')
-        ap.add_argument('input_file', nargs='?', default='input.xlsx',
-                        help='File Excel di input (export PSA)')
-        ap.add_argument('output_file', nargs='?', default='output_elaborato.xlsx',
-                        help='File Excel di output')
-        args = ap.parse_args()
-        if args.list_kl_combos:
-            list_kl_combos_su_file(args.input_file, cliente_filter=args.cliente)
-        else:
-            elabora_dati(args.input_file, 'cust.config', args.output_file,
-                         cliente_filter=args.cliente)
+        elabora_dati(
+            args.input_file,
+            "cust.config",
+            args.output_file,
+            cliente_filter=args.cliente,
+        )
+
+
+if __name__ == "__main__":
+    main()

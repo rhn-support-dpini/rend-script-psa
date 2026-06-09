@@ -6,9 +6,15 @@ e produce un file Excel con una riga per card (espansa per tag temporali in Desc
 
 Utilizzo:
     python elabora_JKAN.py [input.csv]
+    python elabora_JKAN.py -h
 
-    Default: input=2026-06-06-WIP.csv
-    Output: stesso percorso e nome del CSV con estensione .xlsx
+Parametri:
+    input.csv   (opzionale) Export CSV di una board MIRO da elaborare.
+                Default: 2026-06-06-WIP.csv nella cartella dello script.
+                Accetta percorso relativo o assoluto.
+
+Output:
+    File .xlsx con stesso nome e percorso del CSV di input.
     Le righe Description con prefisso "#" generano sotto-righe da colonna N;
     A–M sono merge verticali per Title, con bordo rosso pastello per card.
     Colonna J (InizioLavorazione(GG)), K (Waiting #), L (Totale Lavorazione),
@@ -19,6 +25,7 @@ Utilizzo:
     Giorni: se manca la 2ª data si usa oggi, eccetto tag Done (solo chiusura).
 """
 
+import argparse
 import csv
 import os
 import re
@@ -785,10 +792,41 @@ def elabora(input_csv):
     print(f"Output: {output_path}")
 
 
-def main():
-    argv = sys.argv[1:]
-    input_csv = argv[0] if len(argv) >= 1 else "2026-06-06-WIP.csv"
-    elabora(input_csv)
+def crea_parser():
+    epilog = """\
+Esempi:
+  python elabora_JKAN.py
+  python elabora_JKAN.py 2026-06-06-WIP.csv
+  python elabora_JKAN.py /percorso/export-miro.csv
+
+Parametri:
+  input.csv   Export CSV MIRO (opzionale).
+              Default: 2026-06-06-WIP.csv nella cartella dello script.
+
+Output:
+  <input>.xlsx — stesso percorso del CSV, estensione .xlsx.
+"""
+    parser = argparse.ArgumentParser(
+        description=(
+            'Estrae le card dalla Kanban MIRO "JBOSS-Barison" '
+            "e produce un file Excel con metriche temporali."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=epilog,
+    )
+    parser.add_argument(
+        "input_csv",
+        nargs="?",
+        default="2026-06-06-WIP.csv",
+        metavar="input.csv",
+        help="export CSV MIRO (default: %(default)s)",
+    )
+    return parser
+
+
+def main(argv=None):
+    args = crea_parser().parse_args(argv)
+    elabora(args.input_csv)
 
 
 if __name__ == "__main__":

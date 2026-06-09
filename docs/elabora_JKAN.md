@@ -54,19 +54,33 @@ pip install pandas openpyxl
 
 ```bash
 python elabora_JKAN.py [input.csv]
+python elabora_JKAN.py -h
 ```
 
-| Parametro | Default | Descrizione |
-|-----------|---------|-------------|
-| `input.csv` | `2026-06-06-WIP.csv` | Percorso del CSV esportato da MIRO (relativo alla cartella dello script o assoluto) |
+### Parametri
+
+| Parametro | Obbligatorio | Default | Descrizione |
+|-----------|--------------|---------|-------------|
+| `input.csv` | No | `2026-06-06-WIP.csv` | Export CSV di una board MIRO. Percorso relativo alla cartella dello script o assoluto. |
+
+### Opzioni
+
+| Opzione | Descrizione |
+|---------|-------------|
+| `-h`, `--help` | Mostra l'help da riga di comando (parametri, esempi, output). |
 
 **Output:** file con lo stesso nome e percorso del CSV, estensione `.xlsx`.
 
-Esempio:
+### Esempi
 
 ```bash
+python elabora_JKAN.py
+# → 2026-06-06-WIP.xlsx (default)
+
 python elabora_JKAN.py 2026-06-06-WIP.csv
 # → 2026-06-06-WIP.xlsx
+
+python elabora_JKAN.py /percorso/export-miro.csv
 ```
 
 In console vengono stampati: nome Kanban trovata, numero card, numero righe output e percorso del file generato.
@@ -337,6 +351,7 @@ Output: /percorso/rend-script-psa/2026-06-06-WIP.xlsx
 
 | File | Ruolo |
 |------|-------|
-| `elabora_JKAN.py` | Script principale |
+| `elabora_JKAN.py` | Script principale (`python elabora_JKAN.py -h` per l'help CLI) |
 | `.cursor/rules/elabora-jkan.mdc` | Regole Cursor per modifiche future |
 | `docs/elabora_JKAN.md` | Questa documentazione |
+| `docs/elabora_progetti.md` | Documentazione dello script progetti correlato |
