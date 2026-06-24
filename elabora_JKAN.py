@@ -20,7 +20,9 @@ Output:
     Colonna J (InizioLavorazione(GG)), K (Waiting #), L (Totale Lavorazione),
     M (Period SUM), N (Giorni), O (TAG Temporali).
     Waiting #: giorni dall'ultimo tag "# Waiting -" a oggi, con sfondo giallo pastello.
-    Period SUM: somma Giorni con tag in Progress; Totale Lavorazione: tag Lavorazione o in Progress.
+    Totale Lavorazione (L): percentuale su Estimate (0-50 verde, 51-80 giallo, 81-100 rosso pastello, >100 rosso acceso).
+    Period SUM: somma Giorni con tag in Progress.
+    Righe ordinate per Status (col. C): prima le card "in Progress".
     Colonna G (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
     Giorni: se manca la 2ª data si usa oggi, eccetto tag Done (solo chiusura).
 """
@@ -87,7 +89,7 @@ LEGENDA_COLONNE = [
     (
         "L",
         TOTALE_LAVORAZIONE_COL,
-        "totale dei giorni in stato Lavorazione o in Progress",
+        "giorni Working / Estimate: 0-50% verde, 51-80% giallo, 81-100% rosso pastello, >100% rosso acceso",
     ),
     ("M", PERIOD_SUM_HEADER, "tempo trascorso dalla prima attivita'"),
     ("N", GIORNI_COL, "per riga tag"),
@@ -99,6 +101,7 @@ PASTEL_RED_BORDER = Side(style="medium", color="E8A0A0")
 PASTEL_GREEN_FILL = PatternFill(fill_type="solid", fgColor="D9EAD3")
 PASTEL_RED_FILL = PatternFill(fill_type="solid", fgColor="FFEBEE")
 PASTEL_YELLOW_FILL = PatternFill(fill_type="solid", fgColor="FFFDE7")
+BRIGHT_RED_FILL = PatternFill(fill_type="solid", fgColor="E53935")
 DATE_IN_TAG_RE = re.compile(r"(\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2})")
 ESTIMATE_TAG_RE = re.compile(
     r"^#\s*Estimate\s*[:-]?\s*([\d.,]+)",
@@ -404,6 +407,27 @@ def somma_giorni_gruppo(ws, start, end, filtro_tag=None):
     return totale if ha_valori else None
 
 
+def status_e_in_progress(status):
+    return "in progress" in normalizza_testo(status).lower()
+
+
+def ordina_card_per_status(card):
+    """Ordina le card per Status: prima quelle in Progress, poi per Title."""
+    return sorted(
+        card,
+        key=lambda record: (
+            0 if status_e_in_progress(record.get("Status", "")) else 1,
+            normalizza_testo(record.get("Title", "")).lower(),
+        ),
+    )
+
+
+def percentuale_working_su_estimate(estimate, tot_lavorazione):
+    if estimate is None or tot_lavorazione is None or estimate <= 0:
+        return None
+    return (tot_lavorazione / estimate) * 100
+
+
 def applica_colore_confronto_estimate(cella, estimate, valore):
     if estimate is None or valore is None:
         return
@@ -411,6 +435,20 @@ def applica_colore_confronto_estimate(cella, estimate, valore):
         cella.fill = PASTEL_GREEN_FILL
     else:
         cella.fill = PASTEL_RED_FILL
+
+
+def applica_colore_totale_lavorazione(cella, estimate, tot_lavorazione):
+    percentuale = percentuale_working_su_estimate(estimate, tot_lavorazione)
+    if percentuale is None:
+        return
+    if percentuale <= 50:
+        cella.fill = PASTEL_GREEN_FILL
+    elif percentuale <= 80:
+        cella.fill = PASTEL_YELLOW_FILL
+    elif percentuale <= 100:
+        cella.fill = PASTEL_RED_FILL
+    else:
+        cella.fill = BRIGHT_RED_FILL
 
 
 def applica_colore_waiting(ws, start):
@@ -435,7 +473,7 @@ def applica_totali_gruppo(ws, start, end):
     cella.alignment = center
 
     estimate = parse_numero(ws.cell(row=start, column=COL_ESTIMATE).value)
-    applica_colore_confronto_estimate(cella_lav, estimate, tot_lavorazione)
+    applica_colore_totale_lavorazione(cella_lav, estimate, tot_lavorazione)
     applica_colore_confronto_estimate(cella, estimate, somma)
 
     cella_waiting = ws.cell(row=start, column=COL_WAITING)
@@ -667,6 +705,7 @@ def crea_foglio_graph(wb, riepilogo):
 
 
 def scrivi_excel(card, output_path):
+    card = ordina_card_per_status(card)
     righe = espandi_card_con_tag(card)
     df = pd.DataFrame(righe, columns=colonne_output())
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:

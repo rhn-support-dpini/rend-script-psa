@@ -23,12 +23,12 @@ Fogli: `data` (principale), `stat`, `graph`.
 | A–I | campi card CSV | merge verticali per Title |
 | J | InizioLavorazione(GG) | giorni da oggi alla data nel tag `# Inizio Attivita' - <data>` |
 | K | Waiting # | se l'**ultimo** tag temporale inizia con `# Waiting -`, giorni da oggi alla data nel tag; sfondo giallo pastello `#FFFDE7`; altrimenti vuoto |
-| L | Totale Lavorazione | somma Giorni (col. N) con tag Lavorazione o in Progress |
-| M | Period SUM | somma Giorni con tag in Progress |
+| L | Totale Lavorazione | somma Giorni (col. N) con tag Lavorazione o in Progress; sfondo per % Working/Estimate (0–50 verde, 51–80 giallo, 81–100 rosso pastello, >100 rosso acceso) |
+| M | Period SUM | somma Giorni con tag in Progress; verde/rosso pastello vs Estimate |
 | N | Giorni | per riga tag: diff date nel tag; se manca 2ª data usa oggi (tranne Done) |
 | O | TAG Temporali | testo del tag `#` della riga |
 
-Righe Description con `#` generano sotto-righe da colonna N. Colonne A–M: merge verticali + bordo rosso pastello per card.
+Righe Description con `#` generano sotto-righe da colonna N. Colonne A–M: merge verticali + bordo rosso pastello per card. Card ordinate per Status: prima «in Progress», poi Title.
 
 Colonna G (Estimate): valore dal tag `# Estimate` in Description, non dal CSV.
 
@@ -45,7 +45,7 @@ Date supportate: `dd/mm/yyyy`, `dd/mm/yy`, `yyyy-mm-dd`.
 
 Aggiornare sempre insieme: costanti `COL_*`, `COL_CARD_END`, `COL_LAST`, `CENTER_COLS`, `colonne_output()`, `LEGENDA_COLONNE`, docstring iniziale.
 
-Colori esistenti: verde/rosso pastello su L/M vs Estimate; giallo pastello su K.
+Colori esistenti: percentuale Working su L; verde/rosso pastello su M vs Estimate; giallo pastello su K.
 
 ## Commit
 

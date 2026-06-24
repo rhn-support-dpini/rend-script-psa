@@ -35,7 +35,8 @@ Per ogni card MIRO lo script:
 2. Interpreta le righe della Description che iniziano con `#` come **tag temporali**.
 3. Espande ogni card in una o più righe (una per tag temporale).
 4. Calcola metriche aggregate (giorni in lavorazione, periodo in Progress, stima vs consuntivo).
-5. Applica formattazione visiva (merge, bordi, colori) e genera fogli di riepilogo.
+5. Ordina le card per **Status** (col. C): prima quelle «in Progress», poi per Title.
+6. Applica formattazione visiva (merge, bordi, colori) e genera fogli di riepilogo.
 
 ---
 
@@ -125,7 +126,7 @@ Il file `.xlsx` contiene tre fogli:
 
 | Foglio | Contenuto |
 |--------|-----------|
-| `data` | Dati card espansi, metriche, legenda |
+| `data` | Dati card espansi (ordinate per Status), metriche, legenda |
 | `stat` | Conteggio card per Status |
 | `graph` | Grafico a barre «Tempo mancante per acronimo» |
 
@@ -142,8 +143,15 @@ Le colonne A–M sono unite verticalmente per ogni gruppo di righe con lo stesso
 | A–I | *(campi CSV)* | Card | Dati originali della card |
 | J | InizioLavorazione(GG) | Card | Giorni dalla data nel tag `# Inizio Attivita' -` a oggi |
 | K | Waiting # | Card | Giorni dall'ultimo tag `# Waiting -` a oggi; sfondo giallo se valorizzato |
-| L | Totale Lavorazione | Card | Somma col. N per tag con «Lavorazione» o «in Progress» |
+| L | Totale Lavorazione | Card | Somma col. N per tag con «Lavorazione» o «in Progress»; sfondo in base a % su Estimate |
 | M | Period SUM | Card | Somma col. N per tag con «in Progress» |
+
+### Ordinamento righe
+
+Le card nel foglio `data` sono ordinate **prima dell'espansione** dei tag temporali, così ogni gruppo Title resta unito:
+
+1. **Prima:** card il cui Status (col. C) contiene `in Progress` (case-insensitive), es. `Lavorazione in Progress`
+2. **Poi:** tutte le altre, in ordine alfabetico per Title
 
 ### Colonne per riga tag (N–O)
 
@@ -234,18 +242,31 @@ Considera solo l'**ultimo** tag temporale della Description (escluso `# Estimate
 
 Somma dei Giorni (col. N) delle righe il cui tag contiene **«Lavorazione»** o **«in Progress»** (case-insensitive).
 
+#### Colorazione col. L (percentuale Working)
+
+Calcola la percentuale `(L / Estimate) × 100` e applica lo sfondo:
+
+| Percentuale | Colore |
+|-------------|--------|
+| 0 – 50% | Verde pastello (`#D9EAD3`) |
+| 51 – 80% | Giallo pastello (`#FFFDE7`) |
+| 81 – 100% | Rosso pastello (`#FFEBEE`) |
+| > 100% | Rosso acceso (`#E53935`) |
+
+Se manca Estimate (col. G) o Totale Lavorazione, la cella resta senza sfondo.
+
 ### Colonna M — Period SUM
 
 Somma dei Giorni (col. N) delle righe il cui tag contiene **«in Progress»**.
 
-### Confronto con Estimate (col. G)
+### Confronto Period SUM con Estimate (col. G)
 
-Le colonne L e M vengono colorate rispetto all'Estimate:
+La colonna **M** viene colorata rispetto all'Estimate:
 
 | Condizione | Colore |
 |------------|--------|
-| Estimate ≥ valore | Verde pastello (`#D9EAD3`) |
-| Estimate < valore | Rosso pastello (`#FFEBEE`) |
+| Estimate ≥ Period SUM | Verde pastello (`#D9EAD3`) |
+| Estimate < Period SUM | Rosso pastello (`#FFEBEE`) |
 
 ---
 
