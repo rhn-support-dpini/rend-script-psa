@@ -28,7 +28,7 @@ Fogli: `data` (principale), `stat`, `graph`.
 | N | Giorni | per riga tag: diff date nel tag; se manca 2ª data usa oggi (tranne Done) |
 | O | TAG Temporali | testo del tag `#` della riga |
 
-Righe Description con `#` generano sotto-righe da colonna N. Colonne A–M: merge verticali + bordo rosso pastello per card. Card ordinate per Status: prima «in Progress», poi Title.
+Righe Description con `#` generano sotto-righe da colonna N. Colonne A–M: merge verticali + bordo rosso pastello per card.
 
 Colonna G (Estimate): valore dal tag `# Estimate` in Description, non dal CSV.
 

@@ -35,8 +35,7 @@ Per ogni card MIRO lo script:
 2. Interpreta le righe della Description che iniziano con `#` come **tag temporali**.
 3. Espande ogni card in una o più righe (una per tag temporale).
 4. Calcola metriche aggregate (giorni in lavorazione, periodo in Progress, stima vs consuntivo).
-5. Ordina le card per **Status** (col. C): prima quelle «in Progress», poi per Title.
-6. Applica formattazione visiva (merge, bordi, colori) e genera fogli di riepilogo.
+5. Applica formattazione visiva (merge, bordi, colori) e genera fogli di riepilogo.
 
 ---
 
@@ -126,7 +125,7 @@ Il file `.xlsx` contiene tre fogli:
 
 | Foglio | Contenuto |
 |--------|-----------|
-| `data` | Dati card espansi (ordinate per Status), metriche, legenda |
+| `data` | Dati card espansi, metriche, legenda |
 | `stat` | Conteggio card per Status |
 | `graph` | Grafico a barre «Tempo mancante per acronimo» |
 
@@ -145,13 +144,6 @@ Le colonne A–M sono unite verticalmente per ogni gruppo di righe con lo stesso
 | K | Waiting # | Card | Giorni dall'ultimo tag `# Waiting -` a oggi; sfondo giallo se valorizzato |
 | L | Totale Lavorazione | Card | Somma col. N per tag con «Lavorazione» o «in Progress»; sfondo in base a % su Estimate |
 | M | Period SUM | Card | Somma col. N per tag con «in Progress» |
-
-### Ordinamento righe
-
-Le card nel foglio `data` sono ordinate **prima dell'espansione** dei tag temporali, così ogni gruppo Title resta unito:
-
-1. **Prima:** card il cui Status (col. C) contiene `in Progress` (case-insensitive), es. `Lavorazione in Progress`
-2. **Poi:** tutte le altre, in ordine alfabetico per Title
 
 ### Colonne per riga tag (N–O)
 

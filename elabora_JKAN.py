@@ -22,7 +22,6 @@ Output:
     Waiting #: giorni dall'ultimo tag "# Waiting -" a oggi, con sfondo giallo pastello.
     Totale Lavorazione (L): percentuale su Estimate (0-50 verde, 51-80 giallo, 81-100 rosso pastello, >100 rosso acceso).
     Period SUM: somma Giorni con tag in Progress.
-    Righe ordinate per Status (col. C): prima le card "in Progress".
     Colonna G (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
     Giorni: se manca la 2ª data si usa oggi, eccetto tag Done (solo chiusura).
 """
@@ -407,21 +406,6 @@ def somma_giorni_gruppo(ws, start, end, filtro_tag=None):
     return totale if ha_valori else None
 
 
-def status_e_in_progress(status):
-    return "in progress" in normalizza_testo(status).lower()
-
-
-def ordina_card_per_status(card):
-    """Ordina le card per Status: prima quelle in Progress, poi per Title."""
-    return sorted(
-        card,
-        key=lambda record: (
-            0 if status_e_in_progress(record.get("Status", "")) else 1,
-            normalizza_testo(record.get("Title", "")).lower(),
-        ),
-    )
-
-
 def percentuale_working_su_estimate(estimate, tot_lavorazione):
     if estimate is None or tot_lavorazione is None or estimate <= 0:
         return None
@@ -705,7 +689,6 @@ def crea_foglio_graph(wb, riepilogo):
 
 
 def scrivi_excel(card, output_path):
-    card = ordina_card_per_status(card)
     righe = espandi_card_con_tag(card)
     df = pd.DataFrame(righe, columns=colonne_output())
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
