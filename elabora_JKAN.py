@@ -15,6 +15,7 @@ Parametri:
 
 Output:
     File .xlsx con stesso nome e percorso del CSV di input.
+    Fogli: data-all (tutte le card), data-check (card attive da verificare), stat, graph.
     Le righe Description con prefisso "#" generano sotto-righe da colonna N;
     A–M sono merge verticali per Title, con bordo rosso pastello per card.
     Colonna J (InizioLavorazione(GG)), K (Waiting #), L (Totale Lavorazione),
@@ -59,7 +60,16 @@ WAITING_COL = "Waiting #"
 TOTALE_LAVORAZIONE_COL = "Totale Lavorazione"
 TAGS_SUM_COL = "Tags_sum"
 PERIOD_SUM_HEADER = "Period SUM"
-OUTPUT_SHEET = "data"
+OUTPUT_SHEET = "data-all"
+DATA_CHECK_SHEET = "data-check"
+STATUS_ESCLUSI_DATA_CHECK = frozenset(
+    {
+        "Complete",
+        "Abandoned",
+        "Probably dismissed / delayed to 2027",
+        "new - to be verified",
+    }
+)
 STAT_SHEET = "stat"
 GRAPH_SHEET = "graph"
 CENTER_COLS = {3, 4, 7, 10, 11, 12, 13}  # C, D, G, J, K, L, M
@@ -688,19 +698,41 @@ def crea_foglio_graph(wb, riepilogo):
     ws.add_chart(chart, "D2")
 
 
-def scrivi_excel(card, output_path):
-    righe = espandi_card_con_tag(card)
-    df = pd.DataFrame(righe, columns=colonne_output())
-    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        df.to_excel(writer, sheet_name=OUTPUT_SHEET, index=False)
+def status_escluso_da_data_check(status):
+    return normalizza_testo(status, compatta_spazi=True) in STATUS_ESCLUSI_DATA_CHECK
 
-    wb = load_workbook(output_path)
-    ws = wb[OUTPUT_SHEET]
+
+def filtra_card_per_data_check(card):
+    return [
+        record
+        for record in card
+        if not status_escluso_da_data_check(record.get("Status", ""))
+    ]
+
+
+def formatta_foglio_dati(ws):
     ws.cell(row=1, column=COL_TOTALE_LAVORAZIONE).value = TOTALE_LAVORAZIONE_COL
     ws.cell(row=1, column=COL_TAGS_SUM).value = PERIOD_SUM_HEADER
     gruppi = formatta_foglio_card(ws)
-    riepilogo = riepilogo_da_gruppi(ws, gruppi)
     aggiungi_footer_data(ws, gruppi)
+    return gruppi
+
+
+def scrivi_excel(card, output_path):
+    righe_all = espandi_card_con_tag(card)
+    df_all = pd.DataFrame(righe_all, columns=colonne_output())
+    card_check = filtra_card_per_data_check(card)
+    righe_check = espandi_card_con_tag(card_check)
+    df_check = pd.DataFrame(righe_check, columns=colonne_output())
+
+    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+        df_all.to_excel(writer, sheet_name=OUTPUT_SHEET, index=False)
+        df_check.to_excel(writer, sheet_name=DATA_CHECK_SHEET, index=False)
+
+    wb = load_workbook(output_path)
+    gruppi = formatta_foglio_dati(wb[OUTPUT_SHEET])
+    formatta_foglio_dati(wb[DATA_CHECK_SHEET])
+    riepilogo = riepilogo_da_gruppi(wb[OUTPUT_SHEET], gruppi)
     crea_foglio_stat(wb, riepilogo)
     crea_foglio_graph(wb, riepilogo)
     wb.save(output_path)

@@ -14,9 +14,9 @@ python elabora_JKAN.py [input.csv]   # default: 2026-06-06-WIP.csv
 
 ## Output Excel
 
-Fogli: `data` (principale), `stat`, `graph`.
+Fogli: `data-all` (principale, tutte le card), `data-check` (card attive), `stat`, `graph`.
 
-### Colonne foglio `data`
+### Colonne foglio `data-all` / `data-check`
 
 | Col | Titolo | Logica |
 |-----|--------|--------|
@@ -29,6 +29,8 @@ Fogli: `data` (principale), `stat`, `graph`.
 | O | TAG Temporali | testo del tag `#` della riga |
 
 Righe Description con `#` generano sotto-righe da colonna N. Colonne A–M: merge verticali + bordo rosso pastello per card.
+
+Foglio `data-check`: stesse colonne e formattazione di `data-all`, esclusi Status `Complete`, `Abandoned`, `Probably dismissed / delayed to 2027`, `new - to be verified`.
 
 Colonna G (Estimate): valore dal tag `# Estimate` in Description, non dal CSV.
 

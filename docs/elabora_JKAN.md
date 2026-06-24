@@ -11,7 +11,7 @@ Script Python che elabora un export CSV di una board **MIRO**, estrae le card da
 3. [Utilizzo](#utilizzo)
 4. [Input: export CSV MIRO](#input-export-csv-miro)
 5. [Output: file Excel](#output-file-excel)
-6. [Colonne del foglio `data`](#colonne-del-foglio-data)
+6. [Colonne dei fogli `data-all` e `data-check`](#colonne-dei-fogli-data-all-e-data-check)
 7. [Tag temporali nella Description](#tag-temporali-nella-description)
 8. [Calcolo dei giorni](#calcolo-dei-giorni)
 9. [Formattazione Excel](#formattazione-excel)
@@ -121,17 +121,29 @@ Dopo ogni header vengono lette tutte le righe valide fino al prossimo header Kan
 
 ## Output: file Excel
 
-Il file `.xlsx` contiene tre fogli:
+Il file `.xlsx` contiene quattro fogli:
 
 | Foglio | Contenuto |
 |--------|-----------|
-| `data` | Dati card espansi, metriche, legenda |
-| `stat` | Conteggio card per Status |
-| `graph` | Grafico a barre «Tempo mancante per acronimo» |
+| `data-all` | Tutte le card espansi, metriche, legenda |
+| `data-check` | Come `data-all`, esclusi gli stati chiusi o da non monitorare (vedi sotto) |
+| `stat` | Conteggio card per Status (da `data-all`) |
+| `graph` | Grafico a barre «Tempo mancante per acronimo» (da `data-all`) |
+
+### Foglio `data-check`
+
+Include tutte le righe di `data-all` **tranne** le card il cui Status (col. C) è uno dei seguenti:
+
+- `Complete`
+- `Abandoned`
+- `Probably dismissed / delayed to 2027`
+- `new - to be verified`
+
+Stesse colonne, merge, colori e footer di `data-all`.
 
 ---
 
-## Colonne del foglio `data`
+## Colonne dei fogli `data-all` e `data-check`
 
 ### Colonne card e derivate (A–M) — merge verticali
 
@@ -275,7 +287,7 @@ La colonna **M** viene colorata rispetto all'Estimate:
 - Colonne A–M: celle unite verticalmente nel gruppo.
 - Intero gruppo: bordo perimetrale rosso pastello (`#E8A0A0`).
 
-### Footer (in fondo al foglio `data`)
+### Footer (in fondo ai fogli `data-all` e `data-check`)
 
 1. **Riga totali** — numero card (col. A), somme di Estimate (G), Totale Lavorazione (L), Period SUM (M).
 2. **Timestamp** — data/ora di generazione.
