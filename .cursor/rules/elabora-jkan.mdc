@@ -1,12 +1,12 @@
 ---
-description: Convenzioni e dominio per elabora_JKAN.py (export Kanban MIRO JBOSS-Barison)
+description: Convenzioni e dominio per elabora_JKAN.py (export Kanban MIRO, tutte le sezioni)
 globs: elabora_JKAN.py
 alwaysApply: false
 ---
 
 # elabora_JKAN.py
 
-Script che legge un export CSV MIRO, estrae la Kanban **JBOSS-Barison** e produce un `.xlsx` omonimo.
+Script che legge un export CSV MIRO, estrae le card da **tutte le sezioni Kanban** (header standard) e produce un `.xlsx` omonimo. Nessun filtro per nome kanban.
 
 ```bash
 python elabora_JKAN.py [input.csv]   # default: 2026-06-06-WIP.csv

@@ -1,7 +1,7 @@
 """
-elabora_JKAN.py — Estrae le card dalla Kanban MIRO "JBOSS-Barison"
+elabora_JKAN.py — Estrae le card dalle Kanban in un export MIRO
 
-Legge un export CSV di una board MIRO, individua la sezione Kanban con quel nome
+Legge un export CSV di una board MIRO, individua tutte le sezioni Kanban
 e produce un file Excel con una riga per card (espansa per tag temporali in Description).
 
 Utilizzo:
@@ -40,7 +40,6 @@ from openpyxl.styles import Alignment, Border, PatternFill, Side
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-KANBAN_NAME = "JBOSS-Barison"
 KANBAN_COLUMNS = [
     "Title",
     "Description",
@@ -148,104 +147,21 @@ def is_card_row(row):
     return len(row) >= len(KANBAN_COLUMNS)
 
 
-def is_url_row(row):
-    if not row:
-        return False
-    testo = normalizza_testo(row[0], compatta_spazi=True)
-    if not testo:
-        return True
-    return testo.startswith("http://") or testo.startswith("https://")
-
-
-def is_probabile_nome_kanban(row):
-    if len(row) != 1:
-        return False
-    testo = normalizza_testo(row[0], compatta_spazi=True)
-    if not testo or is_url_row(row):
-        return False
-    if len(testo) > 80:
-        return False
-    if testo.lower().startswith(("stat", "campi card", "descrizione", "kanban")):
-        return False
-    return True
-
-
-def nome_kanban_da_contesto(rows, header_idx):
-    """Ricostruisce il nome Kanban dalle righe che precedono l'header."""
-    candidati = []
-    for j in range(header_idx - 1, max(header_idx - 12, -1), -1):
-        row = rows[j]
-        if not row or all(not normalizza_testo(c) for c in row):
-            continue
-        if is_url_row(row):
-            continue
-        if len(row) == 1:
-            testo = normalizza_testo(row[0], compatta_spazi=True)
-            if is_probabile_nome_kanban(row):
-                candidati.append(testo)
-            elif len(testo) <= 80 and "barison" in testo.lower():
-                candidati.append(testo)
-        elif len(row) == 2 and normalizza_testo(row[0], compatta_spazi=True):
-            primo = normalizza_testo(row[0], compatta_spazi=True)
-            if re.search(r"jboss", primo, re.IGNORECASE):
-                candidati.append(primo)
-
-    if not candidati:
-        return None
-
-    barison = next((c for c in candidati if c.lower() == "barison"), None)
-    jboss = next(
-        (c for c in candidati if re.search(r"jboss", c, re.IGNORECASE)),
-        None,
-    )
-
-    if barison and jboss:
-        return KANBAN_NAME
-
-    if barison:
-        return KANBAN_NAME
-
-    for candidato in candidati:
-        if candidato.lower() == KANBAN_NAME.lower():
-            return KANBAN_NAME
-
-    return candidati[0]
-
-
-def corrisponde_kanban_richiesta(nome_trovato):
-    if not nome_trovato:
-        return False
-    trovato = normalizza_testo(nome_trovato, compatta_spazi=True).lower()
-    richiesto = KANBAN_NAME.lower()
-    if trovato == richiesto:
-        return True
-    if trovato.replace(" ", "") == richiesto.replace(" ", ""):
-        return True
-    if "jboss" in trovato and "barison" in trovato:
-        return True
-    if trovato == "barison":
-        return True
-    return False
-
-
 def leggi_csv(path):
     with open(path, newline="", encoding="utf-8-sig") as f:
         return list(csv.reader(f))
 
 
-def estrai_card_kanban(rows, kanban_name=KANBAN_NAME):
+def estrai_card_kanban(rows):
+    """Estrae le card da tutte le sezioni Kanban riconosciute nel CSV."""
     card = []
-    nome_sezione = None
+    sezioni = 0
 
     for i, row in enumerate(rows):
         if not is_kanban_header(row):
             continue
 
-        nome = nome_kanban_da_contesto(rows, i)
-        if not corrisponde_kanban_richiesta(nome):
-            continue
-
-        nome_sezione = nome or kanban_name
+        sezioni += 1
         for j in range(i + 1, len(rows)):
             data_row = rows[j]
             if is_kanban_header(data_row):
@@ -258,9 +174,8 @@ def estrai_card_kanban(rows, kanban_name=KANBAN_NAME):
             }
             if any(record.values()):
                 card.append(record)
-        break
 
-    return nome_sezione, card
+    return sezioni, card
 
 
 def estrai_tag_temporali(description):
@@ -777,16 +692,16 @@ def elabora(input_csv):
         raise FileNotFoundError(f"File di input non trovato: {input_path}")
 
     rows = leggi_csv(input_path)
-    nome_sezione, card = estrai_card_kanban(rows)
+    sezioni, card = estrai_card_kanban(rows)
 
     if not card:
         raise ValueError(
-            f'Kanban "{KANBAN_NAME}" non trovata o senza card nel file {input_path}'
+            f"Nessuna card Kanban trovata nel file {input_path}"
         )
 
     scrivi_excel(card, output_path)
     righe_output = len(espandi_card_con_tag(card))
-    print(f"Kanban: {nome_sezione}")
+    print(f"Sezioni kanban: {sezioni}")
     print(f"Card estratte: {len(card)}")
     print(f"Righe output: {righe_output}")
     print(f"Output: {output_path}")
@@ -808,7 +723,7 @@ Output:
 """
     parser = argparse.ArgumentParser(
         description=(
-            'Estrae le card dalla Kanban MIRO "JBOSS-Barison" '
+            "Estrae le card da tutte le Kanban in un export MIRO "
             "e produce un file Excel con metriche temporali."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,

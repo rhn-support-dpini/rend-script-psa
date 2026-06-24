@@ -1,6 +1,6 @@
 # elabora_JKAN.py — Documentazione
 
-Script Python che elabora un export CSV di una board **MIRO**, estrae le card della Kanban **JBOSS-Barison** e produce un file Excel con metriche temporali, totali e grafici di avanzamento.
+Script Python che elabora un export CSV di una board **MIRO**, estrae le card da **tutte le sezioni Kanban** presenti nel file e produce un file Excel con metriche temporali, totali e grafici di avanzamento.
 
 ---
 
@@ -26,7 +26,7 @@ Script Python che elabora un export CSV di una board **MIRO**, estrae le card de
 Il flusso di elaborazione è:
 
 ```
-CSV MIRO  →  estrazione Kanban JBOSS-Barison  →  espansione tag temporali  →  Excel (.xlsx)
+CSV MIRO  →  estrazione tutte le Kanban  →  espansione tag temporali  →  Excel (.xlsx)
 ```
 
 Per ogni card MIRO lo script:
@@ -83,7 +83,7 @@ python elabora_JKAN.py 2026-06-06-WIP.csv
 python elabora_JKAN.py /percorso/export-miro.csv
 ```
 
-In console vengono stampati: nome Kanban trovata, numero card, numero righe output e percorso del file generato.
+In console vengono stampati: numero sezioni kanban trovate, numero card, numero righe output e percorso del file generato.
 
 ---
 
@@ -91,17 +91,17 @@ In console vengono stampati: nome Kanban trovata, numero card, numero righe outp
 
 ### Struttura attesa
 
-Il CSV può contenere più sezioni Kanban. Lo script cerca l'header:
+Il CSV può contenere più sezioni Kanban. Lo script riconosce ogni blocco con l'header:
 
 ```
 Title, Description, Status, Assignee, Start Date, End Date, Estimate, Priority, Tags
 ```
 
-e identifica la sezione **JBOSS-Barison** analizzando le righe precedenti l'header (ricerca di testi come `Barison`, `JBoss`, `JBOSS-Barison`).
+Non viene applicato alcun filtro per nome kanban: tutte le sezioni con questo header vengono elaborate (utile quando l'export MIRO non riporta in modo affidabile i titoli delle kanban).
 
 ### Card estratte
 
-Dopo l'header vengono lette tutte le righe valide fino al prossimo header Kanban o alla fine della sezione. Ogni riga con almeno un campo valorizzato diventa una card.
+Dopo ogni header vengono lette tutte le righe valide fino al prossimo header Kanban o alla fine della sezione. Ogni riga con almeno un campo valorizzato diventa una card; le card di sezioni diverse confluiscono nello stesso Excel.
 
 ### Campi card (colonne A–I)
 
@@ -339,9 +339,9 @@ python elabora_JKAN.py 2026-06-06-WIP.csv
 Output atteso in console:
 
 ```
-Kanban: JBOSS-Barison
-Card estratte: 6
-Righe output: 12
+Sezioni kanban: 2
+Card estratte: 7
+Righe output: 13
 Output: /percorso/rend-script-psa/2026-06-06-WIP.xlsx
 ```
 
