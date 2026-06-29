@@ -16,6 +16,8 @@ Parametri:
 Output:
     File .xlsx con stesso nome e percorso del CSV di input.
     Fogli: data-all (tutte le card), data-check (card attive da verificare), stat, graph.
+    dbJKAN.csv — storico snapshot colonne Kanban (data da nome file input).
+    dbJKAN.html — grafici burnup, WIP, velocità e distribuzione stati.
     Le righe Description con prefisso "#" generano sotto-righe da colonna N;
     A–M sono merge verticali per Title, con bordo rosso pastello per card.
     Colonna J (InizioLavorazione(GG)), K (Waiting #), L (Totale Lavorazione),
@@ -29,6 +31,7 @@ Output:
 
 import argparse
 import csv
+import json
 import os
 import re
 import sys
@@ -41,6 +44,17 @@ from openpyxl.chart import BarChart, Reference
 from openpyxl.styles import Alignment, Border, PatternFill, Side
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_JKAN_CSV = os.path.join(SCRIPT_DIR, "dbJKAN.csv")
+DB_JKAN_HTML = os.path.join(SCRIPT_DIR, "dbJKAN.html")
+DATA_IN_FILENAME_RE = re.compile(r"(\d{4})[-/](\d{2})[-/](\d{2})")
+KANBAN_SNAPSHOT_COLS = [
+    "Backlog",
+    "In Progress",
+    "Waiting",
+    "Test in progress",
+    "Done",
+]
+DB_JKAN_HEADERS = ["data"] + KANBAN_SNAPSHOT_COLS
 
 KANBAN_COLUMNS = [
     "Title",
@@ -738,6 +752,355 @@ def scrivi_excel(card, output_path):
     wb.save(output_path)
 
 
+def estrai_data_da_nome_file(path):
+    """Estrae una data ISO (yyyy-mm-dd) dal nome del file di input."""
+    nome = os.path.basename(path)
+    match = DATA_IN_FILENAME_RE.search(nome)
+    if not match:
+        raise ValueError(
+            f"Impossibile estrarre la data dal nome file: {nome!r}. "
+            "Atteso un pattern yyyy-mm-dd o yyyy/mm/dd nel nome."
+        )
+    anno, mese, giorno = (int(match.group(i)) for i in range(1, 4))
+    return datetime(anno, mese, giorno).date()
+
+
+def classifica_colonna_kanban(status):
+    """Mappa lo Status MIRO a una colonna Kanban dello snapshot."""
+    testo = normalizza_testo(status, compatta_spazi=True).lower()
+    if not testo:
+        return None
+    if re.search(r"\b(complete|done)\b", testo):
+        return "Done"
+    if re.search(r"test\s*in\s*progress", testo) or testo == "test":
+        return "Test in progress"
+    if re.search(r"in\s*progress", testo) or re.search(r"lavorazione", testo):
+        return "In Progress"
+    if re.search(r"\bwaiting\b", testo) or re.search(r"attesa", testo):
+        return "Waiting"
+    if re.search(r"\bbacklog\b", testo):
+        return "Backlog"
+    return None
+
+
+def conteggio_per_colonna_kanban(card):
+    """Conta le card per colonna Kanban (Backlog, In Progress, …)."""
+    conteggi = Counter({col: 0 for col in KANBAN_SNAPSHOT_COLS})
+    non_mappate = 0
+    for record in card:
+        colonna = classifica_colonna_kanban(record.get("Status", ""))
+        if colonna is None:
+            non_mappate += 1
+            continue
+        conteggi[colonna] += 1
+    return conteggi, non_mappate
+
+
+def carica_db_jkan(csv_path=DB_JKAN_CSV):
+    """Carica lo storico snapshot; restituisce DataFrame ordinato per data."""
+    if not os.path.exists(csv_path):
+        return pd.DataFrame(columns=DB_JKAN_HEADERS)
+    df = pd.read_csv(csv_path, dtype={"data": str})
+    for col in DB_JKAN_HEADERS:
+        if col not in df.columns:
+            df[col] = 0 if col != "data" else ""
+    df = df[DB_JKAN_HEADERS].copy()
+    df["data"] = pd.to_datetime(df["data"], errors="coerce")
+    df = df.dropna(subset=["data"]).sort_values("data").reset_index(drop=True)
+    for col in KANBAN_SNAPSHOT_COLS:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+    return df
+
+
+def aggiorna_db_jkan(data_snapshot, conteggi, csv_path=DB_JKAN_CSV):
+    """Inserisce o sovrascrive la riga per la data indicata."""
+    df = carica_db_jkan(csv_path)
+    riga = {"data": pd.Timestamp(data_snapshot)}
+    for col in KANBAN_SNAPSHOT_COLS:
+        riga[col] = int(conteggi.get(col, 0))
+
+    data_key = pd.Timestamp(data_snapshot).normalize()
+    if df.empty:
+        df = pd.DataFrame([riga])
+    else:
+        mask = df["data"].dt.normalize() == data_key
+        if mask.any():
+            for col in DB_JKAN_HEADERS:
+                df.loc[mask, col] = riga[col]
+        else:
+            df = pd.concat([df, pd.DataFrame([riga])], ignore_index=True)
+
+    df = df.sort_values("data").reset_index(drop=True)
+    export = df.copy()
+    export["data"] = export["data"].dt.strftime("%Y-%m-%d")
+    export.to_csv(csv_path, index=False)
+    return df
+
+
+def _etichette_date(df):
+    return [d.strftime("%d/%m/%Y") for d in df["data"]]
+
+
+def _serie_totali(df):
+    return df[KANBAN_SNAPSHOT_COLS].sum(axis=1).tolist()
+
+
+def _serie_wip(df):
+    wip_cols = ["In Progress", "Waiting", "Test in progress"]
+    return df[wip_cols].sum(axis=1).tolist()
+
+
+def _serie_velocita(df):
+    done = df["Done"].astype(int).tolist()
+    if len(done) <= 1:
+        return [0] * len(done)
+    return [0] + [done[i] - done[i - 1] for i in range(1, len(done))]
+
+
+def _dati_grafici_jkan(df):
+    labels = _etichette_date(df)
+    return {
+        "labels": labels,
+        "burnup": {
+            "done": df["Done"].astype(int).tolist(),
+            "scope": _serie_totali(df),
+        },
+        "wip": _serie_wip(df),
+        "velocity": _serie_velocita(df),
+        "stacked": {
+            col: df[col].astype(int).tolist() for col in KANBAN_SNAPSHOT_COLS
+        },
+    }
+
+
+def genera_html_jkan(df, html_path=DB_JKAN_HTML, data_ultimo_snapshot=None):
+    """Genera report HTML con grafici burnup e metriche di avanzamento."""
+    if df.empty:
+        return
+
+    dati = _dati_grafici_jkan(df)
+    chart_json = json.dumps(dati, ensure_ascii=False)
+    now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
+    ultima = (
+        data_ultimo_snapshot.strftime("%d/%m/%Y")
+        if data_ultimo_snapshot
+        else df["data"].iloc[-1].strftime("%d/%m/%Y")
+    )
+    tot_ultimo = int(df[KANBAN_SNAPSHOT_COLS].iloc[-1].sum())
+    done_ultimo = int(df["Done"].iloc[-1])
+    wip_ultimo = int(
+        df[["In Progress", "Waiting", "Test in progress"]].iloc[-1].sum()
+    )
+
+    tabella_rows = []
+    for _, row in df.iterrows():
+        cells = [row["data"].strftime("%d/%m/%Y")]
+        cells += [str(int(row[col])) for col in KANBAN_SNAPSHOT_COLS]
+        cells.append(str(int(row[KANBAN_SNAPSHOT_COLS].sum())))
+        tabella_rows.append(
+            "<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>"
+        )
+    tabella_html = "\n".join(tabella_rows)
+
+    html = f"""<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>JKAN — Burnup e metriche</title>
+  <style>
+    :root {{
+      --bg: #f8fafc; --card: #fff; --text: #1e293b; --muted: #64748b;
+      --accent: #1a56db; --border: #e2e8f0;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0; font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--text); line-height: 1.5;
+    }}
+    main {{ max-width: 1100px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }}
+    h1 {{ margin: 0 0 .25rem; font-size: 1.6rem; }}
+    .sub {{ color: var(--muted); margin: 0 0 1.5rem; }}
+    .kpis {{
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: .75rem; margin-bottom: 1.5rem;
+    }}
+    .kpi {{
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 8px; padding: .85rem 1rem;
+    }}
+    .kpi b {{ display: block; font-size: 1.5rem; color: var(--accent); }}
+    .kpi span {{ font-size: .85rem; color: var(--muted); }}
+    section {{
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.25rem;
+    }}
+    section h2 {{ margin: 0 0 .75rem; font-size: 1.1rem; }}
+    .chart-wrap {{ position: relative; height: 320px; }}
+    table {{ width: 100%; border-collapse: collapse; font-size: .9rem; }}
+    th, td {{ border: 1px solid var(--border); padding: .45rem .6rem; text-align: center; }}
+    th {{ background: #f1f5f9; }}
+    td:first-child, th:first-child {{ text-align: left; }}
+  </style>
+</head>
+<body>
+<main>
+  <h1>JKAN — Burnup e metriche</h1>
+  <p class="sub">Generato il {now_str} · ultimo snapshot: {ultima}</p>
+
+  <div class="kpis">
+    <div class="kpi"><b>{tot_ultimo}</b><span>Scope totale</span></div>
+    <div class="kpi"><b>{done_ultimo}</b><span>Done</span></div>
+    <div class="kpi"><b>{wip_ultimo}</b><span>WIP (In Progress + Waiting + Test)</span></div>
+    <div class="kpi"><b>{len(df)}</b><span>Snapshot registrati</span></div>
+  </div>
+
+  <section id="burnup">
+    <h2>Burnup — Done vs scope totale</h2>
+    <p class="sub">Andamento del lavoro completato rispetto allo scope (somma di tutte le colonne).</p>
+    <div class="chart-wrap"><canvas id="chart-burnup"></canvas></div>
+  </section>
+
+  <section id="stacked">
+    <h2>Distribuzione card per colonna Kanban</h2>
+    <div class="chart-wrap"><canvas id="chart-stacked"></canvas></div>
+  </section>
+
+  <section id="wip">
+    <h2>WIP — lavoro in corso</h2>
+    <p class="sub">Somma di In Progress, Waiting e Test in progress.</p>
+    <div class="chart-wrap"><canvas id="chart-wip"></canvas></div>
+  </section>
+
+  <section id="velocity">
+    <h2>Velocità — card completate per snapshot</h2>
+    <p class="sub">Incremento di Done rispetto allo snapshot precedente.</p>
+    <div class="chart-wrap"><canvas id="chart-velocity"></canvas></div>
+  </section>
+
+  <section id="tabella">
+    <h2>Storico dbJKAN.csv</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Backlog</th>
+          <th>In Progress</th>
+          <th>Waiting</th>
+          <th>Test in progress</th>
+          <th>Done</th>
+          <th>Totale</th>
+        </tr>
+      </thead>
+      <tbody>
+        {tabella_html}
+      </tbody>
+    </table>
+  </section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+(function() {{
+  const D = {chart_json};
+  const STACK_COLORS = {{
+    "Backlog": "#94a3b8",
+    "In Progress": "#1a56db",
+    "Waiting": "#f59e0b",
+    "Test in progress": "#8b5cf6",
+    "Done": "#10b981"
+  }};
+  const baseOpts = {{
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {{ legend: {{ position: "top" }} }},
+    scales: {{
+      x: {{ ticks: {{ maxRotation: 45 }} }},
+      y: {{ beginAtZero: true, ticks: {{ precision: 0 }} }}
+    }}
+  }};
+
+  new Chart(document.getElementById("chart-burnup"), {{
+    type: "line",
+    data: {{
+      labels: D.labels,
+      datasets: [
+        {{
+          label: "Done",
+          data: D.burnup.done,
+          borderColor: "#10b981",
+          backgroundColor: "rgba(16,185,129,0.15)",
+          fill: true, tension: 0.25, pointRadius: 4
+        }},
+        {{
+          label: "Scope totale",
+          data: D.burnup.scope,
+          borderColor: "#64748b",
+          borderDash: [6, 4],
+          backgroundColor: "transparent",
+          fill: false, tension: 0.25, pointRadius: 3
+        }}
+      ]
+    }},
+    options: baseOpts
+  }});
+
+  new Chart(document.getElementById("chart-stacked"), {{
+    type: "bar",
+    data: {{
+      labels: D.labels,
+      datasets: Object.keys(D.stacked).map(function(col) {{
+        return {{
+          label: col,
+          data: D.stacked[col],
+          backgroundColor: STACK_COLORS[col] || "#cbd5e1",
+          stack: "kanban"
+        }};
+      }})
+    }},
+    options: Object.assign({{}}, baseOpts, {{
+      scales: {{
+        x: {{ stacked: true, ticks: {{ maxRotation: 45 }} }},
+        y: {{ stacked: true, beginAtZero: true, ticks: {{ precision: 0 }} }}
+      }}
+    }})
+  }});
+
+  new Chart(document.getElementById("chart-wip"), {{
+    type: "line",
+    data: {{
+      labels: D.labels,
+      datasets: [{{
+        label: "WIP",
+        data: D.wip,
+        borderColor: "#1a56db",
+        backgroundColor: "rgba(26,86,219,0.12)",
+        fill: true, tension: 0.25, pointRadius: 4
+      }}]
+    }},
+    options: baseOpts
+  }});
+
+  new Chart(document.getElementById("chart-velocity"), {{
+    type: "bar",
+    data: {{
+      labels: D.labels,
+      datasets: [{{
+        label: "Card completate",
+        data: D.velocity,
+        backgroundColor: "#10b981"
+      }}]
+    }},
+    options: baseOpts
+  }});
+}})();
+</script>
+</body>
+</html>"""
+
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(html)
+
+
 def elabora(input_csv):
     input_path = risolvi_percorso(input_csv)
     output_path = percorso_output_da_csv(input_path)
@@ -754,11 +1117,22 @@ def elabora(input_csv):
         )
 
     scrivi_excel(card, output_path)
+
+    data_snapshot = estrai_data_da_nome_file(input_path)
+    conteggi, non_mappate = conteggio_per_colonna_kanban(card)
+    df_storico = aggiorna_db_jkan(data_snapshot, conteggi)
+    genera_html_jkan(df_storico, data_ultimo_snapshot=data_snapshot)
+
     righe_output = len(espandi_card_con_tag(card))
     print(f"Sezioni kanban: {sezioni}")
     print(f"Card estratte: {len(card)}")
     print(f"Righe output: {righe_output}")
     print(f"Output: {output_path}")
+    print(f"Snapshot {data_snapshot.isoformat()}: {dict(conteggi)}")
+    if non_mappate:
+        print(f"Card con Status non mappato: {non_mappate}")
+    print(f"Database: {DB_JKAN_CSV}")
+    print(f"Grafici: {DB_JKAN_HTML}")
 
 
 def crea_parser():
@@ -774,6 +1148,8 @@ Parametri:
 
 Output:
   <input>.xlsx — stesso percorso del CSV, estensione .xlsx.
+  dbJKAN.csv   — storico snapshot colonne Kanban (nella cartella dello script).
+  dbJKAN.html  — grafici burnup, WIP, velocità e distribuzione stati.
 """
     parser = argparse.ArgumentParser(
         description=(

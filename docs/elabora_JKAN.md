@@ -1,6 +1,6 @@
 # elabora_JKAN.py — Documentazione
 
-Script Python che elabora un export CSV di una board **MIRO**, estrae le card da **tutte le sezioni Kanban** presenti nel file e produce un file Excel con metriche temporali, totali e grafici di avanzamento.
+Script Python che elabora un export CSV di una board **MIRO**, estrae le card da **tutte le sezioni Kanban** presenti nel file, produce un file Excel con metriche temporali e mantiene uno **storico snapshot** delle colonne Kanban con report HTML interattivo (burnup, WIP, velocità).
 
 ---
 
@@ -11,13 +11,15 @@ Script Python che elabora un export CSV di una board **MIRO**, estrae le card da
 3. [Utilizzo](#utilizzo)
 4. [Input: export CSV MIRO](#input-export-csv-miro)
 5. [Output: file Excel](#output-file-excel)
-6. [Colonne dei fogli `data-all` e `data-check`](#colonne-dei-fogli-data-all-e-data-check)
-7. [Tag temporali nella Description](#tag-temporali-nella-description)
-8. [Calcolo dei giorni](#calcolo-dei-giorni)
-9. [Formattazione Excel](#formattazione-excel)
-10. [Fogli `stat` e `graph`](#fogli-stat-e-graph)
-11. [Estendere lo script](#estendere-lo-script)
-12. [Esempi](#esempi)
+6. [Storico `dbJKAN.csv`](#storico-dbjkancsv)
+7. [Report HTML `dbJKAN.html`](#report-html-dbjkanhtml)
+8. [Colonne dei fogli `data-all` e `data-check`](#colonne-dei-fogli-data-all-e-data-check)
+9. [Tag temporali nella Description](#tag-temporali-nella-description)
+10. [Calcolo dei giorni](#calcolo-dei-giorni)
+11. [Formattazione Excel](#formattazione-excel)
+12. [Fogli `stat` e `graph`](#fogli-stat-e-graph)
+13. [Estendere lo script](#estendere-lo-script)
+14. [Esempi](#esempi)
 
 ---
 
@@ -27,6 +29,8 @@ Il flusso di elaborazione è:
 
 ```
 CSV MIRO  →  estrazione tutte le Kanban  →  espansione tag temporali  →  Excel (.xlsx)
+                                        ↘  snapshot colonne Kanban  →  dbJKAN.csv
+                                                                    →  dbJKAN.html
 ```
 
 Per ogni card MIRO lo script:
@@ -36,6 +40,8 @@ Per ogni card MIRO lo script:
 3. Espande ogni card in una o più righe (una per tag temporale).
 4. Calcola metriche aggregate (giorni in lavorazione, periodo in Progress, stima vs consuntivo).
 5. Applica formattazione visiva (merge, bordi, colori) e genera fogli di riepilogo.
+6. Conta le card per colonna Kanban e aggiorna lo storico `dbJKAN.csv`.
+7. Rigenera `dbJKAN.html` con grafici di burnup e metriche di avanzamento.
 
 ---
 
@@ -61,7 +67,7 @@ python elabora_JKAN.py -h
 
 | Parametro | Obbligatorio | Default | Descrizione |
 |-----------|--------------|---------|-------------|
-| `input.csv` | No | `2026-06-06-WIP.csv` | Export CSV di una board MIRO. Percorso relativo alla cartella dello script o assoluto. |
+| `input.csv` | No | `2026-06-06-WIP.csv` | Export CSV di una board MIRO. Percorso relativo alla cartella dello script o assoluto. **Il nome deve contenere una data** nel formato `yyyy-mm-dd` o `yyyy/mm/dd` (es. `2026-06-26-WIP.csv`). |
 
 ### Opzioni
 
@@ -69,7 +75,13 @@ python elabora_JKAN.py -h
 |---------|-------------|
 | `-h`, `--help` | Mostra l'help da riga di comando (parametri, esempi, output). |
 
-**Output:** file con lo stesso nome e percorso del CSV, estensione `.xlsx`.
+**Output:**
+
+| File | Percorso | Descrizione |
+|------|----------|-------------|
+| `<input>.xlsx` | Stesso percorso del CSV | Excel con fogli `data-all`, `data-check`, `stat`, `graph` |
+| `dbJKAN.csv` | Cartella dello script | Storico snapshot colonne Kanban |
+| `dbJKAN.html` | Cartella dello script | Report HTML con grafici burnup e metriche |
 
 ### Esempi
 
@@ -83,7 +95,7 @@ python elabora_JKAN.py 2026-06-06-WIP.csv
 python elabora_JKAN.py /percorso/export-miro.csv
 ```
 
-In console vengono stampati: numero sezioni kanban trovate, numero card, numero righe output e percorso del file generato.
+In console vengono stampati: numero sezioni kanban trovate, numero card, numero righe output, percorso Excel, conteggio snapshot per colonna Kanban, eventuali card con Status non mappato, percorsi di `dbJKAN.csv` e `dbJKAN.html`.
 
 ---
 
@@ -140,6 +152,91 @@ Include tutte le righe di `data-all` **tranne** le card il cui Status (col. C) �
 - `new - to be verified`
 
 Stesse colonne, merge, colori e footer di `data-all`.
+
+---
+
+## Storico `dbJKAN.csv`
+
+Ad ogni esecuzione lo script salva (o aggiorna) uno **snapshot** dello stato della Kanban nella data indicata nel **nome del file di input**.
+
+### Estrazione della data
+
+La data viene letta dal nome file con regex `yyyy-mm-dd` o `yyyy/mm/dd`:
+
+| Nome file | Data snapshot |
+|-----------|---------------|
+| `2026-06-06-WIP.csv` | `2026-06-06` |
+| `export-2026/06/26.csv` | `2026-06-26` |
+
+Se la data non è riconoscibile, lo script termina con errore.
+
+### Struttura del CSV
+
+| Colonna | Descrizione |
+|---------|-------------|
+| `data` | Data dello snapshot (`yyyy-mm-dd`) |
+| `Backlog` | Card con Status mappato a Backlog |
+| `In Progress` | Card in lavorazione |
+| `Waiting` | Card in attesa |
+| `Test in progress` | Card in carico a fabbrica / test |
+| `Done` | Card completate |
+
+Esempio:
+
+```csv
+data,Backlog,In Progress,Waiting,Test in progress,Done
+2026-06-06,3,1,2,0,1
+2026-06-13,2,2,1,1,2
+```
+
+### Comportamento upsert
+
+- Se `dbJKAN.csv` **non esiste**, viene creato con intestazione e prima riga.
+- Se esiste già una riga per la **stessa data**, i valori vengono **sovrascritti**.
+- Altrimenti viene **aggiunta** una nuova riga; le righe sono ordinate per data.
+
+### Mappatura Status → colonna Kanban
+
+Il conteggio usa il campo **Status** (col. C) di ogni card. La classificazione avviene in ordine di priorità:
+
+| Colonna | Status riconosciuti (case-insensitive) |
+|---------|----------------------------------------|
+| Done | contiene `complete` o `done` |
+| Test in progress | contiene `test in progress`, oppure valore esatto `test` |
+| In Progress | contiene `in progress` o `lavorazione` |
+| Waiting | contiene `waiting` o `attesa` |
+| Backlog | contiene `backlog` |
+
+Card con Status non mappato vengono escluse dal conteggio e segnalate in console (`Card con Status non mappato: N`).
+
+> **Nota:** la mappatura opera sul valore del campo Status MIRO, non sulle etichette delle colonne fisiche della board.
+
+---
+
+## Report HTML `dbJKAN.html`
+
+Dopo ogni aggiornamento di `dbJKAN.csv`, lo script rigenera un report HTML nella cartella dello script. I grafici usano **Chart.js** (CDN, nessuna dipendenza Python aggiuntiva). Aprire il file in un browser.
+
+### KPI in testata
+
+| Indicatore | Significato |
+|------------|-------------|
+| Scope totale | Somma di tutte le colonne Kanban nell'ultimo snapshot |
+| Done | Card completate nell'ultimo snapshot |
+| WIP | In Progress + Waiting + Test in progress |
+| Snapshot registrati | Numero di righe in `dbJKAN.csv` |
+
+### Grafici
+
+| Sezione | Tipo | Descrizione |
+|---------|------|-------------|
+| **Burnup** | Linee | Done vs scope totale (somma colonne) nel tempo |
+| **Distribuzione stati** | Barre impilate | Breakdown Backlog / In Progress / Waiting / Test / Done per ogni snapshot |
+| **WIP** | Linea | Andamento del lavoro in corso (escluse Backlog e Done) |
+| **Velocità** | Barre | Incremento di Done rispetto allo snapshot precedente |
+| **Tabella storico** | Tabella | Contenuto completo di `dbJKAN.csv` con colonna Totale |
+
+Con un solo snapshot i grafici mostrano un punto; diventano significativi dopo più esecuzioni con file di date diverse (es. export settimanali).
 
 ---
 
@@ -368,7 +465,22 @@ Sezioni kanban: 2
 Card estratte: 7
 Righe output: 13
 Output: /percorso/rend-script-psa/2026-06-06-WIP.xlsx
+Snapshot 2026-06-06: {'Backlog': 3, 'In Progress': 1, 'Waiting': 2, 'Test in progress': 0, 'Done': 1}
+Database: /percorso/rend-script-psa/dbJKAN.csv
+Grafici: /percorso/rend-script-psa/dbJKAN.html
 ```
+
+### Storico multi-snapshot
+
+Per costruire l'andamento nel tempo, eseguire lo script su export con date diverse nel nome:
+
+```bash
+python elabora_JKAN.py 2026-06-06-WIP.csv
+python elabora_JKAN.py 2026-06-13-WIP.csv
+python elabora_JKAN.py 2026-06-20-WIP.csv
+```
+
+Ogni run aggiunge (o aggiorna) una riga in `dbJKAN.csv` e rigenera `dbJKAN.html`.
 
 ---
 

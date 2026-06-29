@@ -6,11 +6,13 @@ alwaysApply: false
 
 # elabora_JKAN.py
 
-Script che legge un export CSV MIRO, estrae le card da **tutte le sezioni Kanban** (header standard) e produce un `.xlsx` omonimo. Nessun filtro per nome kanban.
+Script che legge un export CSV MIRO, estrae le card da **tutte le sezioni Kanban** (header standard) e produce un `.xlsx` omonimo. Nessun filtro per nome kanban. Aggiorna anche `dbJKAN.csv` (storico snapshot) e `dbJKAN.html` (grafici burnup).
 
 ```bash
 python elabora_JKAN.py [input.csv]   # default: 2026-06-06-WIP.csv
 ```
+
+Il nome file input deve contenere una data `yyyy-mm-dd` o `yyyy/mm/dd`.
 
 ## Output Excel
 
@@ -33,6 +35,12 @@ Righe Description con `#` generano sotto-righe da colonna N. Colonne A–M: merg
 Foglio `data-check`: stesse colonne e formattazione di `data-all`, esclusi Status `Complete`, `Abandoned`, `Probably dismissed / delayed to 2027`, `new - to be verified`.
 
 Colonna G (Estimate): valore dal tag `# Estimate` in Description, non dal CSV.
+
+## dbJKAN.csv / dbJKAN.html
+
+- `dbJKAN.csv`: una riga per data snapshot (upsert per stessa data); colonne `data`, Backlog, In Progress, Waiting, Test in progress, Done.
+- Status mappati con `classifica_colonna_kanban()` (Done → Complete/done, Test in progress, In Progress/lavorazione, Waiting/attesa, Backlog).
+- `dbJKAN.html`: burnup (Done vs scope), barre impilate stati, WIP, velocità (delta Done), tabella storico. Chart.js via CDN.
 
 ## Tag temporali (prefissi esatti)
 
