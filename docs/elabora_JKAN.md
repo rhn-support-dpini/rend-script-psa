@@ -81,7 +81,7 @@ python elabora_JKAN.py -h
 |------|----------|-------------|
 | `<input>.xlsx` | Stesso percorso del CSV | Excel con fogli `data-all`, `data-check`, `stat`, `graph` |
 | `dbJKAN.csv` | Cartella dello script | Storico snapshot colonne Kanban |
-| `dbJKAN.html` | Cartella dello script | Report HTML con grafici burnup e metriche |
+| `dbJKAN.html` | Stessa cartella del CSV di input | Report HTML con grafici burnup e metriche |
 
 ### Esempi
 
@@ -175,19 +175,24 @@ Se la data non è riconoscibile, lo script termina con errore.
 | Colonna | Descrizione |
 |---------|-------------|
 | `data` | Data dello snapshot (`yyyy-mm-dd`) |
-| `Backlog` | Card con Status mappato a Backlog |
+| `Backlog` | Card in attesa di lavorazione |
+| `Waiting` | Card in attesa (Intesa) — prima colonna Waiting / Attesa lavorazione |
 | `In Progress` | Card in lavorazione |
-| `Waiting` | Card in attesa |
+| `Waiting Test` | Card in attesa test/fabbrica — seconda colonna Waiting / Attesa test |
 | `Test in progress` | Card in carico a fabbrica / test |
 | `Done` | Card completate |
 
 Esempio:
 
 ```csv
-data,Backlog,In Progress,Waiting,Test in progress,Done
-2026-06-06,3,1,2,0,1
-2026-06-13,2,2,1,1,2
+data,Backlog,Waiting,In Progress,Waiting Test,Test in progress,Done
+2026-06-06,3,1,1,1,0,1
+2026-06-13,2,1,2,1,1,2
 ```
+
+### Scope tracciato e target
+
+Lo **scope tracciato** per ogni snapshot è la **somma** delle sei colonne Kanban sopra (Backlog + Waiting + In Progress + Waiting Test + Test in progress + Done). Il progetto prevede **30 card** totali: nel grafico burnup compare una linea di riferimento orizzontale a 30, mentre la linea «Scope tracciato» mostra quante card risultano mappate nello snapshot.
 
 ### Comportamento upsert
 
@@ -204,7 +209,8 @@ Il conteggio usa il campo **Status** (col. C) di ogni card. La classificazione a
 | Done | contiene `complete` o `done` |
 | Test in progress | contiene `test in progress`, oppure valore esatto `test` |
 | In Progress | contiene `in progress` o `lavorazione` |
-| Waiting | contiene `waiting` o `attesa` |
+| Waiting Test | Status con `waiting test` / `attesa test`, oppure Description/ultimo tag con «Attesa test» / «Attesa fab.» |
+| Waiting | contiene `waiting` o «attesa lavorazione/intesa» (esclusa attesa test/fab) |
 | Backlog | contiene `backlog` |
 
 Card con Status non mappato vengono escluse dal conteggio e segnalate in console (`Card con Status non mappato: N`).
@@ -215,26 +221,29 @@ Card con Status non mappato vengono escluse dal conteggio e segnalate in console
 
 ## Report HTML `dbJKAN.html`
 
-Dopo ogni aggiornamento di `dbJKAN.csv`, lo script rigenera un report HTML nella cartella dello script. I grafici usano **Chart.js** (CDN, nessuna dipendenza Python aggiuntiva). Aprire il file in un browser.
+Dopo ogni aggiornamento di `dbJKAN.csv`, lo script rigenera `dbJKAN.html` **nella stessa cartella del CSV di input** (es. `2026-06-06-WIP.csv` → `dbJKAN.html` accanto al CSV). I grafici usano **Chart.js** (CDN, nessuna dipendenza Python aggiuntiva). Aprire il file in un browser.
 
 ### KPI in testata
 
 | Indicatore | Significato |
 |------------|-------------|
-| Scope totale | Somma di tutte le colonne Kanban nell'ultimo snapshot |
+| Scope tracciato | Somma delle sei colonne Kanban nell'ultimo snapshot |
+| Target card totali | 30 (card previste nel progetto) |
 | Done | Card completate nell'ultimo snapshot |
-| WIP | In Progress + Waiting + Test in progress |
+| WIP | Waiting + In Progress + Waiting Test + Test in progress |
 | Snapshot registrati | Numero di righe in `dbJKAN.csv` |
 
 ### Grafici
 
 | Sezione | Tipo | Descrizione |
 |---------|------|-------------|
-| **Burnup** | Linee | Done vs scope totale (somma colonne) nel tempo |
-| **Distribuzione stati** | Barre impilate | Breakdown Backlog / In Progress / Waiting / Test / Done per ogni snapshot |
+| **Burnup** | Linee | Done, scope tracciato (somma colonne) e target 30 card |
+| **Distribuzione stati** | Barre impilate | Breakdown Backlog / Waiting / In Progress / Waiting Test / Test / Done |
 | **WIP** | Linea | Andamento del lavoro in corso (escluse Backlog e Done) |
 | **Velocità** | Barre | Incremento di Done rispetto allo snapshot precedente |
 | **Tabella storico** | Tabella | Contenuto completo di `dbJKAN.csv` con colonna Totale |
+
+Sull'**asse delle ascisse** di ogni grafico, sotto la data (`dd/mm/yyyy`), viene mostrato il **numero di settimana ISO** (es. `W23`).
 
 Con un solo snapshot i grafici mostrano un punto; diventano significativi dopo più esecuzioni con file di date diverse (es. export settimanali).
 
@@ -465,9 +474,9 @@ Sezioni kanban: 2
 Card estratte: 7
 Righe output: 13
 Output: /percorso/rend-script-psa/2026-06-06-WIP.xlsx
-Snapshot 2026-06-06: {'Backlog': 3, 'In Progress': 1, 'Waiting': 2, 'Test in progress': 0, 'Done': 1}
+Snapshot 2026-06-06: {'Backlog': 3, 'Waiting': 1, 'In Progress': 1, 'Waiting Test': 1, 'Test in progress': 0, 'Done': 1}
 Database: /percorso/rend-script-psa/dbJKAN.csv
-Grafici: /percorso/rend-script-psa/dbJKAN.html
+Grafici: /percorso/rend-script-psa/dbJKAN.html   # accanto al CSV di input
 ```
 
 ### Storico multi-snapshot
