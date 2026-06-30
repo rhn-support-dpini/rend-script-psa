@@ -175,24 +175,37 @@ Se la data non è riconoscibile, lo script termina con errore.
 | Colonna | Descrizione |
 |---------|-------------|
 | `data` | Data dello snapshot (`yyyy-mm-dd`) |
-| `Backlog` | Card in attesa di lavorazione |
-| `Waiting` | Card in attesa (Intesa) — prima colonna Waiting / Attesa lavorazione |
-| `In Progress` | Card in lavorazione |
-| `Waiting Test` | Card in attesa test/fabbrica — seconda colonna Waiting / Attesa test |
-| `Test in progress` | Card in carico a fabbrica / test |
-| `Done` | Card completate |
+| `Under analysis` | Card in fase di analisi iniziale |
+| `backlog` | Card in attesa di lavorazione |
+| `in progress` | Card in lavorazione |
+| `waiting for fab.` | Card in attesa test/fabbrica |
+| `Fab test in progress` | Card in carico a fabbrica / test |
+| `Acronimi done` | Card completate (unica colonna «done») |
 
 Esempio:
 
 ```csv
-data,Backlog,Waiting,In Progress,Waiting Test,Test in progress,Done
-2026-06-06,3,1,1,1,0,1
-2026-06-13,2,1,2,1,1,2
+data,Under analysis,backlog,in progress,waiting for fab.,Fab test in progress,Acronimi done
+2026-06-06,1,3,1,1,0,1
+2026-06-13,2,2,2,1,1,2
 ```
 
 ### Scope tracciato e target
 
-Lo **scope tracciato** per ogni snapshot è la **somma** delle sei colonne Kanban sopra (Backlog + Waiting + In Progress + Waiting Test + Test in progress + Done). Il progetto prevede **30 card** totali: nel grafico burnup compare una linea di riferimento orizzontale a 30, mentre la linea «Scope tracciato» mostra quante card risultano mappate nello snapshot.
+Lo **scope tracciato** per ogni snapshot è la **somma** delle sei colonne Kanban sopra (Under analysis + backlog + in progress + waiting for fab. + Fab test in progress + Acronimi done). Il progetto prevede **30 card** totali: nel grafico burnup compare una linea di riferimento orizzontale a 30, mentre la linea «Scope tracciato» mostra quante card risultano mappate nello snapshot. Le card completate contano **solo** in `Acronimi done`.
+
+### Migrazione colonne legacy
+
+Se `dbJKAN.csv` contiene ancora le intestazioni del vecchio schema (`Backlog`, `Waiting`, `In Progress`, `Waiting Test`, `Test in progress`, `Done`), lo script le converte automaticamente al caricamento:
+
+| Colonna legacy | Nuova colonna |
+|----------------|---------------|
+| `Backlog` | `backlog` |
+| `Waiting` | `Under analysis` |
+| `In Progress` | `in progress` |
+| `Waiting Test` | `waiting for fab.` |
+| `Test in progress` | `Fab test in progress` |
+| `Done` | `Acronimi done` |
 
 ### Comportamento upsert
 
@@ -206,12 +219,12 @@ Il conteggio usa il campo **Status** (col. C) di ogni card. La classificazione a
 
 | Colonna | Status riconosciuti (case-insensitive) |
 |---------|----------------------------------------|
-| Done | contiene `complete` o `done` |
-| Test in progress | contiene `test in progress`, oppure valore esatto `test` |
-| In Progress | contiene `in progress` o `lavorazione` |
-| Waiting Test | Status con `waiting test` / `attesa test`, oppure Description/ultimo tag con «Attesa test» / «Attesa fab.» |
-| Waiting | contiene `waiting` o «attesa lavorazione/intesa» (esclusa attesa test/fab) |
-| Backlog | contiene `backlog` |
+| Acronimi done | contiene `acronimi done`, `complete` o `done` |
+| Fab test in progress | contiene `fab test in progress` o `test in progress`, oppure valore esatto `test` |
+| in progress | contiene `in progress` o `lavorazione` |
+| waiting for fab. | Status con `waiting for fab` / `waiting test` / `attesa fab` / `attesa test`, oppure Description/ultimo tag con «Attesa test» / «Attesa fab.» |
+| backlog | contiene `backlog` |
+| Under analysis | contiene `under analysis`, oppure `waiting` / «attesa lavorazione/intesa» (esclusa attesa test/fab) |
 
 Card con Status non mappato vengono escluse dal conteggio e segnalate in console (`Card con Status non mappato: N`).
 
@@ -229,18 +242,18 @@ Dopo ogni aggiornamento di `dbJKAN.csv`, lo script rigenera `dbJKAN.html` **nell
 |------------|-------------|
 | Scope tracciato | Somma delle sei colonne Kanban nell'ultimo snapshot |
 | Target card totali | 30 (card previste nel progetto) |
-| Done | Card completate nell'ultimo snapshot |
-| WIP | Waiting + In Progress + Waiting Test + Test in progress |
+| Acronimi done | Card completate nell'ultimo snapshot |
+| WIP | in progress + waiting for fab. + Fab test in progress |
 | Snapshot registrati | Numero di righe in `dbJKAN.csv` |
 
 ### Grafici
 
 | Sezione | Tipo | Descrizione |
 |---------|------|-------------|
-| **Burnup** | Linee | Done, scope tracciato (somma colonne) e target 30 card |
-| **Distribuzione stati** | Barre impilate | Breakdown Backlog / Waiting / In Progress / Waiting Test / Test / Done |
-| **WIP** | Linea | Andamento del lavoro in corso (escluse Backlog e Done) |
-| **Velocità** | Barre | Incremento di Done rispetto allo snapshot precedente |
+| **Burnup** | Linee | Acronimi done, scope tracciato (somma colonne) e target 30 card |
+| **Distribuzione stati** | Barre impilate | Breakdown Under analysis / backlog / in progress / waiting for fab. / Fab test / Acronimi done |
+| **WIP** | Linea | Andamento del lavoro in corso (esclusi Under analysis, backlog e Acronimi done) |
+| **Velocità** | Barre | Incremento di Acronimi done rispetto allo snapshot precedente |
 | **Tabella storico** | Tabella | Contenuto completo di `dbJKAN.csv` con colonna Totale |
 
 Sull'**asse delle ascisse** di ogni grafico, sotto la data (`dd/mm/yyyy`), viene mostrato il **numero di settimana ISO** (es. `W23`).
@@ -474,7 +487,7 @@ Sezioni kanban: 2
 Card estratte: 7
 Righe output: 13
 Output: /percorso/rend-script-psa/2026-06-06-WIP.xlsx
-Snapshot 2026-06-06: {'Backlog': 3, 'Waiting': 1, 'In Progress': 1, 'Waiting Test': 1, 'Test in progress': 0, 'Done': 1}
+Snapshot 2026-06-06: {'Under analysis': 1, 'backlog': 3, 'in progress': 1, 'waiting for fab.': 1, 'Fab test in progress': 0, 'Acronimi done': 1}
 Database: /percorso/rend-script-psa/dbJKAN.csv
 Grafici: /percorso/rend-script-psa/dbJKAN.html   # accanto al CSV di input
 ```

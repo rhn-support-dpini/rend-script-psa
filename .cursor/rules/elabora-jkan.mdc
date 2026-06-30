@@ -38,9 +38,10 @@ Colonna G (Estimate): valore dal tag `# Estimate` in Description, non dal CSV.
 
 ## dbJKAN.csv / dbJKAN.html
 
-- `dbJKAN.csv`: una riga per data snapshot (upsert per stessa data); colonne `data`, Backlog, Waiting, In Progress, Waiting Test, Test in progress, Done.
+- `dbJKAN.csv`: una riga per data snapshot (upsert per stessa data); colonne `data`, Under analysis, backlog, in progress, waiting for fab., Fab test in progress, Acronimi done.
 - Scope tracciato = somma delle sei colonne; target progetto = 30 card (`SCOPE_TOTALE_CARD`).
-- Status mappati con `classifica_colonna_kanban()`: Waiting Test distinto da Waiting (Attesa test/fab in Status, Description o ultimo tag).
+- Done = solo colonna Acronimi done. WIP = in progress + waiting for fab. + Fab test in progress.
+- Status mappati con `classifica_colonna_kanban()`: waiting for fab. distinto da Under analysis (Attesa test/fab in Status, Description o ultimo tag).
 - `dbJKAN.html`: stessa cartella del CSV input (`percorso_html_jkan_da_csv()`); burnup, barre impilate, WIP, velocità; asse X data + settimana ISO. Chart.js via CDN.
 
 ## Tag temporali (prefissi esatti)

@@ -49,20 +49,27 @@ DB_JKAN_HTML_NAME = "dbJKAN.html"
 DATA_IN_FILENAME_RE = re.compile(r"(\d{4})[-/](\d{2})[-/](\d{2})")
 SCOPE_TOTALE_CARD = 30
 KANBAN_SNAPSHOT_COLS = [
-    "Backlog",
-    "Waiting",
-    "In Progress",
-    "Waiting Test",
-    "Test in progress",
-    "Done",
+    "Under analysis",
+    "backlog",
+    "in progress",
+    "waiting for fab.",
+    "Fab test in progress",
+    "Acronimi done",
 ]
 DB_JKAN_HEADERS = ["data"] + KANBAN_SNAPSHOT_COLS
 WIP_SNAPSHOT_COLS = [
-    "Waiting",
-    "In Progress",
-    "Waiting Test",
-    "Test in progress",
+    "in progress",
+    "waiting for fab.",
+    "Fab test in progress",
 ]
+KANBAN_SNAPSHOT_COLS_LEGACY = {
+    "Backlog": "backlog",
+    "Waiting": "Under analysis",
+    "In Progress": "in progress",
+    "Waiting Test": "waiting for fab.",
+    "Test in progress": "Fab test in progress",
+    "Done": "Acronimi done",
+}
 
 KANBAN_COLUMNS = [
     "Title",
@@ -779,9 +786,9 @@ def estrai_data_da_nome_file(path):
 
 
 def is_attesa_test_o_fab(status, description=""):
-    """True se la card è in attesa test/fabbrica (seconda colonna Waiting)."""
+    """True se la card è in attesa test/fabbrica (colonna waiting for fab.)."""
     testo = normalizza_testo(status, compatta_spazi=True).lower()
-    if re.search(r"waiting\s*test|attesa\s*test", testo):
+    if re.search(r"waiting\s*(for\s*fab\.?|test)|attesa\s*(fab\.?|test)", testo):
         return True
     desc = normalizza_testo(description).lower()
     if re.search(r"attesa\s*(test|fab\.?)", desc):
@@ -803,25 +810,29 @@ def classifica_colonna_kanban(status, description=""):
     testo = normalizza_testo(status, compatta_spazi=True).lower()
     if not testo:
         return None
-    if re.search(r"\b(complete|done)\b", testo):
-        return "Done"
-    if re.search(r"test\s*in\s*progress", testo) or testo == "test":
-        return "Test in progress"
+    if re.search(r"\b(acronimi\s*done|complete|done)\b", testo):
+        return "Acronimi done"
+    if re.search(r"fab\s*test\s*in\s*progress", testo) or re.search(
+        r"test\s*in\s*progress", testo
+    ) or testo == "test":
+        return "Fab test in progress"
     if re.search(r"in\s*progress", testo) or re.search(r"lavorazione", testo):
-        return "In Progress"
+        return "in progress"
     if is_attesa_test_o_fab(status, description):
-        return "Waiting Test"
+        return "waiting for fab."
+    if re.search(r"\bbacklog\b", testo):
+        return "backlog"
+    if re.search(r"under\s*analysis", testo):
+        return "Under analysis"
     if re.search(r"\bwaiting\b", testo) or re.search(
         r"attesa\s*(lavorazione|intesa)?", testo
     ):
-        return "Waiting"
-    if re.search(r"\bbacklog\b", testo):
-        return "Backlog"
+        return "Under analysis"
     return None
 
 
 def conteggio_per_colonna_kanban(card):
-    """Conta le card per colonna Kanban (Backlog, Waiting, …)."""
+    """Conta le card per colonna Kanban (Under analysis, backlog, …)."""
     conteggi = Counter({col: 0 for col in KANBAN_SNAPSHOT_COLS})
     non_mappate = 0
     for record in card:
@@ -836,11 +847,26 @@ def conteggio_per_colonna_kanban(card):
     return conteggi, non_mappate
 
 
+def _migra_colonne_db_jkan(df):
+    """Converte colonne legacy (Backlog, Waiting, …) al nuovo schema Kanban."""
+    for old, new in KANBAN_SNAPSHOT_COLS_LEGACY.items():
+        if old not in df.columns:
+            continue
+        if new in df.columns:
+            df[new] = pd.to_numeric(df[new], errors="coerce").fillna(0).astype(int)
+            df[new] += pd.to_numeric(df[old], errors="coerce").fillna(0).astype(int)
+        else:
+            df[new] = pd.to_numeric(df[old], errors="coerce").fillna(0).astype(int)
+        df = df.drop(columns=[old])
+    return df
+
+
 def carica_db_jkan(csv_path=DB_JKAN_CSV):
     """Carica lo storico snapshot; restituisce DataFrame ordinato per data."""
     if not os.path.exists(csv_path):
         return pd.DataFrame(columns=DB_JKAN_HEADERS)
     df = pd.read_csv(csv_path, dtype={"data": str})
+    df = _migra_colonne_db_jkan(df)
     for col in DB_JKAN_HEADERS:
         if col not in df.columns:
             df[col] = 0 if col != "data" else ""
@@ -853,7 +879,7 @@ def carica_db_jkan(csv_path=DB_JKAN_CSV):
 
 
 def somma_colonne_scope(df):
-    """Somma Backlog + Waiting + In Progress + Waiting Test + Test in progress + Done."""
+    """Somma Under analysis … Acronimi done (scope tracciato per snapshot)."""
     return df[KANBAN_SNAPSHOT_COLS].sum(axis=1)
 
 
@@ -902,7 +928,7 @@ def aggiorna_db_jkan(data_snapshot, conteggi, csv_path=DB_JKAN_CSV):
 
 
 def _serie_velocita(df):
-    done = df["Done"].astype(int).tolist()
+    done = df["Acronimi done"].astype(int).tolist()
     if len(done) <= 1:
         return [0] * len(done)
     return [0] + [done[i] - done[i - 1] for i in range(1, len(done))]
@@ -915,7 +941,7 @@ def _dati_grafici_jkan(df):
         "dates": dates,
         "weeks": weeks,
         "burnup": {
-            "done": df["Done"].astype(int).tolist(),
+            "done": df["Acronimi done"].astype(int).tolist(),
             "scope": _serie_totali(df),
             "target": [SCOPE_TOTALE_CARD] * n,
         },
@@ -941,7 +967,7 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
         else df["data"].iloc[-1].strftime("%d/%m/%Y")
     )
     tot_ultimo = int(somma_colonne_scope(df).iloc[-1])
-    done_ultimo = int(df["Done"].iloc[-1])
+    done_ultimo = int(df["Acronimi done"].iloc[-1])
     wip_ultimo = int(df[WIP_SNAPSHOT_COLS].iloc[-1].sum())
 
     tabella_rows = []
@@ -1003,14 +1029,14 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
   <div class="kpis">
     <div class="kpi"><b>{tot_ultimo}</b><span>Scope tracciato (somma colonne)</span></div>
     <div class="kpi"><b>{SCOPE_TOTALE_CARD}</b><span>Target card totali</span></div>
-    <div class="kpi"><b>{done_ultimo}</b><span>Done</span></div>
-    <div class="kpi"><b>{wip_ultimo}</b><span>WIP (Waiting + In Progress + Waiting Test + Test)</span></div>
+    <div class="kpi"><b>{done_ultimo}</b><span>Acronimi done</span></div>
+    <div class="kpi"><b>{wip_ultimo}</b><span>WIP (in progress + waiting for fab. + Fab test)</span></div>
     <div class="kpi"><b>{len(df)}</b><span>Snapshot registrati</span></div>
   </div>
 
   <section id="burnup">
-    <h2>Burnup — Done vs scope</h2>
-    <p class="sub">Scope tracciato = somma di Backlog, Waiting, In Progress, Waiting Test, Test in progress e Done. Linea tratteggiata: target {SCOPE_TOTALE_CARD} card.</p>
+    <h2>Burnup — Acronimi done vs scope</h2>
+    <p class="sub">Scope tracciato = somma di Under analysis, backlog, in progress, waiting for fab., Fab test in progress e Acronimi done. Linea tratteggiata: target {SCOPE_TOTALE_CARD} card.</p>
     <div class="chart-wrap"><canvas id="chart-burnup"></canvas></div>
   </section>
 
@@ -1021,13 +1047,13 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
 
   <section id="wip">
     <h2>WIP — lavoro in corso</h2>
-    <p class="sub">Somma di Waiting, In Progress, Waiting Test e Test in progress.</p>
+    <p class="sub">Somma di in progress, waiting for fab. e Fab test in progress (esclusi Under analysis, backlog e Acronimi done).</p>
     <div class="chart-wrap"><canvas id="chart-wip"></canvas></div>
   </section>
 
   <section id="velocity">
-    <h2>Velocità — card completate per snapshot</h2>
-    <p class="sub">Incremento di Done rispetto allo snapshot precedente.</p>
+    <h2>Velocità — acronimi completati per snapshot</h2>
+    <p class="sub">Incremento di Acronimi done rispetto allo snapshot precedente.</p>
     <div class="chart-wrap"><canvas id="chart-velocity"></canvas></div>
   </section>
 
@@ -1037,12 +1063,12 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
       <thead>
         <tr>
           <th>Data</th>
-          <th>Backlog</th>
-          <th>Waiting</th>
-          <th>In Progress</th>
-          <th>Waiting Test</th>
-          <th>Test in progress</th>
-          <th>Done</th>
+          <th>Under analysis</th>
+          <th>backlog</th>
+          <th>in progress</th>
+          <th>waiting for fab.</th>
+          <th>Fab test in progress</th>
+          <th>Acronimi done</th>
           <th>Totale</th>
         </tr>
       </thead>
@@ -1058,12 +1084,12 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
   const D = {chart_json};
   const axisLabels = D.dates.map(function(d, i) {{ return [d, D.weeks[i]]; }});
   const STACK_COLORS = {{
-    "Backlog": "#94a3b8",
-    "Waiting": "#f59e0b",
-    "In Progress": "#1a56db",
-    "Waiting Test": "#fb923c",
-    "Test in progress": "#8b5cf6",
-    "Done": "#10b981"
+    "Under analysis": "#6366f1",
+    "backlog": "#94a3b8",
+    "in progress": "#1a56db",
+    "waiting for fab.": "#fb923c",
+    "Fab test in progress": "#8b5cf6",
+    "Acronimi done": "#10b981"
   }};
   const baseOpts = {{
     responsive: true,
@@ -1081,7 +1107,7 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
       labels: axisLabels,
       datasets: [
         {{
-          label: "Done",
+          label: "Acronimi done",
           data: D.burnup.done,
           borderColor: "#10b981",
           backgroundColor: "rgba(16,185,129,0.15)",
@@ -1149,7 +1175,7 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
     data: {{
       labels: axisLabels,
       datasets: [{{
-        label: "Card completate",
+        label: "Acronimi completati",
         data: D.velocity,
         backgroundColor: "#10b981"
       }}]
