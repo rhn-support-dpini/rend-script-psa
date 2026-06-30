@@ -810,7 +810,9 @@ def classifica_colonna_kanban(status, description=""):
     testo = normalizza_testo(status, compatta_spazi=True).lower()
     if not testo:
         return None
-    if re.search(r"\b(acronimi\s*done|complete|done)\b", testo):
+    if re.search(r"\bcomplete\b", testo):
+        return None
+    if re.search(r"\bacronimi\s*done\b", testo) or testo == "done":
         return "Acronimi done"
     if re.search(r"fab\s*test\s*in\s*progress", testo) or re.search(
         r"test\s*in\s*progress", testo

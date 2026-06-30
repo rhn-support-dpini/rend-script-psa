@@ -219,14 +219,14 @@ Il conteggio usa il campo **Status** (col. C) di ogni card. La classificazione a
 
 | Colonna | Status riconosciuti (case-insensitive) |
 |---------|----------------------------------------|
-| Acronimi done | contiene `acronimi done`, `complete` o `done` |
+| Acronimi done | valore esatto `Acronimi done` o `done` (case-insensitive) |
 | Fab test in progress | contiene `fab test in progress` o `test in progress`, oppure valore esatto `test` |
 | in progress | contiene `in progress` o `lavorazione` |
 | waiting for fab. | Status con `waiting for fab` / `waiting test` / `attesa fab` / `attesa test`, oppure Description/ultimo tag con «Attesa test» / «Attesa fab.» |
 | backlog | contiene `backlog` |
 | Under analysis | contiene `under analysis`, oppure `waiting` / «attesa lavorazione/intesa» (esclusa attesa test/fab) |
 
-Card con Status non mappato vengono escluse dal conteggio e segnalate in console (`Card con Status non mappato: N`).
+Card con Status `Complete` (colonna distinta su MIRO, non equivalente ad Acronimi done) e altri stati chiusi non entrano nello snapshot. Card con Status non mappato vengono escluse dal conteggio e segnalate in console (`Card con Status non mappato: N`).
 
 > **Nota:** la mappatura opera sul valore del campo Status MIRO, non sulle etichette delle colonne fisiche della board.
 
