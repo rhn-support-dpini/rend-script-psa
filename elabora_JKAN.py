@@ -23,8 +23,8 @@ Output:
     Colonna J (InizioLavorazione(GG)), K (Waiting #), L (Totale Lavorazione),
     M (Period SUM), N (Giorni), O (TAG Temporali).
     Waiting #: giorni dall'ultimo tag "# Waiting -" a oggi, con sfondo giallo pastello.
-    Totale Lavorazione (L): somma giorni dei tag "# Working - <start> - <end>";
-    senza end date nel tag usa giornate lavorative da start a oggi; sfondo per % su Estimate.
+    Totale Lavorazione (L): somma giornate lavorative (lun-ven) dei tag "# Working - <start> - <end>";
+    senza end date nel tag usa i giorni lavorativi da start a oggi; sfondo per % su Estimate.
     Period SUM: somma Giorni con tag in Progress.
     Colonna G (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
     Giorni: se manca la 2ª data si usa oggi, eccetto tag Done (solo chiusura).
@@ -128,7 +128,7 @@ LEGENDA_COLONNE = [
     (
         "L",
         TOTALE_LAVORAZIONE_COL,
-        "somma giorni tag '# Working - start - end' (lun-ven se end assente); % su Estimate",
+        "somma giornate lavorative (lun-ven) tag '# Working - start - end'; % su Estimate",
     ),
     ("M", PERIOD_SUM_HEADER, "tempo trascorso dalla prima attivita'"),
     ("N", GIORNI_COL, "per riga tag"),
@@ -356,7 +356,7 @@ def tag_contiene_in_progress(tag):
 
 
 def giorni_lavorativi_tra(inizio, fine):
-    """Giorni lavorativi (lun-ven) nel periodo [inizio, fine] inclusi."""
+    """Giornate lavorative italiane (lun-ven) nel periodo [inizio, fine] inclusi."""
     if inizio > fine:
         return 0
     giorni = 0
@@ -370,8 +370,8 @@ def giorni_lavorativi_tra(inizio, fine):
 
 def giorni_da_tag_working(tag, data_oggi=None):
     """
-    Giorni nel tag '# Working - <start> - <end>'.
-    Con due date esplicite nel tag: differenza in giorni di calendario.
+    Giornate lavorative nel tag '# Working - <start> - <end>' (solo lun-ven).
+    Con due date esplicite: giorni lavorativi italiani nel periodo.
     Con sola start date: giornate lavorative da start a oggi (attivita' in corso).
     """
     if data_oggi is None:
@@ -380,7 +380,7 @@ def giorni_da_tag_working(tag, data_oggi=None):
         return None
     date = estrai_date_da_tag(tag)
     if len(date) >= 2:
-        return (date[1] - date[0]).days
+        return giorni_lavorativi_tra(date[0], date[1])
     if date:
         return giorni_lavorativi_tra(date[0], data_oggi)
     return None
