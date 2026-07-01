@@ -23,7 +23,8 @@ Output:
     Colonna J (InizioLavorazione(GG)), K (Waiting #), L (Totale Lavorazione),
     M (Period SUM), N (Giorni), O (TAG Temporali).
     Waiting #: giorni dall'ultimo tag "# Waiting -" a oggi, con sfondo giallo pastello.
-    Totale Lavorazione (L): percentuale su Estimate (0-50 verde, 51-80 giallo, 81-100 rosso pastello, >100 rosso acceso).
+    Totale Lavorazione (L): somma giorni dei tag "# Working - <start> - <end>";
+    senza end date nel tag usa giornate lavorative da start a oggi; sfondo per % su Estimate.
     Period SUM: somma Giorni con tag in Progress.
     Colonna G (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
     Giorni: se manca la 2ª data si usa oggi, eccetto tag Done (solo chiusura).
@@ -36,7 +37,7 @@ import os
 import re
 import sys
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 from openpyxl import load_workbook
@@ -127,7 +128,7 @@ LEGENDA_COLONNE = [
     (
         "L",
         TOTALE_LAVORAZIONE_COL,
-        "giorni Working / Estimate: 0-50% verde, 51-80% giallo, 81-100% rosso pastello, >100% rosso acceso",
+        "somma giorni tag '# Working - start - end' (lun-ven se end assente); % su Estimate",
     ),
     ("M", PERIOD_SUM_HEADER, "tempo trascorso dalla prima attivita'"),
     ("N", GIORNI_COL, "per riga tag"),
@@ -151,6 +152,10 @@ INIZIO_ATTIVITA_TAG_RE = re.compile(
 )
 WAITING_TAG_RE = re.compile(
     r"^#\s*Waiting\s*-\s*",
+    re.IGNORECASE,
+)
+WORKING_TAG_RE = re.compile(
+    r"^#\s*Working\s*-\s*",
     re.IGNORECASE,
 )
 
@@ -266,6 +271,12 @@ def is_tag_waiting(tag):
     return bool(WAITING_TAG_RE.match(str(tag).strip()))
 
 
+def is_tag_working(tag):
+    if not tag:
+        return False
+    return bool(WORKING_TAG_RE.match(str(tag).strip()))
+
+
 def giorni_da_ultimo_tag_waiting(description, data_oggi=None):
     """Giorni tra la data nell'ultimo tag '# Waiting -' e oggi."""
     if data_oggi is None:
@@ -344,14 +355,35 @@ def tag_contiene_in_progress(tag):
     return bool(re.search(r"\bin progress\b", str(tag), re.IGNORECASE))
 
 
-def tag_contiene_lavorazione(tag):
-    if not tag:
-        return False
-    return bool(re.search(r"\blavorazione\b", str(tag), re.IGNORECASE))
+def giorni_lavorativi_tra(inizio, fine):
+    """Giorni lavorativi (lun-ven) nel periodo [inizio, fine] inclusi."""
+    if inizio > fine:
+        return 0
+    giorni = 0
+    corrente = inizio
+    while corrente <= fine:
+        if corrente.weekday() < 5:
+            giorni += 1
+        corrente += timedelta(days=1)
+    return giorni
 
 
-def tag_contiene_lavorazione_o_in_progress(tag):
-    return tag_contiene_lavorazione(tag) or tag_contiene_in_progress(tag)
+def giorni_da_tag_working(tag, data_oggi=None):
+    """
+    Giorni nel tag '# Working - <start> - <end>'.
+    Con due date esplicite nel tag: differenza in giorni di calendario.
+    Con sola start date: giornate lavorative da start a oggi (attivita' in corso).
+    """
+    if data_oggi is None:
+        data_oggi = datetime.now().date()
+    if not is_tag_working(tag):
+        return None
+    date = estrai_date_da_tag(tag)
+    if len(date) >= 2:
+        return (date[1] - date[0]).days
+    if date:
+        return giorni_lavorativi_tra(date[0], data_oggi)
+    return None
 
 
 def giorni_da_tag_temporale(tag, tag_successivo=None, data_oggi=None):
@@ -450,6 +482,21 @@ def somma_giorni_gruppo(ws, start, end, filtro_tag=None):
     return totale if ha_valori else None
 
 
+def somma_giorni_working_gruppo(ws, start, end, data_oggi=None):
+    """Somma giorni di tutti i tag '# Working -' nel gruppo (stesso Title)."""
+    if data_oggi is None:
+        data_oggi = datetime.now().date()
+    totale = 0.0
+    ha_valori = False
+    for row in range(start, end + 1):
+        tag = ws.cell(row=row, column=COL_TAG).value
+        giorni = giorni_da_tag_working(tag, data_oggi=data_oggi)
+        if giorni is not None:
+            totale += giorni
+            ha_valori = True
+    return totale if ha_valori else None
+
+
 def percentuale_working_su_estimate(estimate, tot_lavorazione):
     if estimate is None or tot_lavorazione is None or estimate <= 0:
         return None
@@ -488,9 +535,7 @@ def applica_colore_waiting(ws, start):
 def applica_totali_gruppo(ws, start, end):
     center = Alignment(horizontal="center", vertical="center")
 
-    tot_lavorazione = somma_giorni_gruppo(
-        ws, start, end, tag_contiene_lavorazione_o_in_progress
-    )
+    tot_lavorazione = somma_giorni_working_gruppo(ws, start, end)
     cella_lav = ws.cell(row=start, column=COL_TOTALE_LAVORAZIONE)
     cella_lav.value = tot_lavorazione
     cella_lav.alignment = center
