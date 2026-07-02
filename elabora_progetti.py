@@ -11,21 +11,21 @@ Excel di output multi-foglio con:
   - Tabella di Export     : riepilogo giornate per codice ordine
 
 Utilizzo:
-    python elabora_progetti.py [cliente] [input.xlsx] [output.xlsx]
-    python elabora_progetti.py <input.xlsx>
-    python elabora_progetti.py --list-kl-combos [cliente] [input.xlsx]
+    python elabora_progetti.py [cliente] [input] [output.xlsx]
+    python elabora_progetti.py <input>
+    python elabora_progetti.py --list-kl-combos [cliente] [input]
     python elabora_progetti.py -h
 
 Parametri posizionali (tutti opzionali):
     cliente       Filtro sulla colonna "Cliente" (case-insensitive).
                   Default: Intesa. Per nessun filtro passare "" da shell, es.:
                   python elabora_progetti.py "" input.xlsx
-    input.xlsx    File Excel di input (export PSA/pianificazione).
+    input         File di input (.xlsx, .xlsm, .xls o .csv), export PSA/pianificazione.
                   Default: input.xlsx nella cartella dello script.
     output.xlsx   File Excel di output generato.
                   Default: output_elaborato.xlsx nella cartella dello script.
 
-    Se viene passato un solo argomento ed è un file .xlsx/.xlsm/.xls, viene
+    Se viene passato un solo argomento ed è un file .xlsx/.xlsm/.xls/.csv, viene
     interpretato come input; cliente resta Intesa e output il default.
 
 Opzioni:
@@ -247,8 +247,31 @@ def df_per_tabella_export(df_per_calc, col_rif="Riferimento tabella 1"):
 
 # --- CARICAMENTO E PREPARAZIONE DATI ---
 
+def leggi_file_input(path):
+    """Legge il sorgente PSA da Excel (.xlsx/.xlsm/.xls) o CSV (.csv)."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext != '.csv':
+        return pd.read_excel(path)
+    for enc in ('utf-8-sig', 'utf-8', 'latin-1'):
+        try:
+            df = pd.read_csv(path, sep=None, engine='python', encoding=enc)
+            if len(df.columns) > 1:
+                return df
+        except Exception:
+            continue
+    for sep in (';', ','):
+        for enc in ('utf-8-sig', 'latin-1'):
+            try:
+                df = pd.read_csv(path, sep=sep, encoding=enc)
+                if len(df.columns) > 1:
+                    return df
+            except Exception:
+                continue
+    raise ValueError(f"Impossibile leggere il CSV: {path}")
+
+
 def carica_dati(file_excel_input, config):
-    """Carica il file Excel sorgente e prepara il DataFrame arricchito.
+    """Carica il file sorgente (Excel o CSV) e prepara il DataFrame arricchito.
 
     Le colonne di interesse (ruolo, ore stimate, ore effettive, progetto, periodo)
     vengono lette per indice: i valori di default sono compatibili con il formato
@@ -259,7 +282,7 @@ def carica_dati(file_excel_input, config):
     "Riferimento tabella 1", "Commento".
 
     Args:
-        file_excel_input: percorso del file Excel di input.
+        file_excel_input: percorso del file di input (.xlsx/.xlsm/.xls/.csv).
         config:           dizionario della configurazione.
 
     Returns:
@@ -267,7 +290,7 @@ def carica_dati(file_excel_input, config):
                col_role_name, col_estimated, col_actual)
         dove df_src è il DataFrame originale e df_dati_comp è quello arricchito.
     """
-    df_src = pd.read_excel(file_excel_input)
+    df_src = leggi_file_input(file_excel_input)
 
     idx_ruolo = int(config.get('ColIdxRuolo', 4))
     idx_stimato = int(config.get('ColIdxStimato', 7))
@@ -2410,7 +2433,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
 
     Flusso:
     1. Carica script.config (fisso) + cust.config e indice contratti
-    2. Legge il file Excel e prepara i DataFrame
+    2. Legge il file sorgente (Excel o CSV) e prepara i DataFrame
     3. (opzionale) Filtra per cliente
     4. Calcola le pivot table
     5. Prepara le righe del foglio progetti
@@ -2419,7 +2442,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
     8. Salva il file finale
 
     Args:
-        file_excel_input: percorso del file Excel sorgente.
+        file_excel_input: percorso del file sorgente (.xlsx/.xlsm/.xls/.csv).
         file_cust_config: config specifica del cliente (contratti, Export, contatti);
                           se percorso relativo, cercata accanto allo script (.py).
         file_output:      percorso del file Excel di output da generare.
@@ -2547,14 +2570,14 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
         traceback.print_exc()
 
 
-def _argomento_e_file_excel(valore):
-    return valore.lower().endswith((".xlsx", ".xlsm", ".xls"))
+def _argomento_e_file_input(valore):
+    return valore.lower().endswith((".xlsx", ".xlsm", ".xls", ".csv"))
 
 
 def _normalizza_argomenti_posizionali(argv):
-    """Se c'è un solo argomento posizionale ed è un Excel, è l'input (cliente=Intesa)."""
+    """Se c'è un solo argomento posizionale ed è un file di input, è l'input (cliente=Intesa)."""
     positionals = [a for a in argv if not a.startswith("-")]
-    if len(positionals) == 1 and _argomento_e_file_excel(positionals[0]):
+    if len(positionals) == 1 and _argomento_e_file_input(positionals[0]):
         return "Intesa", positionals[0], "output_elaborato.xlsx"
     return None
 
@@ -2563,17 +2586,17 @@ def crea_parser():
     epilog = """\
 Esempi:
   python elabora_progetti.py
-  python elabora_progetti.py export-psa.xlsx
+  python elabora_progetti.py export-psa.csv
   python elabora_progetti.py Intesa input.xlsx output_elaborato.xlsx
-  python elabora_progetti.py "" input.xlsx
+  python elabora_progetti.py "" input.csv
   python elabora_progetti.py --list-kl-combos Intesa input.xlsx
 
 Parametri posizionali (tutti opzionali):
   cliente       Filtro colonna "Cliente" (default: Intesa; "" = tutti i clienti).
-  input.xlsx    Export Excel PSA (default: input.xlsx).
+  input         Export PSA in Excel o CSV (default: input.xlsx).
   output.xlsx   File Excel generato (default: output_elaborato.xlsx).
 
-  Con un solo argomento .xlsx/.xlsm/.xls viene usato come input; cliente=Intesa.
+  Con un solo argomento .xlsx/.xlsm/.xls/.csv viene usato come input; cliente=Intesa.
 
 Opzioni:
   --list-kl-combos   Elenca coppie K×L nel sorgente, senza generare Excel.
@@ -2601,8 +2624,8 @@ Configurazione (cartella script): script.config, cust.config.
         "input_file",
         nargs="?",
         default="input.xlsx",
-        metavar="input.xlsx",
-        help="file Excel di input, export PSA (default: %(default)s)",
+        metavar="input",
+        help="file di input (.xlsx/.xlsm/.xls/.csv), export PSA (default: %(default)s)",
     )
     parser.add_argument(
         "output_file",

@@ -1,15 +1,15 @@
 # elabora_progetti.py — Documentazione
 
-Script Python che legge un export Excel da PSA/pianificazione e produce un report multi-foglio con pivot settimanali, dettaglio ruoli e riepiloghi per cliente.
+Script Python che legge un export Excel o CSV da PSA/pianificazione e produce un report multi-foglio con pivot settimanali, dettaglio ruoli e riepiloghi per cliente.
 
 ---
 
 ## Utilizzo
 
 ```bash
-python elabora_progetti.py [cliente] [input.xlsx] [output.xlsx]
-python elabora_progetti.py <input.xlsx>
-python elabora_progetti.py --list-kl-combos [cliente] [input.xlsx]
+python elabora_progetti.py [cliente] [input] [output.xlsx]
+python elabora_progetti.py <input>
+python elabora_progetti.py --list-kl-combos [cliente] [input]
 python elabora_progetti.py -h
 ```
 
@@ -18,10 +18,10 @@ python elabora_progetti.py -h
 | Parametro | Default | Descrizione |
 |-----------|---------|-------------|
 | `cliente` | `Intesa` | Filtro sulla colonna **Cliente** (case-insensitive). Passare `""` da shell per includere tutti i clienti. |
-| `input.xlsx` | `input.xlsx` | File Excel di input (export PSA/pianificazione), nella cartella dello script o percorso assoluto. |
+| `input` | `input.xlsx` | File di input (`.xlsx`, `.xlsm`, `.xls` o `.csv`), export PSA/pianificazione, nella cartella dello script o percorso assoluto. |
 | `output.xlsx` | `output_elaborato.xlsx` | File Excel generato. |
 
-**Caso particolare:** se viene passato **un solo argomento** ed è un file `.xlsx`, `.xlsm` o `.xls`, viene interpretato come `input.xlsx`; `cliente` resta `Intesa` e `output.xlsx` il default.
+**Caso particolare:** se viene passato **un solo argomento** ed è un file `.xlsx`, `.xlsm`, `.xls` o `.csv`, viene interpretato come input; `cliente` resta `Intesa` e `output.xlsx` il default.
 
 ### Opzioni
 
@@ -36,14 +36,17 @@ python elabora_progetti.py -h
 # Default: cliente Intesa, input.xlsx → output_elaborato.xlsx
 python elabora_progetti.py
 
-# Solo file di input (cliente = Intesa, output = default)
+# Solo file Excel di input (cliente = Intesa, output = default)
 python elabora_progetti.py export-psa.xlsx
+
+# Solo file CSV di input (stessi dati, formato diverso)
+python elabora_progetti.py export-psa.csv
 
 # Tutti i parametri espliciti
 python elabora_progetti.py Intesa input.xlsx output_elaborato.xlsx
 
-# Nessun filtro cliente
-python elabora_progetti.py "" input.xlsx
+# Nessun filtro cliente, input CSV
+python elabora_progetti.py "" input.csv
 
 # Analisi combinazioni K×L senza output Excel
 python elabora_progetti.py --list-kl-combos Intesa input.xlsx
