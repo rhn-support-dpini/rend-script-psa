@@ -77,6 +77,34 @@ Il file di output contiene i fogli:
 
 ---
 
+## Elaborazione dati sorgente
+
+Dopo la lettura dell'Excel, lo script espande la **colonna assegnazione** (indice 2, colonna C del sorgente PSA) in sette campi separati dal carattere `|`:
+
+| Campo derivato | Contenuto |
+|----------------|-----------|
+| `Nome risorsa` | Nome della risorsa |
+| `OPA@profilo` | Codice OPA e profilo |
+| `Cliente` | Cliente |
+| `Sotto progetto` | Sotto-progetto |
+| `Riferimento tabella 1` | Primo codice numerico del campo riferimento |
+| `Sotto Riferimento tabella 1` | Secondo codice, se presente (formato `6&4`) |
+| `Commento` | Commento libero |
+
+Il campo riferimento nell'assegnazione può contenere uno o due valori numerici separati da `&` (es. `6&4` o `6 & 4`): il primo va in **Riferimento tabella 1**, il secondo in **Sotto Riferimento tabella 1**.
+
+---
+
+## Tabella di Export
+
+Il foglio **Tabella di Export** (e la sezione omonima nel report HTML) riepiloga le giornate consuntivate per codice ordine, incrociando le righe del sorgente con le voci definite in `script.config` / `cust.config` (`Export3`, `Export4`, …).
+
+**Regola di esclusione:** le righe con **Riferimento tabella 1** vuoto, mancante o pari a **0** restano nel flusso normale (pivot, foglio `progetti`, riepiloghi, Tentative, grafici) ma **non** entrano nelle somme del tab Export — né per il riferimento principale né per il sotto-riferimento di quella riga.
+
+Le righe con riferimento valorizzato e diverso da zero contribuiscono alle colonne J/K (giornate consuntivate e delta) incrociando sia `Riferimento tabella 1` sia `Sotto Riferimento tabella 1` con l'ultimo campo di ciascuna voce `ExportN` in config.
+
+---
+
 ## Riferimenti nel repository
 
 | File | Ruolo |

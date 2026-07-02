@@ -222,6 +222,29 @@ def splitta_assegnazione(val):
 
     return [parti[0], parti[1], parti[2], parti[3], rif1, rif2, parti[5]]
 
+
+def rif_impatta_tabella_export(val):
+    """True se il valore di 'Riferimento tabella 1' contribuisce al tab Export.
+
+    Righe con riferimento vuoto, mancante o pari a zero restano nel flusso
+    normale (pivot, progetti, riepilogo) ma non entrano nelle somme Export.
+    """
+    if pd.isna(val):
+        return False
+    s = str(val).strip()
+    if not s:
+        return False
+    try:
+        return float(s.replace(',', '.')) != 0.0
+    except (ValueError, TypeError):
+        return True
+
+
+def df_per_tabella_export(df_per_calc, col_rif="Riferimento tabella 1"):
+    """Sottoinsieme di df_per_calc usato solo per il tab 'Tabella di Export'."""
+    mask = df_per_calc[col_rif].apply(rif_impatta_tabella_export)
+    return df_per_calc.loc[mask]
+
 # --- CARICAMENTO E PREPARAZIONE DATI ---
 
 def carica_dati(file_excel_input, config):
@@ -1348,6 +1371,9 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_actual,
     colonna "Riferimento tabella 1" del sorgente e, se sì, riporta la somma
     delle ore consuntivate (in giornate) nella colonna J.
 
+    Le righe con "Riferimento tabella 1" vuoto o pari a zero sono escluse
+    dalle somme (restano visibili negli altri fogli).
+
     Come per il foglio progetti, la tabella è duplicata: la prima copia ha
     valori esatti, la seconda arrotonda le giornate all'intero più vicino.
 
@@ -1366,11 +1392,12 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_actual,
     Returns:
         int: numero di riga dell'ultima riga scritta nella tabella duplicata.
     """
-    somme_rif = (df_per_calc.groupby(col_rif)[col_actual].sum() / 8.0).to_dict()
+    df_export = df_per_tabella_export(df_per_calc, col_rif)
+    somme_rif = (df_export.groupby(col_rif)[col_actual].sum() / 8.0).to_dict()
     somme_rif = {str(k).strip(): v for k, v in somme_rif.items()}
 
     col_sotto_rif = "Sotto Riferimento tabella 1"
-    somme_sotto_rif = (df_per_calc.groupby(col_sotto_rif)[col_actual].sum() / 8.0).to_dict()
+    somme_sotto_rif = (df_export.groupby(col_sotto_rif)[col_actual].sum() / 8.0).to_dict()
     somme_sotto_rif = {str(k).strip(): v for k, v in somme_sotto_rif.items()}
     log.info("Riferimenti disponibili: %s | Sotto-rif: %s",
              list(somme_rif.keys()), list(somme_sotto_rif.keys()))
@@ -1581,10 +1608,11 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
     } for r in rows_progetti])
 
     # ── DataFrame export ─────────────────────────────────────────────────────
+    df_export = df_per_tabella_export(df_per_calc, col_rif)
     somme_rif = {str(k).strip(): round(v / 8.0, 2)
-                 for k, v in df_per_calc.groupby(col_rif)[col_actual].sum().items()}
+                 for k, v in df_export.groupby(col_rif)[col_actual].sum().items()}
     somme_sotto_rif_html = {str(k).strip(): round(v / 8.0, 2)
-                            for k, v in df_per_calc.groupby("Sotto Riferimento tabella 1")[col_actual].sum().items()}
+                            for k, v in df_export.groupby("Sotto Riferimento tabella 1")[col_actual].sum().items()}
     hdr_exp = [h.strip() for h in config.get('Export2', '').split(',')]
     righe_exp = []
     i_e = 3
