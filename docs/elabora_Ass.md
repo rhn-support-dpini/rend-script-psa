@@ -74,13 +74,13 @@ Lo script si aspetta un CSV con almeno le colonne riportate di seguito. I nomi c
 | `Resource: Full Name` | `Full Name` | Chiave di raggruppamento |
 | `Assignment: Milestone: Milestone Name` | — | Chiave di raggruppamento |
 | `Project: OPA Project Number` | — | Chiave di raggruppamento |
-| `Planned Hours` | — | Somma nel foglio Assignment |
+| `Assignment: Milestone: Planned Hours` | `Planned Hours` | Somma nel foglio Assignment |
 | `Estimated Hours` | — | Somma nel foglio Assignment |
-| `Actual Hours` | `actual hours` | Somma in entrambi i fogli di riepilogo |
+| `Actual Hours` | — | Somma in entrambi i fogli di riepilogo |
 | `Project: Project Name` | — | Valore descrittivo nel foglio Assignment |
-| `Assignment Name` | — | Valore descrittivo nel foglio Assignment |
-| `Assignment: Status` | `status` | Chiave di raggruppamento (foglio Assignment Status) |
-| `Assignment: Forecast Category` | `Forecast Category` | Chiave di raggruppamento (foglio Assignment Status) |
+| `Assignment: Assignment Name` | `Assignment Name` | Valore descrittivo nel foglio Assignment |
+| `Assignment: Status` | `Assignment Status` | Chiave di raggruppamento (foglio Assignment Status) |
+| `Assignment: Forecast Category` | — | Chiave di raggruppamento (foglio Assignment Status) |
 
 **Lettura CSV:** encoding provati in ordine `utf-8-sig`, `utf-8`, `latin-1`; separatore rilevato automaticamente oppure `;` / `,`. I valori numerici delle ore accettano la virgola decimale (convertita in punto).
 
@@ -105,11 +105,11 @@ Una riga per ogni combinazione unica di:
 | `Resource: Full Name` | Nome risorsa |
 | `Assignment: Milestone: Milestone Name` | Milestone |
 | `Project: OPA Project Number` | Codice progetto OPA |
-| `Planned Hours` | Somma delle ore pianificate |
+| `Assignment: Milestone: Planned Hours` | Somma delle ore pianificate |
 | `Estimated Hours` | Somma delle ore stimate |
 | `Actual Hours` | Somma delle ore consuntivate |
 | `Project: Project Name` | Nome progetto (primo valore del gruppo) |
-| `Assignment Name` | Nome assignment (primo valore del gruppo) |
+| `Assignment: Assignment Name` | Nome assignment (primo valore del gruppo) |
 
 ### Foglio `Assignment Status`
 

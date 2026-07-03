@@ -22,11 +22,11 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 COL_RESOURCE = "Resource: Full Name"
 COL_MILESTONE = "Assignment: Milestone: Milestone Name"
 COL_OPA = "Project: OPA Project Number"
-COL_PLANNED = "Planned Hours"
+COL_PLANNED = "Assignment: Milestone: Planned Hours"
 COL_ESTIMATED = "Estimated Hours"
 COL_ACTUAL = "Actual Hours"
 COL_PROJECT_NAME = "Project: Project Name"
-COL_ASSIGNMENT_NAME = "Assignment Name"
+COL_ASSIGNMENT_NAME = "Assignment: Assignment Name"
 COL_STATUS = "Assignment: Status"
 COL_FORECAST = "Assignment: Forecast Category"
 
@@ -99,11 +99,11 @@ def tabella_assignment(df):
     col_res = trova_colonna(df, COL_RESOURCE, ("Full Name",))
     col_mil = trova_colonna(df, COL_MILESTONE)
     col_opa = trova_colonna(df, COL_OPA)
-    col_planned = trova_colonna(df, COL_PLANNED)
+    col_planned = trova_colonna(df, COL_PLANNED, ("Planned Hours",))
     col_estimated = trova_colonna(df, COL_ESTIMATED)
-    col_actual = trova_colonna(df, COL_ACTUAL, ("actual hours",))
+    col_actual = trova_colonna(df, COL_ACTUAL)
     col_proj = trova_colonna(df, COL_PROJECT_NAME)
-    col_assign = trova_colonna(df, COL_ASSIGNMENT_NAME)
+    col_assign = trova_colonna(df, COL_ASSIGNMENT_NAME, ("Assignment Name",))
 
     work = normalizza_ore(
         df.copy(), col_planned, col_estimated, col_actual
@@ -136,9 +136,9 @@ def tabella_assignment(df):
 
 def tabella_assignment_status(df):
     col_res = trova_colonna(df, COL_RESOURCE, ("Full Name",))
-    col_status = trova_colonna(df, COL_STATUS, ("status",))
-    col_forecast = trova_colonna(df, COL_FORECAST, ("Forecast Category",))
-    col_actual = trova_colonna(df, COL_ACTUAL, ("actual hours",))
+    col_status = trova_colonna(df, COL_STATUS, ("Assignment Status",))
+    col_forecast = trova_colonna(df, COL_FORECAST)
+    col_actual = trova_colonna(df, COL_ACTUAL)
 
     work = normalizza_ore(df.copy(), col_actual)
     grouped = work.groupby([col_res, col_status, col_forecast], dropna=False, as_index=False).agg(
