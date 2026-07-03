@@ -5,6 +5,7 @@
 !.gitignore
 !elabora_progetti.py
 !elabora_JKAN.py
+!elabora_Ass.py
 !.cursor/
 !.cursor/rules/
 !.cursor/rules/**
