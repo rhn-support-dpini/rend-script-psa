@@ -35,6 +35,9 @@ Opzioni:
 Configurazione (cartella dello script):
     script.config   Impostazioni generiche (sempre letto).
     cust.config     Configurazione cliente.
+    .prjIgnore      Elenco progetti da omettere negli output (un nome per riga,
+                     colonna "Project: Project Name"; # = commento). I calcoli
+                     restano su tutti i dati; il filtro vale solo su Excel/HTML.
 """
 
 import argparse
@@ -89,6 +92,51 @@ def carica_config(nome_file):
                 key, value = line.split('=', 1)
                 config[key.strip()] = value.strip()
     return config
+
+def carica_prj_ignore(nome_file='.prjIgnore'):
+    """Legge .prjIgnore: un nome progetto per riga (Project: Project Name).
+
+    Ignora righe vuote e righe che iniziano con '#'. I nomi sono confrontati
+    dopo strip(), senza normalizzazione case-insensitive.
+
+    Args:
+        nome_file: percorso del file (relativo alla cartella dello script).
+
+    Returns:
+        set di stringhe con i nomi progetto da escludere dagli output.
+    """
+    path = risolvi_percorso(nome_file)
+    if not os.path.exists(path):
+        return set()
+    progetti = set()
+    with open(path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                progetti.add(line)
+    return progetti
+
+def escludi_progetti_ignorati(df, col_proj, progetti_ignorati):
+    """Rimuove righe il cui progetto compare in progetti_ignorati."""
+    if not progetti_ignorati or df is None or df.empty:
+        return df
+    mask = ~df[col_proj].astype(str).str.strip().isin(progetti_ignorati)
+    return df.loc[mask].reset_index(drop=True)
+
+def escludi_righe_progetti_ignorati(rows_progetti, progetti_ignorati):
+    """Filtra la lista rows_progetti escludendo i progetti in progetti_ignorati."""
+    if not progetti_ignorati:
+        return rows_progetti
+    return [r for r in rows_progetti if str(r.get('A', '')).strip() not in progetti_ignorati]
+
+def escludi_pivot_progetti_ignorati(pivot, col_proj, progetti_ignorati):
+    """Rimuove righe pivot il cui progetto compare in progetti_ignorati."""
+    if not progetti_ignorati or pivot is None or pivot.empty:
+        return pivot
+    if col_proj not in pivot.columns:
+        return pivot
+    mask = ~pivot[col_proj].astype(str).str.strip().isin(progetti_ignorati)
+    return pivot.loc[mask].reset_index(drop=True)
 
 def indicizza_contratti(config):
     """Costruisce un indice inverso {nome_contratto -> suffisso} dalla config.
@@ -2500,8 +2548,22 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
         col_rif = "Riferimento tabella 1"
         rows_progetti = prepara_righe_progetti(df_src, df_dati_comp, df_per_calc, col_proj, col_actual, config, contratti_idx)
 
+        progetti_ignorati = carica_prj_ignore()
+        if progetti_ignorati:
+            log.info(
+                "   .prjIgnore: %d progetto/i esclusi dagli output: %s",
+                len(progetti_ignorati),
+                ', '.join(sorted(progetti_ignorati)),
+            )
+        df_dati_out = escludi_progetti_ignorati(df_dati_comp, col_proj, progetti_ignorati)
+        df_per_calc_out = escludi_progetti_ignorati(df_per_calc, col_proj, progetti_ignorati)
+        rows_progetti_out = escludi_righe_progetti_ignorati(rows_progetti, progetti_ignorati)
+        pivot_actual_out = escludi_pivot_progetti_ignorati(pivot_actual, col_proj, progetti_ignorati)
+        pivot_estimated_out = escludi_pivot_progetti_ignorati(pivot_estimated, col_proj, progetti_ignorati)
+        pivot_role_est_out = escludi_pivot_progetti_ignorati(pivot_role_est, col_proj, progetti_ignorati)
+
         log.info("2. Scrittura fogli base...")
-        scrivi_fogli_base(file_output, df_dati_comp, rows_progetti)
+        scrivi_fogli_base(file_output, df_dati_out, rows_progetti_out)
 
         log.info("3. Applicazione formattazione e dati mancanti...")
         wb = load_workbook(file_output)
@@ -2517,7 +2579,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
         except Exception:
             git_date = ""
         # startrow=0 → header a riga 1, dati da riga 2 fino a riga 1+n
-        ultima_riga_dati = 1 + len(df_dati_comp)
+        ultima_riga_dati = 1 + len(df_dati_out)
         versione_row = ultima_riga_dati + 2
         ws_d.cell(row=versione_row, column=1).value = f"Versione script: {git_date}"
 
@@ -2530,32 +2592,32 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
         fill_nero = PatternFill(fill_type="solid", fgColor="000000")
         font_bianco_bold = Font(color="FFFFFF", bold=True)
 
-        formatta_tab_progetti(wb['progetti'], config, rows_progetti, weeks_limit_active, bold, center)
+        formatta_tab_progetti(wb['progetti'], config, rows_progetti_out, weeks_limit_active, bold, center)
         # Colonne K e L del sorgente contengono lo stato di schedulazione e commit/exclude
         col_status_k = df_dati_comp.columns[10]
         col_status_l = df_dati_comp.columns[11]
         formatta_riepilogo(wb['Riepilogo Settimanale'], wb['Dettaglio Ruoli'],
-                           pivot_actual, pivot_estimated, pivot_role_est,
+                           pivot_actual_out, pivot_estimated_out, pivot_role_est_out,
                            current_week_str, bold, center, green_fill, red_thick,
                            fill_verde, fill_nero, font_bianco_bold,
-                           df_dati_comp, col_proj, col_role_name, col_period, col_status_k, col_status_l,
-                           df_per_calc, col_actual, col_estimated)
+                           df_dati_out, col_proj, col_role_name, col_period, col_status_k, col_status_l,
+                           df_per_calc_out, col_actual, col_estimated)
 
         riga_export = formatta_tab_export(
-            wb['Tabella di Export'], config, df_per_calc, col_rif, col_actual,
+            wb['Tabella di Export'], config, df_per_calc_out, col_rif, col_actual,
             fill_verde, fill_nero, font_bianco_bold, center, right_align
         )
 
-        formatta_foglio_tentative(wb['Tentative'], df_dati_comp, col_proj, col_role_name, col_period,
+        formatta_foglio_tentative(wb['Tentative'], df_dati_out, col_proj, col_role_name, col_period,
                                    col_estimated, col_status_k, col_status_l, bold, center)
 
         if weeks_limit_active:
             aggiungi_note(wb['progetti'], wb['Tabella di Export'], anno_corrente,
-                          start_w, end_w, rows_progetti, riga_export, bold)
+                          start_w, end_w, rows_progetti_out, riga_export, bold)
 
         log.info("4. Generazione file HTML...")
-        genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
-                    pivot_role_est, df_per_calc, config, col_rif, col_actual,
+        genera_html(df_dati_out, rows_progetti_out, pivot_actual_out, pivot_estimated_out,
+                    pivot_role_est_out, df_per_calc_out, config, col_rif, col_actual,
                     col_proj, col_period, col_estimated, file_output)
 
         for sheet_name in ['dati', 'progetti', 'Riepilogo Settimanale',
@@ -2601,7 +2663,7 @@ Parametri posizionali (tutti opzionali):
 Opzioni:
   --list-kl-combos   Elenca coppie K×L nel sorgente, senza generare Excel.
 
-Configurazione (cartella script): script.config, cust.config.
+Configurazione (cartella script): script.config, cust.config, .prjIgnore (opzionale).
 """
     parser = argparse.ArgumentParser(
         description="Report settimanale risorse consulenza Red Hat Italy",
