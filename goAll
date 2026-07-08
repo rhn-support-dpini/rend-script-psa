@@ -1,0 +1,89 @@
+#!/bin/bash
+#
+# goAll — copia export PSA da Drive ed elabora solo i file appena copiati.
+#
+# 1. Esegue copia_drive-PSA.sh (rsync --ignore-existing in Data/)
+# 2. Su ogni nuovo DvPFilter-RHCC-All-Assignments-Full* lancia elabora_progetti.py
+# 3. Se l'elaborazione va a buon fine, rinomina il file rimuovendo il prefisso DvPFilter-
+#
+# Variabili opzionali:
+#   TARGET_DIR  cartella dati (default: <script>/Data)
+#   CLIENTE     filtro cliente per elabora_progetti.py (default: Intesa)
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+TARGET_DIR="${TARGET_DIR:-$SCRIPT_DIR/Data}"
+CLIENTE="${CLIENTE:-Intesa}"
+PATTERN='DvPFilter-RHCC-All-Assignments-Full*'
+
+mkdir -p "$TARGET_DIR"
+
+# Elenco file PSA già presenti prima della copia
+BEFORE_LIST=""
+for f in "$TARGET_DIR"/$PATTERN; do
+    [ -e "$f" ] || continue
+    BEFORE_LIST+="$(basename "$f")"$'\n'
+done
+
+file_gia_presente() {
+    local name="$1"
+    [ -z "$BEFORE_LIST" ] && return 1
+    printf '%s\n' "$BEFORE_LIST" | grep -Fxq "$name"
+}
+
+echo "=== 1/2 Copia da Drive (copia_drive-PSA.sh) ==="
+"$SCRIPT_DIR/copia_drive-PSA.sh"
+
+if [ ! -d "$TARGET_DIR" ]; then
+    echo "Errore: la cartella '$TARGET_DIR' non esiste."
+    exit 1
+fi
+
+echo ""
+echo "=== 2/2 Elaborazione file PSA appena copiati ==="
+
+processed=0
+skipped=0
+
+for FILEPATH in "$TARGET_DIR"/$PATTERN; do
+    [ -e "$FILEPATH" ] || continue
+
+    FILENAME=$(basename "$FILEPATH")
+
+    if file_gia_presente "$FILENAME"; then
+        continue
+    fi
+
+    DATA_FILE=$(echo "$FILENAME" | sed -n 's/.*Full-\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\).*/\1/p')
+    if [ -z "$DATA_FILE" ]; then
+        echo "Salta file (formato data non valido): $FILENAME"
+        skipped=$((skipped + 1))
+        continue
+    fi
+
+    echo "--------------------------------------------------"
+    echo "Elaborazione file (nuovo): $FILENAME"
+    echo "Data estratta: $DATA_FILE"
+
+    if python3 "$SCRIPT_DIR/elabora_progetti.py" "$CLIENTE" "$FILEPATH" "$TARGET_DIR/${DATA_FILE}-Result-PSA.xlsx"; then
+        NUOVO_NOME=$(echo "$FILENAME" | sed 's/^DvPFilter-//')
+        echo "Rinomino il file in: $NUOVO_NOME"
+        mv "$FILEPATH" "$TARGET_DIR/$NUOVO_NOME"
+        processed=$((processed + 1))
+    else
+        echo "Errore durante l'elaborazione Python. Il file non è stato rinominato."
+    fi
+done
+
+echo "--------------------------------------------------"
+if [ "$processed" -eq 0 ]; then
+    echo "Nessun nuovo file PSA elaborato."
+else
+    echo "Elaborati $processed nuovo/i file."
+fi
+if [ "$skipped" -gt 0 ]; then
+    echo "Saltati $skipped file con nome non valido."
+fi

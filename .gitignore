@@ -11,3 +11,5 @@
 !.cursor/rules/**
 !docs/
 !docs/**
+!goAll
+!copia_drive-PSA.sh
