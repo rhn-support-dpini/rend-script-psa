@@ -293,6 +293,22 @@ def df_per_tabella_export(df_per_calc, col_rif="Riferimento tabella 1"):
     mask = df_per_calc[col_rif].apply(rif_impatta_tabella_export)
     return df_per_calc.loc[mask]
 
+
+MILESTONE_NON_BILLABLE_LABOR = "Non-Billable Labor"
+
+
+def is_milestone_non_billable_labor(val):
+    """True se la milestone è Non-Billable Labor (confronto case-insensitive)."""
+    if pd.isna(val):
+        return False
+    return str(val).strip().lower() == MILESTONE_NON_BILLABLE_LABOR.lower()
+
+
+def df_per_detrazione_giornate(df, col_role_name):
+    """Righe che consumano giornate riscattate/disponibili (esclude Non-Billable Labor)."""
+    mask = ~df[col_role_name].apply(is_milestone_non_billable_labor)
+    return df.loc[mask]
+
 # --- CARICAMENTO E PREPARAZIONE DATI ---
 
 def leggi_file_input(path):
@@ -652,7 +668,8 @@ def filtra_pivot_senza_totale_zero(df):
 
 # --- PREPARAZIONE RIGHE PROGETTI ---
 
-def prepara_righe_progetti(df_src, df_dati_comp, df_per_calc, col_proj, col_actual, config, contratti_idx):
+def prepara_righe_progetti(df_src, df_dati_comp, df_per_calc, col_proj, col_role_name,
+                           col_actual, config, contratti_idx):
     """Costruisce la lista di dizionari da scrivere nel foglio 'progetti'.
 
     Per ogni progetto unico nel sorgente calcola:
@@ -661,11 +678,15 @@ def prepara_righe_progetti(df_src, df_dati_comp, df_per_calc, col_proj, col_actu
     - giorni riscattati (da DaysRedempted<N> nel config, formato "pm, consulting")
     - opportunity, end date e riferimento da config
 
+    Le ore con milestone "Non-Billable Labor" non entrano nei giorni usati (G/H)
+    e quindi non riducono i giorni rimanenti; restano visibili negli altri fogli.
+
     Args:
         df_src:         DataFrame originale.
         df_dati_comp:   DataFrame arricchito (per leggere i metadati di riga).
         df_per_calc:    DataFrame filtrato usato per i calcoli.
         col_proj:       nome della colonna progetto.
+        col_role_name:  nome della colonna milestone/ruolo.
         col_actual:     nome della colonna ore consuntivate.
         config:         dizionario della configurazione.
         contratti_idx:  indice {nome_contratto -> suffisso}.
@@ -676,7 +697,8 @@ def prepara_righe_progetti(df_src, df_dati_comp, df_per_calc, col_proj, col_actu
     rows_progetti = []
     for proj in df_src[col_proj].unique():
         df_p_full = df_dati_comp[df_dati_comp[col_proj] == proj]
-        df_p_calc = df_per_calc[df_per_calc[col_proj] == proj]
+        df_p_calc = df_per_detrazione_giornate(
+            df_per_calc[df_per_calc[col_proj] == proj], col_role_name)
 
         # @pm e @pc sono i profili di Project Manager / Project Coordinator
         pm_mask = df_p_calc['OPA@profilo'].str.contains('@pm|@pc', case=False, na=False)
@@ -1430,7 +1452,7 @@ def formatta_foglio_tentative(ws_t, df_dati_comp, col_proj, col_role_name, col_p
 
 # --- FORMATTAZIONE TAB EXPORT ---
 
-def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_actual,
+def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_role_name, col_actual,
                         fill_verde, fill_nero, font_bianco_bold, center, right_align):
     """Riempie il foglio 'Tabella di Export' con il riepilogo giornate per codice ordine.
 
@@ -1441,6 +1463,9 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_actual,
     Per ogni riga cerca se uno dei valori del campo "codice" è presente nella
     colonna "Riferimento tabella 1" del sorgente e, se sì, riporta la somma
     delle ore consuntivate (in giornate) nella colonna J.
+
+    La colonna K (giornate rimanenti) detrae solo le ore billable; le milestone
+    "Non-Billable Labor" compaiono in J ma non riducono il residuo.
 
     Le righe con "Riferimento tabella 1" vuoto o pari a zero sono escluse
     dalle somme (restano visibili negli altri fogli).
@@ -1453,6 +1478,7 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_actual,
         config:           dizionario della configurazione.
         df_per_calc:      DataFrame filtrato per i calcoli.
         col_rif:          nome della colonna riferimento (es. "Riferimento tabella 1").
+        col_role_name:    nome della colonna milestone/ruolo.
         col_actual:       nome della colonna ore consuntivate.
         fill_verde:       PatternFill verde scuro per la riga titolo.
         fill_nero:        PatternFill nero per le righe header.
@@ -1464,12 +1490,21 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_actual,
         int: numero di riga dell'ultima riga scritta nella tabella duplicata.
     """
     df_export = df_per_tabella_export(df_per_calc, col_rif)
+    df_export_billable = df_per_detrazione_giornate(df_export, col_role_name)
     somme_rif = (df_export.groupby(col_rif)[col_actual].sum() / 8.0).to_dict()
     somme_rif = {str(k).strip(): v for k, v in somme_rif.items()}
+    somme_rif_billable = (
+        df_export_billable.groupby(col_rif)[col_actual].sum() / 8.0
+    ).to_dict()
+    somme_rif_billable = {str(k).strip(): v for k, v in somme_rif_billable.items()}
 
     col_sotto_rif = "Sotto Riferimento tabella 1"
     somme_sotto_rif = (df_export.groupby(col_sotto_rif)[col_actual].sum() / 8.0).to_dict()
     somme_sotto_rif = {str(k).strip(): v for k, v in somme_sotto_rif.items()}
+    somme_sotto_rif_billable = (
+        df_export_billable.groupby(col_sotto_rif)[col_actual].sum() / 8.0
+    ).to_dict()
+    somme_sotto_rif_billable = {str(k).strip(): v for k, v in somme_sotto_rif_billable.items()}
     log.info("Riferimenti disponibili: %s | Sotto-rif: %s",
              list(somme_rif.keys()), list(somme_sotto_rif.keys()))
 
@@ -1481,10 +1516,13 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_actual,
         valore_match = (
             somme_rif.get(ref_key, 0.0) + somme_sotto_rif.get(ref_key, 0.0)
         ) if ref_key else 0.0
+        valore_billable = (
+            somme_rif_billable.get(ref_key, 0.0) + somme_sotto_rif_billable.get(ref_key, 0.0)
+        ) if ref_key else 0.0
         log.info("Export%d: ref=%r → %.2f gg (rif=%.2f + sotto=%.2f)",
                  idx, ref_key, valore_match,
                  somme_rif.get(ref_key, 0.0), somme_sotto_rif.get(ref_key, 0.0))
-        righe_export.append((vals, valore_match))
+        righe_export.append((vals, valore_match, valore_billable))
         idx += 1
 
     def scrivi_titolo(start_row):
@@ -1505,7 +1543,7 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_actual,
             cella.alignment = center
 
     def scrivi_dati(start_row, arrotonda=False):
-        for i, (vals, valore_match) in enumerate(righe_export):
+        for i, (vals, valore_match, valore_billable) in enumerate(righe_export):
             r = start_row + i
             for j, v in enumerate(vals):
                 ws_e.cell(row=r, column=1 + j).value = v
@@ -1520,7 +1558,8 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_actual,
             ws_e.cell(row=r, column=10).value = j_val
             try:
                 i_num = float(str(ws_e.cell(row=r, column=9).value or 0).replace(',', '.'))
-                k_val = round(i_num - j_val) if arrotonda else round(i_num - j_val, 2)
+                k_base = valore_billable
+                k_val = round(i_num - k_base) if arrotonda else round(i_num - k_base, 2)
                 ws_e.cell(row=r, column=11).value = k_val
             except (ValueError, TypeError):
                 ws_e.cell(row=r, column=11).value = ''
@@ -1644,7 +1683,7 @@ def _etichetta_solo_num_settimana(periodo):
 # --- GENERAZIONE HTML ---
 
 def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
-                pivot_role_est, df_per_calc, config, col_rif, col_actual,
+                pivot_role_est, df_per_calc, config, col_rif, col_role_name, col_actual,
                 col_proj, col_period, col_estimated, file_output):
     """Genera un file HTML navigabile con tabelle e grafici Chart.js.
 
@@ -1680,10 +1719,17 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
 
     # ── DataFrame export ─────────────────────────────────────────────────────
     df_export = df_per_tabella_export(df_per_calc, col_rif)
+    df_export_billable = df_per_detrazione_giornate(df_export, col_role_name)
     somme_rif = {str(k).strip(): round(v / 8.0, 2)
                  for k, v in df_export.groupby(col_rif)[col_actual].sum().items()}
+    somme_rif_billable = {str(k).strip(): round(v / 8.0, 2)
+                          for k, v in df_export_billable.groupby(col_rif)[col_actual].sum().items()}
     somme_sotto_rif_html = {str(k).strip(): round(v / 8.0, 2)
                             for k, v in df_export.groupby("Sotto Riferimento tabella 1")[col_actual].sum().items()}
+    somme_sotto_rif_billable_html = {
+        str(k).strip(): round(v / 8.0, 2)
+        for k, v in df_export_billable.groupby("Sotto Riferimento tabella 1")[col_actual].sum().items()
+    }
     hdr_exp = [h.strip() for h in config.get('Export2', '').split(',')]
     righe_exp = []
     i_e = 3
@@ -1691,9 +1737,12 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
         vals = [v.strip() for v in config[f"Export{i_e}"].split(',')]
         ref_key = vals[-1] if vals else ''
         gg = (somme_rif.get(ref_key, 0.0) + somme_sotto_rif_html.get(ref_key, 0.0)) if ref_key else 0.0
+        gg_billable = (
+            somme_rif_billable.get(ref_key, 0.0) + somme_sotto_rif_billable_html.get(ref_key, 0.0)
+        ) if ref_key else 0.0
         try:
             i_num = float(str(vals[8] if len(vals) > 8 else '0').replace(',', '.'))
-            k_val = round(i_num - gg, 2)
+            k_val = round(i_num - gg_billable, 2)
         except (ValueError, TypeError):
             k_val = ''
         while len(vals) < 9:
@@ -1757,8 +1806,9 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
     week_to_idx = {w: i for i, w in enumerate(all_weeks_ts)}
     _cw_idx, _me_idx_html = _week_vline_indices(all_weeks_ts)
 
+    df_per_calc_billable = df_per_detrazione_giornate(df_per_calc, col_role_name)
     rh_pivot_ts = (
-        df_per_calc.groupby([col_proj, col_period])[col_actual]
+        df_per_calc_billable.groupby([col_proj, col_period])[col_actual]
         .sum().unstack(fill_value=0)
         .reindex(columns=all_weeks_ts, fill_value=0)
         / 8.0
@@ -1822,10 +1872,10 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
 
     def _weekly_html(ref_key):
         mask = (
-            (df_per_calc[col_rif].astype(str).str.strip() == ref_key) |
-            (df_per_calc[col_sotto_rif_ts].astype(str).str.strip() == ref_key)
+            (df_per_calc_billable[col_rif].astype(str).str.strip() == ref_key) |
+            (df_per_calc_billable[col_sotto_rif_ts].astype(str).str.strip() == ref_key)
         )
-        return df_per_calc[mask].groupby(col_period)[col_actual].sum() / 8.0
+        return df_per_calc_billable[mask].groupby(col_period)[col_actual].sum() / 8.0
 
     cumsum_voci_html = {}
     for _, ref_key, _, _ in voci_cfg_html:
@@ -2546,7 +2596,9 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
         )
 
         col_rif = "Riferimento tabella 1"
-        rows_progetti = prepara_righe_progetti(df_src, df_dati_comp, df_per_calc, col_proj, col_actual, config, contratti_idx)
+        rows_progetti = prepara_righe_progetti(
+            df_src, df_dati_comp, df_per_calc, col_proj, col_role_name,
+            col_actual, config, contratti_idx)
 
         progetti_ignorati = carica_prj_ignore()
         if progetti_ignorati:
@@ -2604,7 +2656,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
                            df_per_calc_out, col_actual, col_estimated)
 
         riga_export = formatta_tab_export(
-            wb['Tabella di Export'], config, df_per_calc_out, col_rif, col_actual,
+            wb['Tabella di Export'], config, df_per_calc_out, col_rif, col_role_name, col_actual,
             fill_verde, fill_nero, font_bianco_bold, center, right_align
         )
 
@@ -2617,7 +2669,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
 
         log.info("4. Generazione file HTML...")
         genera_html(df_dati_out, rows_progetti_out, pivot_actual_out, pivot_estimated_out,
-                    pivot_role_est_out, df_per_calc_out, config, col_rif, col_actual,
+                    pivot_role_est_out, df_per_calc_out, config, col_rif, col_role_name, col_actual,
                     col_proj, col_period, col_estimated, file_output)
 
         for sheet_name in ['dati', 'progetti', 'Riepilogo Settimanale',

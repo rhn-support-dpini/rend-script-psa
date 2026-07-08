@@ -78,6 +78,25 @@ Il file di output contiene i fogli:
 | `Tentative` | Stati ≠ Scheduled/Commit e aggregazioni miste K×L |
 | `Tabella di Export` | Riepilogo giornate per codice ordine |
 
+Viene anche generato un file **HTML** omonimo (stesso nome dell'output Excel, estensione `.html`) con tabelle e grafici Chart.js.
+
+---
+
+## Milestone Non-Billable Labor
+
+Le righe con milestone **Non-Billable Labor** (colonna ruolo/milestone del sorgente, confronto case-insensitive) sono **sempre tracciate** nei fogli di dettaglio:
+
+- `dati`, pivot Actual/Estimated, `Riepilogo Settimanale`, `Dettaglio Ruoli`, `Tentative`
+- colonna **J** della `Tabella di Export` (giornate consuntivate totali)
+
+Non entrano invece nel calcolo dei **giorni disponibili / rimanenti**:
+
+| Dove | Comportamento |
+|------|----------------|
+| Foglio `progetti` — colonne *Days Used* (G/H) e *Days remaining* (I/J) | Escluse dalla detrazione sui giorni riscattati |
+| `Tabella di Export` — colonna K (residuo) | In J compaiono tutte le giornate; in K si detrae solo la parte billable |
+| Grafici HTML — trend giorni rimasti (contratti RH e voci Intesa) | Cumulo solo ore billable |
+
 ---
 
 ## Elaborazione dati sorgente
@@ -104,7 +123,10 @@ Il foglio **Tabella di Export** (e la sezione omonima nel report HTML) riepiloga
 
 **Regola di esclusione:** le righe con **Riferimento tabella 1** vuoto, mancante o pari a **0** restano nel flusso normale (pivot, foglio `progetti`, riepiloghi, Tentative, grafici) ma **non** entrano nelle somme del tab Export — né per il riferimento principale né per il sotto-riferimento di quella riga.
 
-Le righe con riferimento valorizzato e diverso da zero contribuiscono alle colonne J/K (giornate consuntivate e delta) incrociando sia `Riferimento tabella 1` sia `Sotto Riferimento tabella 1` con l'ultimo campo di ciascuna voce `ExportN` in config.
+Le righe con riferimento valorizzato e diverso da zero contribuiscono alle colonne J/K (giornate consuntivate e residuo) incrociando sia `Riferimento tabella 1` sia `Sotto Riferimento tabella 1` con l'ultimo campo di ciascuna voce `ExportN` in config.
+
+- **Colonna J:** somma di tutte le ore consuntivate (in giornate), incluse quelle con milestone **Non-Billable Labor**.
+- **Colonna K:** giornate acquisite (config) meno solo le ore **billable**; le ore Non-Billable Labor non riducono il residuo.
 
 ---
 
