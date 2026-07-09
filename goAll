@@ -2,24 +2,33 @@
 #
 # goAll — copia export PSA da Drive ed elabora solo i file appena copiati.
 #
-# 1. Esegue copia_drive-PSA.sh (rsync --ignore-existing in Data/)
+# Lo script risiede in rend-script-psa/; va lanciato da rend-script-psa/venv
+# (es. cd rend-script-psa/venv && ../goAll). Dati e risultati in venv/Data/.
+#
+# 1. Esegue copia_drive-PSA.sh (rsync --ignore-existing in venv/Data/)
 # 2. Su ogni nuovo DvPFilter-RHCC-All-Assignments-Full* lancia elabora_progetti.py
 # 3. Se l'elaborazione va a buon fine, rinomina il file rimuovendo il prefisso DvPFilter-
 #
 # Variabili opzionali:
-#   TARGET_DIR  cartella dati (default: <script>/Data)
+#   TARGET_DIR  cartella dati (default: <script>/venv/Data)
 #   CLIENTE     filtro cliente per elabora_progetti.py (default: Intesa)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
-
-TARGET_DIR="${TARGET_DIR:-$SCRIPT_DIR/Data}"
+VENV_DIR="$SCRIPT_DIR/venv"
+TARGET_DIR="${TARGET_DIR:-$VENV_DIR/Data}"
 CLIENTE="${CLIENTE:-Intesa}"
 PATTERN='DvPFilter-RHCC-All-Assignments-Full*'
 
-mkdir -p "$TARGET_DIR"
+mkdir -p "$VENV_DIR" "$TARGET_DIR"
+cd "$VENV_DIR"
+
+if [ -x "$VENV_DIR/bin/python3" ]; then
+    PYTHON="$VENV_DIR/bin/python3"
+else
+    PYTHON=python3
+fi
 
 # Elenco file PSA già presenti prima della copia
 BEFORE_LIST=""
@@ -34,8 +43,8 @@ file_gia_presente() {
     printf '%s\n' "$BEFORE_LIST" | grep -Fxq "$name"
 }
 
-echo "=== 1/2 Copia da Drive (copia_drive-PSA.sh) ==="
-"$SCRIPT_DIR/copia_drive-PSA.sh"
+echo "=== 1/2 Copia da Drive (copia_drive-PSA.sh) → $TARGET_DIR ==="
+LOCAL_DIR="$TARGET_DIR" "$SCRIPT_DIR/copia_drive-PSA.sh"
 
 if [ ! -d "$TARGET_DIR" ]; then
     echo "Errore: la cartella '$TARGET_DIR' non esiste."
@@ -68,7 +77,7 @@ for FILEPATH in "$TARGET_DIR"/$PATTERN; do
     echo "Elaborazione file (nuovo): $FILENAME"
     echo "Data estratta: $DATA_FILE"
 
-    if python3 "$SCRIPT_DIR/elabora_progetti.py" "$CLIENTE" "$FILEPATH" "$TARGET_DIR/${DATA_FILE}-Result-PSA.xlsx"; then
+    if "$PYTHON" "$SCRIPT_DIR/elabora_progetti.py" "$CLIENTE" "$FILEPATH" "$TARGET_DIR/${DATA_FILE}-Result-PSA.xlsx"; then
         NUOVO_NOME=$(echo "$FILENAME" | sed 's/^DvPFilter-//')
         echo "Rinomino il file in: $NUOVO_NOME"
         mv "$FILEPATH" "$TARGET_DIR/$NUOVO_NOME"
