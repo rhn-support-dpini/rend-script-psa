@@ -60,6 +60,7 @@ logging.basicConfig(level=logging.INFO, format='%(message)s')
 log = logging.getLogger(__name__)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+VENV_DIR = os.path.join(SCRIPT_DIR, 'venv')
 
 
 def risolvi_percorso(nome_o_path):
@@ -67,6 +68,32 @@ def risolvi_percorso(nome_o_path):
     if os.path.isabs(nome_o_path):
         return nome_o_path
     return os.path.normpath(os.path.join(SCRIPT_DIR, nome_o_path))
+
+
+def risolvi_config(nome_file):
+    """Config/script aux: cartella script, poi script/venv/ (layout goAll)."""
+    for base in (SCRIPT_DIR, VENV_DIR):
+        path = os.path.join(base, nome_file)
+        if os.path.isfile(path):
+            return path
+    return os.path.join(SCRIPT_DIR, nome_file)
+
+
+def risolvi_percorso_input(nome_o_path):
+    """Input: assoluto, poi cwd (es. venv/Data/...), poi cartella script."""
+    if os.path.isabs(nome_o_path):
+        return nome_o_path
+    cwd_path = os.path.normpath(os.path.join(os.getcwd(), nome_o_path))
+    if os.path.exists(cwd_path):
+        return cwd_path
+    return risolvi_percorso(nome_o_path)
+
+
+def risolvi_percorso_output(nome_o_path):
+    """Output: assoluto, altrimenti relativo alla cwd (es. venv/Data/)."""
+    if os.path.isabs(nome_o_path):
+        return nome_o_path
+    return os.path.normpath(os.path.join(os.getcwd(), nome_o_path))
 
 # --- FUNZIONI DI SUPPORTO ---
 
@@ -105,7 +132,7 @@ def carica_prj_ignore(nome_file='.prjIgnore'):
     Returns:
         set di stringhe con i nomi progetto da escludere dagli output.
     """
-    path = risolvi_percorso(nome_file)
+    path = risolvi_config(nome_file)
     if not os.path.exists(path):
         return set()
     progetti = set()
@@ -499,8 +526,9 @@ def riepilogo_combinazioni_k_l(df_dati_comp, col_k, col_l):
 
 def list_kl_combos_su_file(file_excel_input, file_cust_config='cust.config', cliente_filter=''):
     """Stampa su log tutte le coppie K×L nel sorgente; utile per trovare valori fuori schema."""
-    path_script_cfg = risolvi_percorso('script.config')
-    path_cust_cfg = risolvi_percorso(file_cust_config)
+    file_excel_input = risolvi_percorso_input(file_excel_input)
+    path_script_cfg = risolvi_config('script.config')
+    path_cust_cfg = risolvi_config(file_cust_config)
     if not os.path.isfile(path_cust_cfg):
         log.error("cust.config non trovato: %s", os.path.abspath(path_cust_cfg))
         return
@@ -2548,8 +2576,10 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
                           corrisponde a questo valore (confronto case-insensitive).
     """
     try:
-        path_script_cfg = risolvi_percorso('script.config')
-        path_cust_cfg = risolvi_percorso(file_cust_config)
+        file_excel_input = risolvi_percorso_input(file_excel_input)
+        file_output = risolvi_percorso_output(file_output)
+        path_script_cfg = risolvi_config('script.config')
+        path_cust_cfg = risolvi_config(file_cust_config)
         if not os.path.isfile(path_cust_cfg):
             log.error(
                 "ERRORE: cust.config non trovato (%s).\n"
