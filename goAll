@@ -1,14 +1,16 @@
 #!/bin/bash
 #
-# goAll — copia export PSA da Drive ed elabora solo i file appena copiati.
+# goAll — copia export PSA e MIRO da Drive ed elabora solo i file appena copiati.
 #
 # Lo script risiede in rend-script-psa/; va lanciato da rend-script-psa/venv
 # (es. cd rend-script-psa/venv && ../goAll). Dati e risultati in venv/Data/.
 # Python viene eseguito dalla cartella script; config cercata anche in venv/.
 #
-# 1. Esegue copia_drive-PSA.sh (salta file già presenti o già elaborati in venv/Data/)
-# 2. Su ogni nuovo DvPFilter-RHCC-All-Assignments-Full* lancia elabora_progetti.py
-# 3. Se l'elaborazione va a buon fine, rinomina il file rimuovendo il prefisso DvPFilter-
+# 1. Copia PSA (copia_drive-PSA.sh) → venv/Data/
+# 2. Elabora nuovi DvPFilter-RHCC-All-Assignments-Full* con elabora_progetti.py
+#    (rinomina rimuovendo il prefisso DvPFilter-)
+# 3. Copia MIRO *-Intesa-JBOSS.csv (copia_drive-Miro.sh) → venv/Data/
+# 4. Elabora i file JKAN appena copiati con elabora_JKAN.py (rinomina con prefisso x-)
 #
 # Variabili opzionali:
 #   TARGET_DIR  cartella dati (default: <script>/venv/Data)
@@ -20,7 +22,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/venv"
 TARGET_DIR="${TARGET_DIR:-$VENV_DIR/Data}"
 CLIENTE="${CLIENTE:-Intesa}"
-PATTERN='DvPFilter-RHCC-All-Assignments-Full*'
+PATTERN_PSA='DvPFilter-RHCC-All-Assignments-Full*'
+PATTERN_JKAN='*-Intesa-JBOSS.csv'
 
 mkdir -p "$VENV_DIR" "$TARGET_DIR"
 TARGET_DIR="$(cd "$TARGET_DIR" && pwd)"
@@ -31,34 +34,61 @@ else
     PYTHON=python3
 fi
 
-# Nome senza prefisso DvPFilter- (file già elaborato)
-nome_elaborato() {
+# --- PSA: DvPFilter- → RHCC- (elaborato) ---
+
+nome_elaborato_psa() {
     local name="$1"
     echo "$name" | sed 's/^DvPFilter-//'
 }
 
-# True se esiste già la versione rinominata (post-elaborazione)
-file_gia_elaborato() {
+file_gia_elaborato_psa() {
     local dvpfilter_name="$1"
     local renamed
-    renamed=$(nome_elaborato "$dvpfilter_name")
+    renamed=$(nome_elaborato_psa "$dvpfilter_name")
     [ -e "$TARGET_DIR/$renamed" ]
 }
 
-# Elenco file DvPFilter già presenti prima della copia
-BEFORE_LIST=""
-for f in "$TARGET_DIR"/$PATTERN; do
+BEFORE_LIST_PSA=""
+for f in "$TARGET_DIR"/$PATTERN_PSA; do
     [ -e "$f" ] || continue
-    BEFORE_LIST+="$(basename "$f")"$'\n'
+    BEFORE_LIST_PSA+="$(basename "$f")"$'\n'
 done
 
-file_gia_presente() {
+file_gia_presente_psa() {
     local name="$1"
-    [ -z "$BEFORE_LIST" ] && return 1
-    printf '%s\n' "$BEFORE_LIST" | grep -Fxq "$name"
+    [ -z "$BEFORE_LIST_PSA" ] && return 1
+    printf '%s\n' "$BEFORE_LIST_PSA" | grep -Fxq "$name"
 }
 
-echo "=== 1/2 Copia da Drive (copia_drive-PSA.sh) → $TARGET_DIR ==="
+# --- JKAN: x- (elaborato) ---
+
+nome_trattato_jkan() {
+    local name="$1"
+    echo "x-$name"
+}
+
+file_gia_trattato_jkan() {
+    local name="$1"
+    [ -e "$TARGET_DIR/$(nome_trattato_jkan "$name")" ]
+}
+
+BEFORE_LIST_JKAN=""
+for f in "$TARGET_DIR"/$PATTERN_JKAN; do
+    [ -e "$f" ] || continue
+    base=$(basename "$f")
+    [[ "$base" == x-* ]] && continue
+    BEFORE_LIST_JKAN+="$base"$'\n'
+done
+
+file_gia_presente_jkan() {
+    local name="$1"
+    [ -z "$BEFORE_LIST_JKAN" ] && return 1
+    printf '%s\n' "$BEFORE_LIST_JKAN" | grep -Fxq "$name"
+}
+
+# --- 1/4 Copia PSA ---
+
+echo "=== 1/4 Copia PSA (copia_drive-PSA.sh) → $TARGET_DIR ==="
 LOCAL_DIR="$TARGET_DIR" "$SCRIPT_DIR/copia_drive-PSA.sh"
 
 if [ ! -d "$TARGET_DIR" ]; then
@@ -66,23 +96,25 @@ if [ ! -d "$TARGET_DIR" ]; then
     exit 1
 fi
 
+# --- 2/4 Elaborazione PSA ---
+
 echo ""
-echo "=== 2/2 Elaborazione file PSA appena copiati ==="
+echo "=== 2/4 Elaborazione file PSA appena copiati ==="
 
-processed=0
-skipped=0
+processed_psa=0
+skipped_psa=0
 
-for FILEPATH in "$TARGET_DIR"/$PATTERN; do
+for FILEPATH in "$TARGET_DIR"/$PATTERN_PSA; do
     [ -e "$FILEPATH" ] || continue
 
     FILENAME=$(basename "$FILEPATH")
 
-    if file_gia_presente "$FILENAME"; then
+    if file_gia_presente_psa "$FILENAME"; then
         continue
     fi
 
-    if file_gia_elaborato "$FILENAME"; then
-        RENAMED=$(nome_elaborato "$FILENAME")
+    if file_gia_elaborato_psa "$FILENAME"; then
+        RENAMED=$(nome_elaborato_psa "$FILENAME")
         echo "Già elaborato (esiste $RENAMED), salto: $FILENAME"
         rm -f "$FILEPATH"
         continue
@@ -91,33 +123,86 @@ for FILEPATH in "$TARGET_DIR"/$PATTERN; do
     DATA_FILE=$(echo "$FILENAME" | sed -n 's/.*Full-\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\).*/\1/p')
     if [ -z "$DATA_FILE" ]; then
         echo "Salta file (formato data non valido): $FILENAME"
-        skipped=$((skipped + 1))
+        skipped_psa=$((skipped_psa + 1))
         continue
     fi
 
     echo "--------------------------------------------------"
-    echo "Elaborazione file (nuovo): $FILENAME"
+    echo "Elaborazione PSA (nuovo): $FILENAME"
     echo "Data estratta: $DATA_FILE"
 
     if (
         cd "$SCRIPT_DIR"
         "$PYTHON" elabora_progetti.py "$CLIENTE" "$FILEPATH" "$TARGET_DIR/${DATA_FILE}-Result-PSA.xlsx"
     ); then
-        NUOVO_NOME=$(nome_elaborato "$FILENAME")
+        NUOVO_NOME=$(nome_elaborato_psa "$FILENAME")
         echo "Rinomino il file in: $NUOVO_NOME"
         mv "$FILEPATH" "$TARGET_DIR/$NUOVO_NOME"
-        processed=$((processed + 1))
+        processed_psa=$((processed_psa + 1))
     else
         echo "Errore durante l'elaborazione Python. Il file non è stato rinominato."
     fi
 done
 
 echo "--------------------------------------------------"
-if [ "$processed" -eq 0 ]; then
+if [ "$processed_psa" -eq 0 ]; then
     echo "Nessun nuovo file PSA elaborato."
 else
-    echo "Elaborati $processed nuovo/i file."
+    echo "Elaborati $processed_psa nuovo/i file PSA."
 fi
-if [ "$skipped" -gt 0 ]; then
-    echo "Saltati $skipped file con nome non valido."
+if [ "$skipped_psa" -gt 0 ]; then
+    echo "Saltati $skipped_psa file PSA con nome non valido."
+fi
+
+# --- 3/4 Copia MIRO JKAN ---
+
+echo ""
+echo "=== 3/4 Copia MIRO (copia_drive-Miro.sh) → $TARGET_DIR ==="
+LOCAL_DIR="$TARGET_DIR" "$SCRIPT_DIR/copia_drive-Miro.sh"
+
+# --- 4/4 Elaborazione JKAN ---
+
+echo ""
+echo "=== 4/4 Elaborazione file JKAN appena copiati ==="
+
+processed_jkan=0
+
+for FILEPATH in "$TARGET_DIR"/$PATTERN_JKAN; do
+    [ -e "$FILEPATH" ] || continue
+
+    FILENAME=$(basename "$FILEPATH")
+    [[ "$FILENAME" == x-* ]] && continue
+
+    if file_gia_presente_jkan "$FILENAME"; then
+        continue
+    fi
+
+    if file_gia_trattato_jkan "$FILENAME"; then
+        TRATTATO=$(nome_trattato_jkan "$FILENAME")
+        echo "Già elaborato (esiste $TRATTATO), salto: $FILENAME"
+        rm -f "$FILEPATH"
+        continue
+    fi
+
+    echo "--------------------------------------------------"
+    echo "Elaborazione JKAN (nuovo): $FILENAME"
+
+    if (
+        cd "$SCRIPT_DIR"
+        "$PYTHON" elabora_JKAN.py "$FILEPATH"
+    ); then
+        NUOVO_NOME=$(nome_trattato_jkan "$FILENAME")
+        echo "Rinomino il file in: $NUOVO_NOME"
+        mv "$FILEPATH" "$TARGET_DIR/$NUOVO_NOME"
+        processed_jkan=$((processed_jkan + 1))
+    else
+        echo "Errore durante l'elaborazione JKAN. Il file non è stato rinominato."
+    fi
+done
+
+echo "--------------------------------------------------"
+if [ "$processed_jkan" -eq 0 ]; then
+    echo "Nessun nuovo file JKAN elaborato."
+else
+    echo "Elaborati $processed_jkan nuovo/i file JKAN."
 fi

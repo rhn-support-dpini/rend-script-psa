@@ -506,11 +506,19 @@ Ogni run aggiunge (o aggiorna) una riga in `dbJKAN.csv` e rigenera `dbJKAN.html`
 
 ---
 
+## Automazione con goAll
+
+Lo script `goAll` copia da Google Drive i file `*-Intesa-JBOSS.csv`, li elabora con `elabora_JKAN.py` e rinomina i sorgenti con prefisso `x-` per segnalarli come già trattati. Vedi [goAll.md](goAll.md) per il flusso completo (PSA + MIRO).
+
+---
+
 ## Riferimenti nel repository
 
 | File | Ruolo |
 |------|-------|
 | `elabora_JKAN.py` | Script principale (`python elabora_JKAN.py -h` per l'help CLI) |
+| `goAll` | Automazione copia Drive ed elaborazione incrementale |
 | `.cursor/rules/elabora-jkan.mdc` | Regole Cursor per modifiche future |
 | `docs/elabora_JKAN.md` | Questa documentazione |
 | `docs/elabora_progetti.md` | Documentazione dello script progetti correlato |
+| `docs/goAll.md` | Documentazione automazione `goAll` |

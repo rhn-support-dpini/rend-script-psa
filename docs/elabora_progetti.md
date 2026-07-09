@@ -130,11 +130,19 @@ Le righe con riferimento valorizzato e diverso da zero contribuiscono alle colon
 
 ---
 
+## Automazione con goAll
+
+Lo script `goAll` copia gli export PSA da Google Drive, li elabora con `elabora_progetti.py` e rinomina i sorgenti rimuovendo il prefisso `DvPFilter-`. Vedi [goAll.md](goAll.md) per il flusso completo (PSA + MIRO).
+
+---
+
 ## Riferimenti nel repository
 
 | File | Ruolo |
 |------|-------|
 | `elabora_progetti.py` | Script principale |
+| `goAll` | Automazione copia Drive ed elaborazione incrementale |
 | `script.config` | Configurazione generale (non versionata) |
 | `cust.config` | Configurazione cliente (non versionata) |
 | `docs/elabora_progetti.md` | Questa documentazione |
+| `docs/goAll.md` | Documentazione automazione `goAll` |
