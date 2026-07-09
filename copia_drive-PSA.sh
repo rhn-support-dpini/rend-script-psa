@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # Copia export PSA (DvPFilter-RHCC-All-Assignments-Full) da Google Drive in Data/.
+# Salta i file già presenti con lo stesso nome o già elaborati (senza prefisso DvPFilter-).
 # Percorsi sovrascrivibili con variabili d'ambiente DRIVE_DIR e LOCAL_DIR.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,6 +18,29 @@ fi
 mkdir -p "$LOCAL_DIR"
 
 echo "Copia PSA: $DRIVE_DIR/ → $LOCAL_DIR/"
-rsync -av --ignore-existing "$DRIVE_DIR/" "$LOCAL_DIR/"
 
-echo "Copia PSA completata."
+copiati=0
+saltati=0
+
+for src in "$DRIVE_DIR"/DvPFilter-RHCC-All-Assignments-Full*; do
+    [ -e "$src" ] || continue
+
+    base=$(basename "$src")
+    elaborato="${base#DvPFilter-}"
+
+    if [ -e "$LOCAL_DIR/$base" ] || [ -e "$LOCAL_DIR/$elaborato" ]; then
+        saltati=$((saltati + 1))
+        continue
+    fi
+
+    rsync -a "$src" "$LOCAL_DIR/"
+    copiati=$((copiati + 1))
+done
+
+if [ "$copiati" -eq 0 ] && [ "$saltati" -eq 0 ]; then
+    echo "Nessun file PSA trovato su Drive."
+elif [ "$copiati" -eq 0 ]; then
+    echo "Copia PSA completata: nessun file nuovo ($saltati già presenti/elaborati)."
+else
+    echo "Copia PSA completata: $copiati nuovo/i, $saltati già presenti/elaborati."
+fi
