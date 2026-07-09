@@ -12,7 +12,7 @@ Script Python che elabora un export CSV di una board **MIRO**, estrae le card da
 4. [Input: export CSV MIRO](#input-export-csv-miro)
 5. [Output: file Excel](#output-file-excel)
 6. [Storico `dbJKAN.csv`](#storico-dbjkancsv)
-7. [Report HTML `dbJKAN.html`](#report-html-dbjkanhtml)
+7. [Report HTML `<input>.html`](#report-html-inputhtml)
 8. [Colonne dei fogli `data-all` e `data-check`](#colonne-dei-fogli-data-all-e-data-check)
 9. [Tag temporali nella Description](#tag-temporali-nella-description)
 10. [Calcolo dei giorni](#calcolo-dei-giorni)
@@ -30,7 +30,7 @@ Il flusso di elaborazione è:
 ```
 CSV MIRO  →  estrazione tutte le Kanban  →  espansione tag temporali  →  Excel (.xlsx)
                                         ↘  snapshot colonne Kanban  →  dbJKAN.csv
-                                                                    →  dbJKAN.html
+                                                                    →  <input>.html
 ```
 
 Per ogni card MIRO lo script:
@@ -41,7 +41,7 @@ Per ogni card MIRO lo script:
 4. Calcola metriche aggregate (giorni in lavorazione, periodo in Progress, stima vs consuntivo).
 5. Applica formattazione visiva (merge, bordi, colori) e genera fogli di riepilogo.
 6. Conta le card per colonna Kanban e aggiorna lo storico `dbJKAN.csv`.
-7. Rigenera `dbJKAN.html` con grafici di burnup e metriche di avanzamento.
+7. Rigenera `<input>.html` (omonimo del file Excel) con report Scrum/Kanban e metriche di avanzamento.
 
 ---
 
@@ -81,7 +81,7 @@ python elabora_JKAN.py -h
 |------|----------|-------------|
 | `<input>.xlsx` | Stesso percorso del CSV | Excel con fogli `data-all`, `data-check`, `stat`, `graph` |
 | `dbJKAN.csv` | Cartella dello script | Storico snapshot colonne Kanban |
-| `dbJKAN.html` | Stessa cartella del CSV di input | Report HTML con grafici burnup e metriche |
+| `<input>.html` | Stesso percorso del file `.xlsx` prodotto | Report HTML Scrum/Kanban (CFD, evoluzione colonne, burnup, WIP, velocità) |
 
 ### Esempi
 
@@ -95,7 +95,7 @@ python elabora_JKAN.py 2026-06-06-WIP.csv
 python elabora_JKAN.py /percorso/export-miro.csv
 ```
 
-In console vengono stampati: numero sezioni kanban trovate, numero card, numero righe output, percorso Excel, conteggio snapshot per colonna Kanban, eventuali card con Status non mappato, percorsi di `dbJKAN.csv` e `dbJKAN.html`.
+In console vengono stampati: numero sezioni kanban trovate, numero card, numero righe output, percorso Excel, conteggio snapshot per colonna Kanban, eventuali card con Status non mappato, percorsi di `dbJKAN.csv` e del report HTML (`.html` omonimo dell'Excel).
 
 ---
 
@@ -232,28 +232,33 @@ Card con Status `Complete` (colonna distinta su MIRO, non equivalente ad Acronim
 
 ---
 
-## Report HTML `dbJKAN.html`
+## Report HTML `<input>.html`
 
-Dopo ogni aggiornamento di `dbJKAN.csv`, lo script rigenera `dbJKAN.html` **nella stessa cartella del CSV di input** (es. `2026-06-06-WIP.csv` → `dbJKAN.html` accanto al CSV). I grafici usano **Chart.js** (CDN, nessuna dipendenza Python aggiuntiva). Aprire il file in un browser.
+Dopo ogni aggiornamento di `dbJKAN.csv`, lo script genera un report HTML **omonimo del file Excel prodotto** (es. `2026-07-08-Intesa-JBOSS.csv` → `2026-07-08-Intesa-JBOSS.xlsx` → `2026-07-08-Intesa-JBOSS.html`). Ogni esecuzione produce un file HTML dedicato allo snapshot corrente, senza sovrascrivere report di export precedenti con nome diverso. I grafici usano **Chart.js** (CDN). Aprire il file in un browser.
 
 ### KPI in testata
 
 | Indicatore | Significato |
 |------------|-------------|
 | Scope tracciato | Somma delle sei colonne Kanban nell'ultimo snapshot |
-| Target card totali | 30 (card previste nel progetto) |
-| Acronimi done | Card completate nell'ultimo snapshot |
-| WIP | in progress + waiting for fab. + Fab test in progress |
-| Snapshot registrati | Numero di righe in `dbJKAN.csv` |
+| Target card | 30 (card previste nel progetto) |
+| Non avviato | Under analysis + Backlog nell'ultimo snapshot |
+| In delivery (WIP) | in progress + Waiting for fabric + Fab. Test in progress |
+| Acronimi Done | Card completate nell'ultimo snapshot |
+| Snapshot | Numero di righe in `dbJKAN.csv` |
 
-### Grafici
+### Grafici Scrum / Kanban
 
 | Sezione | Tipo | Descrizione |
 |---------|------|-------------|
-| **Burnup** | Linee | Acronimi done, scope tracciato (somma colonne) e target 30 card |
-| **Distribuzione stati** | Barre impilate | Breakdown Under analysis / backlog / in progress / waiting for fab. / Fab test / Acronimi done |
-| **WIP** | Linea | Andamento del lavoro in corso (esclusi Under analysis, backlog e Acronimi done) |
-| **Velocità** | Barre | Incremento di Acronimi done rispetto allo snapshot precedente |
+| **Cumulative Flow Diagram (CFD)** | Aree impilate | Evoluzione cumulativa di tutte le colonne Kanban — strumento Agile per colli di bottiglia |
+| **Evoluzione colonne — vista comparata** | Linee multiple | Andamento simultaneo di Under analysis, Backlog, In progress, Waiting for fabric, Fab. Test in progress, Acronimi Done |
+| **Evoluzione per colonna** | Griglia di 6 linee | Un grafico dedicato per ciascuna colonna del board |
+| **Pipeline Scrum** | Linee | Aggregazione: non avviato (upstream) / in delivery (WIP) / completato |
+| **Burnup** | Linee | Acronimi Done, scope tracciato e target 30 card |
+| **Distribuzione stati** | Barre impilate | Breakdown per colonna Kanban a ogni snapshot |
+| **WIP** | Linea | Andamento del lavoro in corso |
+| **Velocità** | Barre | Incremento di Acronimi Done rispetto allo snapshot precedente |
 | **Tabella storico** | Tabella | Contenuto completo di `dbJKAN.csv` con colonna Totale |
 
 Sull'**asse delle ascisse** di ogni grafico, sotto la data (`dd/mm/yyyy`), viene mostrato il **numero di settimana ISO** (es. `W23`).
@@ -489,7 +494,7 @@ Righe output: 13
 Output: /percorso/rend-script-psa/2026-06-06-WIP.xlsx
 Snapshot 2026-06-06: {'Under analysis': 1, 'backlog': 3, 'in progress': 1, 'waiting for fab.': 1, 'Fab test in progress': 0, 'Acronimi done': 1}
 Database: /percorso/rend-script-psa/dbJKAN.csv
-Grafici: /percorso/rend-script-psa/dbJKAN.html   # accanto al CSV di input
+Grafici: /percorso/venv/Data/2026-06-06-WIP.html   # omonimo del .xlsx prodotto
 ```
 
 ### Storico multi-snapshot
@@ -502,7 +507,7 @@ python elabora_JKAN.py 2026-06-13-WIP.csv
 python elabora_JKAN.py 2026-06-20-WIP.csv
 ```
 
-Ogni run aggiunge (o aggiorna) una riga in `dbJKAN.csv` e rigenera `dbJKAN.html`.
+Ogni run aggiunge (o aggiorna) una riga in `dbJKAN.csv` e genera il report HTML omonimo del file Excel (`.html`).
 
 ---
 

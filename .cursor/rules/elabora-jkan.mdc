@@ -6,7 +6,7 @@ alwaysApply: false
 
 # elabora_JKAN.py
 
-Script che legge un export CSV MIRO, estrae le card da **tutte le sezioni Kanban** (header standard) e produce un `.xlsx` omonimo. Nessun filtro per nome kanban. Aggiorna anche `dbJKAN.csv` (storico snapshot) e `dbJKAN.html` (grafici burnup).
+Script che legge un export CSV MIRO, estrae le card da **tutte le sezioni Kanban** (header standard) e produce un `.xlsx` omonimo. Nessun filtro per nome kanban. Aggiorna anche `dbJKAN.csv` (storico snapshot) e genera `<input>.html` (report Scrum/Kanban omonimo dell'Excel).
 
 ```bash
 python elabora_JKAN.py [input.csv]   # default: 2026-06-06-WIP.csv
@@ -36,13 +36,13 @@ Foglio `data-check`: stesse colonne e formattazione di `data-all`, esclusi Statu
 
 Colonna G (Estimate): valore dal tag `# Estimate` in Description, non dal CSV.
 
-## dbJKAN.csv / dbJKAN.html
+## dbJKAN.csv / report HTML
 
 - `dbJKAN.csv`: una riga per data snapshot (upsert per stessa data); colonne `data`, Under analysis, backlog, in progress, waiting for fab., Fab test in progress, Acronimi done.
 - Scope tracciato = somma delle sei colonne; target progetto = 30 card (`SCOPE_TOTALE_CARD`).
 - Done = solo colonna Acronimi done. WIP = in progress + waiting for fab. + Fab test in progress.
 - Status mappati con `classifica_colonna_kanban()`: waiting for fab. distinto da Under analysis (Attesa test/fab in Status, Description o ultimo tag).
-- `dbJKAN.html`: stessa cartella del CSV input (`percorso_html_jkan_da_csv()`); burnup, barre impilate, WIP, velocità; asse X data + settimana ISO. Chart.js via CDN.
+- Report HTML: omonimo del `.xlsx` prodotto (`percorso_html_da_xlsx()`); CFD, evoluzione colonne Kanban, pipeline Scrum, burnup, barre impilate, WIP, velocità; asse X data + settimana ISO. Chart.js via CDN.
 
 ## Tag temporali (prefissi esatti)
 

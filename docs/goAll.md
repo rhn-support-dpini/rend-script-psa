@@ -12,7 +12,7 @@ Google Drive                          rend-script-psa/venv/Data/
 │                                                        └──►  YYYY-MM-DD-Result-PSA.xlsx
 └── Miro/                                  ──copia──►  YYYY-MM-DD-Intesa-JBOSS.csv
     └── *-Intesa-JBOSS.csv                               ──elabora_JKAN.py──►  x-YYYY-MM-DD-Intesa-JBOSS.csv
-                                                         └──►  .xlsx, dbJKAN.csv, dbJKAN.html
+                                                         └──►  .xlsx, <input>.html, dbJKAN.csv
 ```
 
 | Fase | Script ausiliario | Elaborazione Python | Rinomina post-successo |
@@ -110,7 +110,7 @@ Su ogni file `*-Intesa-JBOSS.csv` **appena copiato** (senza prefisso `x-`, assen
 python elabora_JKAN.py "<file copiato in Data>"
 ```
 
-- Output: `.xlsx` omonimo, `dbJKAN.csv` (storico, cartella script), `dbJKAN.html` (accanto al CSV).
+- Output: `.xlsx` omonimo, `<input>.html` omonimo dell'Excel, `dbJKAN.csv` (storico, cartella script).
 - In caso di successo il CSV sorgente viene rinominato con prefisso `x-`.
 - Se esiste già `x-<nome>`, eventuali copie duplicate vengono eliminate.
 

@@ -17,7 +17,7 @@ Output:
     File .xlsx con stesso nome e percorso del CSV di input.
     Fogli: data-all (tutte le card), data-check (card attive da verificare), stat, graph.
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
-    dbJKAN.html — grafici burnup, WIP, velocità (stessa cartella del CSV input).
+    <input>.html — report Scrum/Kanban (stesso percorso del .xlsx prodotto).
     Le righe Description con prefisso "#" generano sotto-righe da colonna N;
     A–M sono merge verticali per Title, con bordo rosso pastello per card.
     Colonna J (InizioLavorazione(GG)), K (Waiting #), L (Totale Lavorazione),
@@ -46,7 +46,6 @@ from openpyxl.styles import Alignment, Border, PatternFill, Side
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_JKAN_CSV = os.path.join(SCRIPT_DIR, "dbJKAN.csv")
-DB_JKAN_HTML_NAME = "dbJKAN.html"
 DATA_IN_FILENAME_RE = re.compile(r"(\d{4})[-/](\d{2})[-/](\d{2})")
 SCOPE_TOTALE_CARD = 30
 KANBAN_SNAPSHOT_COLS = [
@@ -57,6 +56,26 @@ KANBAN_SNAPSHOT_COLS = [
     "Fab test in progress",
     "Acronimi done",
 ]
+KANBAN_DISPLAY_LABELS = {
+    "Under analysis": "Under analysis",
+    "backlog": "Backlog",
+    "in progress": "In progress",
+    "waiting for fab.": "Waiting for fabric",
+    "Fab test in progress": "Fab. Test in progress",
+    "Acronimi done": "Acronimi Done",
+}
+KANBAN_CHART_COLORS = {
+    "Under analysis": "#6366f1",
+    "backlog": "#94a3b8",
+    "in progress": "#1a56db",
+    "waiting for fab.": "#fb923c",
+    "Fab test in progress": "#8b5cf6",
+    "Acronimi done": "#10b981",
+}
+KANBAN_CHART_FILL = {
+    col: f"rgba({int(KANBAN_CHART_COLORS[col][1:3], 16)},{int(KANBAN_CHART_COLORS[col][3:5], 16)},{int(KANBAN_CHART_COLORS[col][5:7], 16)},0.15)"
+    for col in KANBAN_SNAPSHOT_COLS
+}
 DB_JKAN_HEADERS = ["data"] + KANBAN_SNAPSHOT_COLS
 WIP_SNAPSHOT_COLS = [
     "in progress",
@@ -171,9 +190,10 @@ def percorso_output_da_csv(input_path):
     return base + ".xlsx"
 
 
-def percorso_html_jkan_da_csv(input_path):
-    """dbJKAN.html nella stessa cartella del CSV di input."""
-    return os.path.join(os.path.dirname(input_path), DB_JKAN_HTML_NAME)
+def percorso_html_da_xlsx(xlsx_path):
+    """Report HTML omonimo del file Excel prodotto (.xlsx → .html)."""
+    base, _ = os.path.splitext(xlsx_path)
+    return base + ".html"
 
 
 def normalizza_testo(valore, compatta_spazi=False):
@@ -984,29 +1004,89 @@ def _serie_velocita(df):
 def _dati_grafici_jkan(df):
     dates, weeks = _etichette_asse_tempo(df)
     n = len(df)
+    not_started = (
+        df["Under analysis"].astype(int) + df["backlog"].astype(int)
+    ).tolist()
+    in_delivery = _serie_wip(df)
+    done = df["Acronimi done"].astype(int).tolist()
     return {
         "dates": dates,
         "weeks": weeks,
+        "column_labels": KANBAN_DISPLAY_LABELS,
+        "colors": KANBAN_CHART_COLORS,
         "burnup": {
-            "done": df["Acronimi done"].astype(int).tolist(),
+            "done": done,
             "scope": _serie_totali(df),
             "target": [SCOPE_TOTALE_CARD] * n,
         },
-        "wip": _serie_wip(df),
+        "wip": in_delivery,
         "velocity": _serie_velocita(df),
         "stacked": {
             col: df[col].astype(int).tolist() for col in KANBAN_SNAPSHOT_COLS
         },
+        "columns": {
+            col: df[col].astype(int).tolist() for col in KANBAN_SNAPSHOT_COLS
+        },
+        "scrum": {
+            "not_started": not_started,
+            "in_delivery": in_delivery,
+            "done": done,
+        },
     }
 
 
+def _html_griglia_colonne_kanban():
+    """Sezione HTML: un mini-grafico per ogni colonna Kanban."""
+    cards = []
+    for i, col in enumerate(KANBAN_SNAPSHOT_COLS):
+        label = KANBAN_DISPLAY_LABELS[col]
+        cards.append(
+            f'    <div class="chart-card">\n'
+            f'      <h3>{label}</h3>\n'
+            f'      <div class="chart-wrap-sm"><canvas id="chart-col-{i}"></canvas></div>\n'
+            f'    </div>'
+        )
+    return "\n".join(cards)
+
+
+def _js_griglia_colonne_kanban():
+    """JavaScript: grafici linea per singola colonna Kanban."""
+    blocks = []
+    for i, col in enumerate(KANBAN_SNAPSHOT_COLS):
+        label = json.dumps(KANBAN_DISPLAY_LABELS[col], ensure_ascii=False)
+        color = json.dumps(KANBAN_CHART_COLORS[col])
+        fill = json.dumps(KANBAN_CHART_FILL[col])
+        key = json.dumps(col, ensure_ascii=False)
+        blocks.append(f"""
+  new Chart(document.getElementById("chart-col-{i}"), {{
+    type: "line",
+    data: {{
+      labels: axisLabels,
+      datasets: [{{
+        label: {label},
+        data: D.columns[{key}],
+        borderColor: {color},
+        backgroundColor: {fill},
+        fill: true, tension: 0.3, pointRadius: 3
+      }}]
+    }},
+    options: baseOptsSm
+  }});""")
+    return "".join(blocks)
+
+
 def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
-    """Genera report HTML con grafici burnup e metriche di avanzamento."""
+    """Genera report HTML Scrum/Kanban con burnup, CFD ed evoluzione colonne."""
     if df.empty:
         return
 
     dati = _dati_grafici_jkan(df)
     chart_json = json.dumps(dati, ensure_ascii=False)
+    griglia_html = _html_griglia_colonne_kanban()
+    js_colonne = _js_griglia_colonne_kanban()
+    thead_cols = "".join(
+        f"<th>{KANBAN_DISPLAY_LABELS[col]}</th>" for col in KANBAN_SNAPSHOT_COLS
+    )
     now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
     ultima = (
         data_ultimo_snapshot.strftime("%d/%m/%Y")
@@ -1016,6 +1096,9 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
     tot_ultimo = int(somma_colonne_scope(df).iloc[-1])
     done_ultimo = int(df["Acronimi done"].iloc[-1])
     wip_ultimo = int(df[WIP_SNAPSHOT_COLS].iloc[-1].sum())
+    not_started_ultimo = int(
+        df["Under analysis"].iloc[-1] + df["backlog"].iloc[-1]
+    )
 
     tabella_rows = []
     for _, row in df.iterrows():
@@ -1032,7 +1115,7 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>JKAN — Burnup e metriche</title>
+  <title>JKAN — Report Scrum Kanban</title>
   <style>
     :root {{
       --bg: #f8fafc; --card: #fff; --text: #1e293b; --muted: #64748b;
@@ -1043,11 +1126,11 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
       margin: 0; font-family: system-ui, -apple-system, sans-serif;
       background: var(--bg); color: var(--text); line-height: 1.5;
     }}
-    main {{ max-width: 1100px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }}
+    main {{ max-width: 1200px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }}
     h1 {{ margin: 0 0 .25rem; font-size: 1.6rem; }}
-    .sub {{ color: var(--muted); margin: 0 0 1.5rem; }}
+    .sub {{ color: var(--muted); margin: 0 0 1rem; font-size: .92rem; }}
     .kpis {{
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
       gap: .75rem; margin-bottom: 1.5rem;
     }}
     .kpi {{
@@ -1061,7 +1144,18 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
       border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.25rem;
     }}
     section h2 {{ margin: 0 0 .75rem; font-size: 1.1rem; }}
-    .chart-wrap {{ position: relative; height: 320px; }}
+    .chart-wrap {{ position: relative; height: 340px; }}
+    .chart-wrap-lg {{ position: relative; height: 400px; }}
+    .chart-grid {{
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1rem;
+    }}
+    .chart-card {{
+      border: 1px solid var(--border); border-radius: 6px; padding: .75rem;
+      background: #fafbfc;
+    }}
+    .chart-card h3 {{ margin: 0 0 .5rem; font-size: .95rem; font-weight: 600; }}
+    .chart-wrap-sm {{ position: relative; height: 200px; }}
     table {{ width: 100%; border-collapse: collapse; font-size: .9rem; }}
     th, td {{ border: 1px solid var(--border); padding: .45rem .6rem; text-align: center; }}
     th {{ background: #f1f5f9; }}
@@ -1070,37 +1164,64 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
 </head>
 <body>
 <main>
-  <h1>JKAN — Burnup e metriche</h1>
+  <h1>JKAN — Report Scrum Kanban</h1>
   <p class="sub">Generato il {now_str} · ultimo snapshot: {ultima}</p>
 
   <div class="kpis">
-    <div class="kpi"><b>{tot_ultimo}</b><span>Scope tracciato (somma colonne)</span></div>
-    <div class="kpi"><b>{SCOPE_TOTALE_CARD}</b><span>Target card totali</span></div>
-    <div class="kpi"><b>{done_ultimo}</b><span>Acronimi done</span></div>
-    <div class="kpi"><b>{wip_ultimo}</b><span>WIP (in progress + waiting for fab. + Fab test)</span></div>
-    <div class="kpi"><b>{len(df)}</b><span>Snapshot registrati</span></div>
+    <div class="kpi"><b>{tot_ultimo}</b><span>Scope tracciato</span></div>
+    <div class="kpi"><b>{SCOPE_TOTALE_CARD}</b><span>Target card</span></div>
+    <div class="kpi"><b>{not_started_ultimo}</b><span>Non avviato (Under analysis + Backlog)</span></div>
+    <div class="kpi"><b>{wip_ultimo}</b><span>In delivery (WIP)</span></div>
+    <div class="kpi"><b>{done_ultimo}</b><span>Acronimi Done</span></div>
+    <div class="kpi"><b>{len(df)}</b><span>Snapshot</span></div>
   </div>
 
+  <section id="cfd">
+    <h2>Cumulative Flow Diagram (CFD)</h2>
+    <p class="sub">Evoluzione cumulativa delle colonne Kanban nel tempo — visualizzazione tipica Scrum/Agile per individuare colli di bottiglia e squilibri nel flusso.</p>
+    <div class="chart-wrap-lg"><canvas id="chart-cfd"></canvas></div>
+  </section>
+
+  <section id="columns-all">
+    <h2>Evoluzione colonne Kanban — vista comparata</h2>
+    <p class="sub">Andamento di tutte le colonne nello stesso grafico.</p>
+    <div class="chart-wrap-lg"><canvas id="chart-columns-all"></canvas></div>
+  </section>
+
+  <section id="columns-grid">
+    <h2>Evoluzione per colonna Kanban</h2>
+    <p class="sub">Dettaglio snapshot-by-snapshot di ciascuna colonna del board.</p>
+    <div class="chart-grid">
+{griglia_html}
+    </div>
+  </section>
+
+  <section id="scrum-pipeline">
+    <h2>Pipeline Scrum — non avviato / in delivery / completato</h2>
+    <p class="sub">Aggregazione per fase: analisi e backlog (upstream), lavorazione e test (delivery), acronimi completati.</p>
+    <div class="chart-wrap"><canvas id="chart-scrum"></canvas></div>
+  </section>
+
   <section id="burnup">
-    <h2>Burnup — Acronimi done vs scope</h2>
-    <p class="sub">Scope tracciato = somma di Under analysis, backlog, in progress, waiting for fab., Fab test in progress e Acronimi done. Linea tratteggiata: target {SCOPE_TOTALE_CARD} card.</p>
+    <h2>Burnup — Acronimi Done vs scope</h2>
+    <p class="sub">Scope tracciato = somma di tutte le colonne. Linea tratteggiata: target {SCOPE_TOTALE_CARD} card.</p>
     <div class="chart-wrap"><canvas id="chart-burnup"></canvas></div>
   </section>
 
   <section id="stacked">
-    <h2>Distribuzione card per colonna Kanban</h2>
+    <h2>Distribuzione card per colonna (barre impilate)</h2>
     <div class="chart-wrap"><canvas id="chart-stacked"></canvas></div>
   </section>
 
   <section id="wip">
     <h2>WIP — lavoro in corso</h2>
-    <p class="sub">Somma di in progress, waiting for fab. e Fab test in progress (esclusi Under analysis, backlog e Acronimi done).</p>
+    <p class="sub">In progress + Waiting for fabric + Fab. Test in progress.</p>
     <div class="chart-wrap"><canvas id="chart-wip"></canvas></div>
   </section>
 
   <section id="velocity">
-    <h2>Velocità — acronimi completati per snapshot</h2>
-    <p class="sub">Incremento di Acronimi done rispetto allo snapshot precedente.</p>
+    <h2>Velocità — throughput per snapshot</h2>
+    <p class="sub">Incremento di Acronimi Done rispetto allo snapshot precedente.</p>
     <div class="chart-wrap"><canvas id="chart-velocity"></canvas></div>
   </section>
 
@@ -1110,12 +1231,7 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
       <thead>
         <tr>
           <th>Data</th>
-          <th>Under analysis</th>
-          <th>backlog</th>
-          <th>in progress</th>
-          <th>waiting for fab.</th>
-          <th>Fab test in progress</th>
-          <th>Acronimi done</th>
+          {thead_cols}
           <th>Totale</th>
         </tr>
       </thead>
@@ -1129,15 +1245,8 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
 <script>
 (function() {{
   const D = {chart_json};
+  const COLS = {json.dumps(KANBAN_SNAPSHOT_COLS, ensure_ascii=False)};
   const axisLabels = D.dates.map(function(d, i) {{ return [d, D.weeks[i]]; }});
-  const STACK_COLORS = {{
-    "Under analysis": "#6366f1",
-    "backlog": "#94a3b8",
-    "in progress": "#1a56db",
-    "waiting for fab.": "#fb923c",
-    "Fab test in progress": "#8b5cf6",
-    "Acronimi done": "#10b981"
-  }};
   const baseOpts = {{
     responsive: true,
     maintainAspectRatio: false,
@@ -1147,6 +1256,89 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
       y: {{ beginAtZero: true, ticks: {{ precision: 0 }} }}
     }}
   }};
+  const baseOptsSm = Object.assign({{}}, baseOpts, {{
+    plugins: {{ legend: {{ display: false }} }}
+  }});
+
+  function colDataset(col, stackId) {{
+    return {{
+      label: D.column_labels[col] || col,
+      data: D.stacked[col],
+      borderColor: D.colors[col],
+      backgroundColor: D.colors[col],
+      stack: stackId,
+      fill: true,
+      tension: 0.25,
+      pointRadius: 2
+    }};
+  }}
+
+  new Chart(document.getElementById("chart-cfd"), {{
+    type: "line",
+    data: {{
+      labels: axisLabels,
+      datasets: COLS.map(function(col) {{ return colDataset(col, "cfd"); }})
+    }},
+    options: Object.assign({{}}, baseOpts, {{
+      scales: {{
+        x: {{ stacked: true, ticks: {{ maxRotation: 0, autoSkip: true }} }},
+        y: {{ stacked: true, beginAtZero: true, ticks: {{ precision: 0 }} }}
+      }},
+      plugins: {{ legend: {{ position: "bottom" }} }}
+    }})
+  }});
+
+  new Chart(document.getElementById("chart-columns-all"), {{
+    type: "line",
+    data: {{
+      labels: axisLabels,
+      datasets: COLS.map(function(col) {{
+        return {{
+          label: D.column_labels[col] || col,
+          data: D.columns[col],
+          borderColor: D.colors[col],
+          backgroundColor: "transparent",
+          fill: false,
+          tension: 0.3,
+          pointRadius: 3
+        }};
+      }})
+    }},
+    options: Object.assign({{}}, baseOpts, {{
+      plugins: {{ legend: {{ position: "bottom" }} }}
+    }})
+  }});
+
+  new Chart(document.getElementById("chart-scrum"), {{
+    type: "line",
+    data: {{
+      labels: axisLabels,
+      datasets: [
+        {{
+          label: "Non avviato (Under analysis + Backlog)",
+          data: D.scrum.not_started,
+          borderColor: "#6366f1",
+          backgroundColor: "rgba(99,102,241,0.12)",
+          fill: true, tension: 0.25, pointRadius: 3
+        }},
+        {{
+          label: "In delivery (WIP)",
+          data: D.scrum.in_delivery,
+          borderColor: "#1a56db",
+          backgroundColor: "rgba(26,86,219,0.12)",
+          fill: true, tension: 0.25, pointRadius: 3
+        }},
+        {{
+          label: "Acronimi Done",
+          data: D.scrum.done,
+          borderColor: "#10b981",
+          backgroundColor: "rgba(16,185,129,0.12)",
+          fill: true, tension: 0.25, pointRadius: 3
+        }}
+      ]
+    }},
+    options: baseOpts
+  }});
 
   new Chart(document.getElementById("chart-burnup"), {{
     type: "line",
@@ -1154,7 +1346,7 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
       labels: axisLabels,
       datasets: [
         {{
-          label: "Acronimi done",
+          label: "Acronimi Done",
           data: D.burnup.done,
           borderColor: "#10b981",
           backgroundColor: "rgba(16,185,129,0.15)",
@@ -1185,11 +1377,11 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
     type: "bar",
     data: {{
       labels: axisLabels,
-      datasets: Object.keys(D.stacked).map(function(col) {{
+      datasets: COLS.map(function(col) {{
         return {{
-          label: col,
+          label: D.column_labels[col] || col,
           data: D.stacked[col],
-          backgroundColor: STACK_COLORS[col] || "#cbd5e1",
+          backgroundColor: D.colors[col],
           stack: "kanban"
         }};
       }})
@@ -1198,7 +1390,8 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
       scales: {{
         x: {{ stacked: true, ticks: {{ maxRotation: 0, autoSkip: true }} }},
         y: {{ stacked: true, beginAtZero: true, ticks: {{ precision: 0 }} }}
-      }}
+      }},
+      plugins: {{ legend: {{ position: "bottom" }} }}
     }})
   }});
 
@@ -1229,6 +1422,7 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
     }},
     options: baseOpts
   }});
+{js_colonne}
 }})();
 </script>
 </body>
@@ -1258,7 +1452,7 @@ def elabora(input_csv):
     data_snapshot = estrai_data_da_nome_file(input_path)
     conteggi, non_mappate = conteggio_per_colonna_kanban(card)
     df_storico = aggiorna_db_jkan(data_snapshot, conteggi)
-    html_path = percorso_html_jkan_da_csv(input_path)
+    html_path = percorso_html_da_xlsx(output_path)
     genera_html_jkan(df_storico, html_path, data_ultimo_snapshot=data_snapshot)
 
     righe_output = len(espandi_card_con_tag(card))
@@ -1286,8 +1480,8 @@ Parametri:
 
 Output:
   <input>.xlsx — stesso percorso del CSV, estensione .xlsx.
+  <input>.html — report Scrum/Kanban omonimo del file Excel prodotto.
   dbJKAN.csv   — storico snapshot (cartella dello script).
-  dbJKAN.html  — grafici burnup (stessa cartella del CSV di input).
 """
     parser = argparse.ArgumentParser(
         description=(
