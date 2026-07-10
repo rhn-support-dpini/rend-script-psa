@@ -15,7 +15,7 @@ Parametri:
 
 Output:
     File .xlsx con stesso nome e percorso del CSV di input.
-    Fogli: data-all (tutte le card), data-check (card attive da verificare), stat, graph.
+    Fogli: data-all (tutte le card), data-export (export ridotto), stat.
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
     <input>.html — report Scrum/Kanban (stesso percorso del .xlsx prodotto).
     Le righe Description con prefisso "#" generano sotto-righe da colonna N;
@@ -27,7 +27,7 @@ Output:
     senza end date nel tag usa i giorni lavorativi da start a oggi; sfondo per % su Estimate.
     Period SUM: somma Giorni con tag in Progress.
     Colonna G (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
-    Giorni: se manca la 2ª data si usa oggi, eccetto tag Done (solo chiusura).
+    Giorni: giornate lavorative (lun-ven); se manca la 2ª data si usa oggi, eccetto tag Done.
 """
 
 import argparse
@@ -41,7 +41,6 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 from openpyxl import load_workbook
-from openpyxl.chart import BarChart, Reference
 from openpyxl.styles import Alignment, Border, PatternFill, Side
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -110,8 +109,9 @@ TOTALE_LAVORAZIONE_COL = "Totale Lavorazione"
 TAGS_SUM_COL = "Tags_sum"
 PERIOD_SUM_HEADER = "Period SUM"
 OUTPUT_SHEET = "data-all"
-DATA_CHECK_SHEET = "data-check"
-STATUS_ESCLUSI_DATA_CHECK = frozenset(
+DATA_EXPORT_SHEET = "data-export"
+COLONNE_EXPORT = ["Title", "Status", "Start Date", "End Date"]
+STATUS_ESCLUSI_EXPORT = frozenset(
     {
         "Complete",
         "Abandoned",
@@ -120,7 +120,6 @@ STATUS_ESCLUSI_DATA_CHECK = frozenset(
     }
 )
 STAT_SHEET = "stat"
-GRAPH_SHEET = "graph"
 CENTER_COLS = {3, 4, 7, 10, 11, 12, 13}  # C, D, G, J, K, L, M
 COL_ESTIMATE = 7  # G
 COL_TAGS_ORIG = 9  # I
@@ -137,12 +136,12 @@ LEGENDA_COLONNE = [
     (
         "J",
         INIZIO_LAVORAZIONE_COL,
-        "giorni dal tag '# Inizio Attivita' - <data>' a oggi",
+        "giornate lavorative (lun-ven) dal tag '# Inizio Attivita' - <data>' a oggi",
     ),
     (
         "K",
         WAITING_COL,
-        "giorni dall'ultimo tag '# Waiting -' a oggi (sfondo giallo)",
+        "giornate lavorative (lun-ven) dall'ultimo tag '# Waiting -' a oggi (sfondo giallo)",
     ),
     (
         "L",
@@ -150,7 +149,7 @@ LEGENDA_COLONNE = [
         "somma giornate lavorative (lun-ven) tag '# Working - start - end'; % su Estimate",
     ),
     ("M", PERIOD_SUM_HEADER, "tempo trascorso dalla prima attivita'"),
-    ("N", GIORNI_COL, "per riga tag"),
+    ("N", GIORNI_COL, "giornate lavorative (lun-ven) per riga tag"),
     ("O", TAG_TEMPORALI_COL, "per riga tag"),
 ]
 LEGENDA_COMMENTO_COL = 3
@@ -273,7 +272,7 @@ def is_tag_inizio_attivita(tag):
 
 
 def giorni_da_inizio_attivita(description, data_oggi=None):
-    """Giorni tra la data nel tag '# Inizio Attivita' - <data>' e oggi."""
+    """Giornate lavorative tra la data nel tag '# Inizio Attivita' - <data>' e oggi."""
     if data_oggi is None:
         data_oggi = datetime.now().date()
     for tag in estrai_tag_temporali(description):
@@ -281,7 +280,7 @@ def giorni_da_inizio_attivita(description, data_oggi=None):
             continue
         date = estrai_date_da_tag(tag)
         if date:
-            return (data_oggi - date[0]).days
+            return giorni_lavorativi_tra(date[0], data_oggi)
     return None
 
 
@@ -298,7 +297,7 @@ def is_tag_working(tag):
 
 
 def giorni_da_ultimo_tag_waiting(description, data_oggi=None):
-    """Giorni tra la data nell'ultimo tag '# Waiting -' e oggi."""
+    """Giornate lavorative tra la data nell'ultimo tag '# Waiting -' e oggi."""
     if data_oggi is None:
         data_oggi = datetime.now().date()
     tag_list = [
@@ -314,7 +313,7 @@ def giorni_da_ultimo_tag_waiting(description, data_oggi=None):
     date = estrai_date_da_tag(ultimo)
     if not date:
         return None
-    return (data_oggi - date[0]).days
+    return giorni_lavorativi_tra(date[0], data_oggi)
 
 
 def estrai_estimate_da_description(description):
@@ -408,8 +407,9 @@ def giorni_da_tag_working(tag, data_oggi=None):
 
 def giorni_da_tag_temporale(tag, tag_successivo=None, data_oggi=None):
     """
-    Giorni tra la prima e la seconda data nel TAG Temporale.
-    Con una sola data usa il tag successivo; se assente usa la data odierna,
+    Giornate lavorative (lun-ven) nel TAG Temporale.
+    Con due date: giorni lavorativi nel periodo incluso.
+    Con una sola data usa il tag successivo; se assente usa oggi,
     tranne per i tag Done che hanno solo la data di chiusura.
     """
     if data_oggi is None:
@@ -417,13 +417,13 @@ def giorni_da_tag_temporale(tag, tag_successivo=None, data_oggi=None):
 
     date = estrai_date_da_tag(tag)
     if len(date) >= 2:
-        return (date[1] - date[0]).days
+        return giorni_lavorativi_tra(date[0], date[1])
     if tag_successivo:
         date_succ = estrai_date_da_tag(tag_successivo)
         if date and date_succ:
-            return (date_succ[0] - date[0]).days
+            return giorni_lavorativi_tra(date[0], date_succ[0])
     if date and not is_tag_done(tag):
-        return (data_oggi - date[0]).days
+        return giorni_lavorativi_tra(date[0], data_oggi)
     return None
 
 
@@ -659,10 +659,24 @@ def riepilogo_da_gruppi(ws, gruppi):
     return riepilogo
 
 
-def tempo_mancante(estimate, period_sum):
-    if estimate is None or period_sum is None:
-        return None
-    return max(0.0, estimate - period_sum)
+def status_escluso_da_export(status):
+    return normalizza_testo(status, compatta_spazi=True) in STATUS_ESCLUSI_EXPORT
+
+
+def filtra_card_per_export(card):
+    return [
+        record
+        for record in card
+        if not status_escluso_da_export(record.get("Status", ""))
+    ]
+
+
+def righe_export(card):
+    """Una riga per card con sole colonne Title, Status, Start Date, End Date."""
+    return [
+        {col: record.get(col, "") for col in COLONNE_EXPORT}
+        for record in filtra_card_per_export(card)
+    ]
 
 
 def aggiungi_footer_data(ws, gruppi):
@@ -757,58 +771,6 @@ def crea_foglio_stat(wb, riepilogo):
         ws.cell(row=idx, column=2).alignment = center
 
 
-def crea_foglio_graph(wb, riepilogo):
-    ws = wb.create_sheet(GRAPH_SHEET)
-    center = Alignment(horizontal="center", vertical="center")
-    ws.cell(row=1, column=1).value = "Acronimo"
-    ws.cell(row=1, column=2).value = "Tempo mancante"
-    ws.cell(row=1, column=1).alignment = center
-    ws.cell(row=1, column=2).alignment = center
-
-    dati = []
-    for r in riepilogo:
-        if not r["title"]:
-            continue
-        mancante = tempo_mancante(r["estimate"], r["period_sum"])
-        dati.append((r["title"], mancante if mancante is not None else 0))
-
-    if not dati:
-        return
-
-    for idx, (title, mancante) in enumerate(dati, start=2):
-        ws.cell(row=idx, column=1).value = title
-        ws.cell(row=idx, column=2).value = mancante
-        ws.cell(row=idx, column=1).alignment = center
-        ws.cell(row=idx, column=2).alignment = center
-
-    last_row = len(dati) + 1
-    chart = BarChart()
-    chart.type = "col"
-    chart.title = "Tempo mancante per acronimo"
-    chart.y_axis.title = "Giorni"
-    chart.x_axis.title = "Acronimo"
-    chart.height = 12
-    chart.width = 20
-
-    data_ref = Reference(ws, min_col=2, min_row=1, max_row=last_row)
-    cats_ref = Reference(ws, min_col=1, min_row=2, max_row=last_row)
-    chart.add_data(data_ref, titles_from_data=True)
-    chart.set_categories(cats_ref)
-    ws.add_chart(chart, "D2")
-
-
-def status_escluso_da_data_check(status):
-    return normalizza_testo(status, compatta_spazi=True) in STATUS_ESCLUSI_DATA_CHECK
-
-
-def filtra_card_per_data_check(card):
-    return [
-        record
-        for record in card
-        if not status_escluso_da_data_check(record.get("Status", ""))
-    ]
-
-
 def formatta_foglio_dati(ws):
     ws.cell(row=1, column=COL_TOTALE_LAVORAZIONE).value = TOTALE_LAVORAZIONE_COL
     ws.cell(row=1, column=COL_TAGS_SUM).value = PERIOD_SUM_HEADER
@@ -820,20 +782,16 @@ def formatta_foglio_dati(ws):
 def scrivi_excel(card, output_path):
     righe_all = espandi_card_con_tag(card)
     df_all = pd.DataFrame(righe_all, columns=colonne_output())
-    card_check = filtra_card_per_data_check(card)
-    righe_check = espandi_card_con_tag(card_check)
-    df_check = pd.DataFrame(righe_check, columns=colonne_output())
+    df_export = pd.DataFrame(righe_export(card), columns=COLONNE_EXPORT)
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         df_all.to_excel(writer, sheet_name=OUTPUT_SHEET, index=False)
-        df_check.to_excel(writer, sheet_name=DATA_CHECK_SHEET, index=False)
+        df_export.to_excel(writer, sheet_name=DATA_EXPORT_SHEET, index=False)
 
     wb = load_workbook(output_path)
     gruppi = formatta_foglio_dati(wb[OUTPUT_SHEET])
-    formatta_foglio_dati(wb[DATA_CHECK_SHEET])
     riepilogo = riepilogo_da_gruppi(wb[OUTPUT_SHEET], gruppi)
     crea_foglio_stat(wb, riepilogo)
-    crea_foglio_graph(wb, riepilogo)
     wb.save(output_path)
 
 
