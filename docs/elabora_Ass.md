@@ -53,6 +53,49 @@ python elabora_Ass.py -h
 
 In console viene stampato il percorso del file generato.
 
+---
+
+## Tabelle di output: struttura e calcolo valori
+
+Le tabelle seguenti replicano il layout dei fogli Excel prodotti. Al posto dei valori numerici o testuali, ogni cella riporta **come** quel dato viene determinato dallo script.
+
+**Convenzioni comuni**
+
+| Elemento | Regola |
+|----------|--------|
+| Ore | I campi ore sono normalizzati: virgola decimale → punto; valori non numerici → 0. |
+| Nomi colonna | Lo script risolve le intestazioni in modo flessibile (case-insensitive, alias alternativi). |
+| Raggruppamento | Le somme sono calcolate su tutte le righe del CSV che condividono la stessa chiave di gruppo. |
+| Valori descrittivi | Nei fogli aggregati, `Project: Project Name` e `Assignment: Assignment Name` usano il **primo** valore incontrato nel gruppo (`first`). |
+
+---
+
+### Foglio `data`
+
+Copia integrale del CSV di input: stesse colonne, stesso ordine, stesse righe. Nessuna trasformazione o colonna aggiuntiva.
+
+| *(ogni colonna del CSV)* | Valore grezzo dal file di input, senza aggregazioni né ricalcoli. |
+
+---
+
+### Foglio `Assignment`
+
+Una riga per ogni combinazione unica di **Resource: Full Name** + **Assignment: Milestone: Milestone Name** + **Project: OPA Project Number**.
+
+| Resource: Full Name | Assignment: Milestone: Milestone Name | Project: OPA Project Number | Assignment: Milestone: Planned Hours | Estimated Hours | Actual Hours | Project: Project Name | Assignment: Assignment Name |
+|---------------------|--------------------------------------|----------------------------|--------------------------------------|-----------------|--------------|----------------------|----------------------------|
+| Chiave di gruppo: nome risorsa dal sorgente. | Chiave di gruppo: milestone dell'assignment. | Chiave di gruppo: codice OPA progetto. | Somma di **Planned Hours** su tutte le righe del gruppo. | Somma di **Estimated Hours** su tutte le righe del gruppo. | Somma di **Actual Hours** su tutte le righe del gruppo. | Primo valore di **Project: Project Name** nel gruppo. | Primo valore di **Assignment: Assignment Name** nel gruppo. |
+
+---
+
+### Foglio `Assignment Status`
+
+Una riga per ogni combinazione unica di **Resource: Full Name** + **Assignment: Status** + **Assignment: Forecast Category**.
+
+| Resource: Full Name | Assignment: Status | Assignment: Forecast Category | Actual Hours |
+|---------------------|-------------------|------------------------------|--------------|
+| Chiave di gruppo: nome risorsa dal sorgente. | Chiave di gruppo: stato assignment (colonna K del PSA). | Chiave di gruppo: categoria forecast (colonna L del PSA). | Somma di **Actual Hours** su tutte le righe del gruppo. |
+
 ### Esempi
 
 ```bash
@@ -88,6 +131,8 @@ Lo script si aspetta un CSV con almeno le colonne riportate di seguito. I nomi c
 
 ## Output Excel
 
+Per il dettaglio tabellare con descrizione del calcolo di ogni cella vedi [Tabelle di output: struttura e calcolo valori](#tabelle-di-output-struttura-e-calcolo-valori).
+
 ### Foglio `data`
 
 Copia integrale del CSV di input: stesse colonne e stesse righe, senza trasformazioni.
@@ -100,17 +145,6 @@ Una riga per ogni combinazione unica di:
 - `Assignment: Milestone: Milestone Name`
 - `Project: OPA Project Number`
 
-| Colonna | Contenuto |
-|---------|-----------|
-| `Resource: Full Name` | Nome risorsa |
-| `Assignment: Milestone: Milestone Name` | Milestone |
-| `Project: OPA Project Number` | Codice progetto OPA |
-| `Assignment: Milestone: Planned Hours` | Somma delle ore pianificate |
-| `Estimated Hours` | Somma delle ore stimate |
-| `Actual Hours` | Somma delle ore consuntivate |
-| `Project: Project Name` | Nome progetto (primo valore del gruppo) |
-| `Assignment: Assignment Name` | Nome assignment (primo valore del gruppo) |
-
 ### Foglio `Assignment Status`
 
 Una riga per ogni combinazione unica di:
@@ -118,13 +152,6 @@ Una riga per ogni combinazione unica di:
 - `Resource: Full Name`
 - `Assignment: Status`
 - `Assignment: Forecast Category`
-
-| Colonna | Contenuto |
-|---------|-----------|
-| `Resource: Full Name` | Nome risorsa |
-| `Assignment: Status` | Stato assignment |
-| `Assignment: Forecast Category` | Categoria forecast |
-| `Actual Hours` | Somma delle ore consuntivate |
 
 ---
 

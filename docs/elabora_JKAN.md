@@ -13,11 +13,11 @@ Script Python che elabora un export CSV di una board **MIRO**, estrae le card da
 5. [Output: file Excel](#output-file-excel)
 6. [Storico `dbJKAN.csv`](#storico-dbjkancsv)
 7. [Report HTML `<input>.html`](#report-html-inputhtml)
-8. [Colonne dei fogli `data-all` e `data-check`](#colonne-dei-fogli-data-all-e-data-check)
+8. [Colonne dei fogli `data-all` e `data-export`](#colonne-dei-fogli-data-all-e-data-export)
 9. [Tag temporali nella Description](#tag-temporali-nella-description)
 10. [Calcolo dei giorni](#calcolo-dei-giorni)
 11. [Formattazione Excel](#formattazione-excel)
-12. [Fogli `stat` e `graph`](#fogli-stat-e-graph)
+12. [Foglio `stat`](#foglio-stat)
 13. [Estendere lo script](#estendere-lo-script)
 14. [Esempi](#esempi)
 
@@ -79,7 +79,7 @@ python elabora_JKAN.py -h
 
 | File | Percorso | Descrizione |
 |------|----------|-------------|
-| `<input>.xlsx` | Stesso percorso del CSV | Excel con fogli `data-all`, `data-check`, `stat`, `graph` |
+| `<input>.xlsx` | Stesso percorso del CSV | Excel con fogli `data-all`, `data-export`, `stat` |
 | `dbJKAN.csv` | Cartella dello script | Storico snapshot colonne Kanban |
 | `<input>.html` | Stesso percorso del file `.xlsx` prodotto | Report HTML Scrum/Kanban (CFD, evoluzione colonne, burnup, WIP, velocità) |
 
@@ -133,25 +133,86 @@ Dopo ogni header vengono lette tutte le righe valide fino al prossimo header Kan
 
 ## Output: file Excel
 
-Il file `.xlsx` contiene quattro fogli:
+Il file `.xlsx` contiene tre fogli:
 
 | Foglio | Contenuto |
 |--------|-----------|
-| `data-all` | Tutte le card espansi, metriche, legenda |
-| `data-check` | Come `data-all`, esclusi gli stati chiusi o da non monitorare (vedi sotto) |
+| `data-all` | Tutte le card espanse per tag temporali, metriche, merge, legenda |
+| `data-export` | Una riga per card, sole colonne Title / Status / Start Date / End Date |
 | `stat` | Conteggio card per Status (da `data-all`) |
-| `graph` | Grafico a barre «Tempo mancante per acronimo» (da `data-all`) |
 
-### Foglio `data-check`
+---
 
-Include tutte le righe di `data-all` **tranne** le card il cui Status (col. C) è uno dei seguenti:
+## Tabelle di output: struttura e calcolo valori
+
+Le tabelle seguenti replicano il layout dei fogli Excel prodotti. Al posto dei valori numerici o testuali, ogni cella riporta **come** quel dato viene determinato dallo script.
+
+**Convenzioni comuni**
+
+| Elemento | Regola |
+|----------|--------|
+| Giornate | Tutti i calcoli in giorni usano **giornate lavorative** (lunedì–venerdì), non giorni di calendario. |
+| Espansione card | Ogni riga `#` nella Description (escluso `# Estimate`) genera una sotto-riga con colonne N–O valorizzate. |
+| Livello card | Colonne A–M sono unite verticalmente per ogni gruppo di righe con lo stesso **Title**; bordo rosso pastello attorno all'intera card. |
+| Livello tag | Colonne N–O hanno un valore per ogni sotto-riga (tag temporale). |
+| Colonne L e M | Calcolate **dopo** la scrittura Excel, sommando i valori del gruppo card (stesso Title). |
+
+---
+
+### Foglio `data-all`
+
+Una o più righe per card MIRO (espansione tag). Intestazioni riga 1; dati da riga 2.
+
+| Title (A) | Description (B) | Status (C) | Assignee (D) | Start Date (E) | End Date (F) | Estimate (G) | Priority (H) | Tags (I) | InizioLavorazione(GG) (J) | Waiting # (K) | Totale Lavorazione (L) | Period SUM (M) | Giorni (N) | TAG Temporali (O) |
+|-----------|-----------------|------------|--------------|----------------|--------------|--------------|--------------|----------|---------------------------|---------------|------------------------|----------------|------------|-------------------|
+| Nome card dal CSV; chiave di merge. | Testo Description dal CSV (merge). | Status Kanban dal CSV (merge). | Assignee dal CSV (merge). | Start Date dal CSV (merge). | End Date dal CSV (merge). | Valore numerico dal tag `# Estimate` in Description; **non** dal CSV (merge). | Priority dal CSV (merge). | Tags dal CSV (merge). | Giornate lavorative dalla data nel tag `# Inizio Attivita' - <data>` a oggi; vuoto se tag assente (merge). | Se l'**ultimo** tag temporale inizia con `# Waiting -`: giornate lavorative dalla data nel tag a oggi, sfondo giallo; altrimenti vuoto (merge). | Somma giornate lavorative di tutti i tag `# Working - <start> - <end>` del gruppo; senza end date: da start a oggi; sfondo per % su Estimate (merge). | Somma colonna N delle righe tag il cui testo contiene «in Progress» (case-insensitive); colore verde/rosso vs Estimate (merge). | Per ogni riga tag: con **due date** nel tag → giornate lavorative tra le date; con **una data** e tag successivo → fino alla data del tag successivo; con **una data** senza successivo → fino a oggi (tranne tag **Done**); tag `# Working -` segue la stessa logica Working. | Testo completo del tag `#` della riga. |
+
+**Righe footer** (dopo i dati):
+
+| Riga | Colonna A | Colonna G | Colonna L | Colonna M |
+|------|-----------|-----------|-----------|-----------|
+| Totali | Numero di card (gruppi Title distinti). | Somma Estimate di tutte le card. | Somma Totale Lavorazione di tutte le card. | Somma Period SUM di tutte le card. |
+| Timestamp | Data/ora di generazione (`dd/mm/yyyy HH:MM:SS`). | — | — | — |
+| Legenda | Tabella lettera / titolo / descrizione di ogni colonna derivata. | — | — | — |
+
+---
+
+### Foglio `data-export`
+
+Una riga per card, **senza** espansione tag. Escluse le card con Status:
 
 - `Complete`
 - `Abandoned`
 - `Probably dismissed / delayed to 2027`
 - `new - to be verified`
 
-Stesse colonne, merge, colori e footer di `data-all`.
+| Title | Status | Start Date | End Date |
+|-------|--------|------------|----------|
+| Campo Title della card dal CSV. | Campo Status della card. | Campo Start Date della card. | Campo End Date della card. |
+
+Nessun merge, colori o footer aggiuntivi.
+
+---
+
+### Foglio `stat`
+
+Una riga per ogni valore distinto di **Status** tra le card del foglio `data-all` (una riga per Title, non per sotto-riga tag).
+
+| Status | Conteggio |
+|--------|-----------|
+| Valore Status della card; se vuoto → `(vuoto)`. | Numero di card con quel Status. |
+
+---
+
+### File `dbJKAN.csv` (storico snapshot)
+
+Non è un foglio Excel, ma viene aggiornato a ogni esecuzione insieme al `.xlsx`.
+
+| data | Under analysis | backlog | in progress | waiting for fab. | Fab test in progress | Acronimi done |
+|------|----------------|---------|-------------|------------------|----------------------|---------------|
+| Data estratta dal nome file input (`yyyy-mm-dd`). | Conteggio card il cui Status (e Description) mappa a questa colonna Kanban. | Idem. | Idem. | Idem (include attesa test/fab in Status, Description o ultimo tag). | Idem. | Idem (`Acronimi done` o `done`). |
+
+**Scope tracciato** (usato nei grafici HTML): somma delle sei colonne Kanban per ogni riga. Card con Status non mappato o `Complete` non entrano nel conteggio.
 
 ---
 
@@ -267,7 +328,9 @@ Con un solo snapshot i grafici mostrano un punto; diventano significativi dopo p
 
 ---
 
-## Colonne dei fogli `data-all` e `data-check`
+## Colonne dei fogli `data-all` e `data-export`
+
+Per il dettaglio tabellare con descrizione del calcolo di ogni cella vedi [Tabelle di output: struttura e calcolo valori](#tabelle-di-output-struttura-e-calcolo-valori).
 
 ### Colonne card e derivate (A–M) — merge verticali
 
@@ -276,9 +339,9 @@ Le colonne A–M sono unite verticalmente per ogni gruppo di righe con lo stesso
 | Col | Titolo | Livello | Descrizione |
 |-----|--------|---------|-------------|
 | A–I | *(campi CSV)* | Card | Dati originali della card |
-| J | InizioLavorazione(GG) | Card | Giorni dalla data nel tag `# Inizio Attivita' -` a oggi |
-| K | Waiting # | Card | Giorni dall'ultimo tag `# Waiting -` a oggi; sfondo giallo se valorizzato |
-| L | Totale Lavorazione | Card | Somma col. N per tag con «Lavorazione» o «in Progress»; sfondo in base a % su Estimate |
+| J | InizioLavorazione(GG) | Card | Giornate lavorative (lun–ven) dalla data nel tag `# Inizio Attivita' -` a oggi |
+| K | Waiting # | Card | Giornate lavorative dall'ultimo tag `# Waiting -` a oggi; sfondo giallo se valorizzato |
+| L | Totale Lavorazione | Card | Somma giornate lavorative dei tag `# Working - start - end`; sfondo in base a % su Estimate |
 | M | Period SUM | Card | Somma col. N per tag con «in Progress» |
 
 ### Colonne per riga tag (N–O)
@@ -315,8 +378,9 @@ Questi tag hanno un significato specifico oltre all'espansione righe:
 | Prefisso | Esempio | Effetto |
 |----------|---------|---------|
 | `# Estimate` | `# Estimate: 5` | Valorizza col. G; **non** genera riga espansa |
-| `# Inizio Attivita' -` | `# Inizio Attivita' - 1/6/2026` | Valorizza col. J (giorni a oggi) |
+| `# Inizio Attivita' -` | `# Inizio Attivita' - 1/6/2026` | Valorizza col. J (giornate lavorative a oggi) |
 | `# Waiting -` | `# Waiting - 3/6/2026` | Valorizza col. K **solo se è l'ultimo tag temporale** |
+| `# Working -` | `# Working - 1/6/2026 - 5/6/2026` | Contribuisce a col. L (giornate lavorative nel periodo); senza end date: da start a oggi |
 
 ### Tag generici
 
@@ -341,18 +405,20 @@ Qualsiasi altra riga `#` genera una sotto-riga con colonne N e O valorizzate:
 
 ### Colonna N — Giorni (per tag)
 
-Per ogni tag temporale:
+Per ogni tag temporale (giornate lavorative lun–ven):
 
-1. Se il tag contiene **due date** → differenza tra seconda e prima data.
-2. Se contiene **una sola data** e esiste un tag successivo → giorni fino alla data del tag successivo.
-3. Se contiene **una sola data** e non ci sono tag successivi → giorni fino a **oggi**, tranne per i tag **Done** (solo data di chiusura, nessun calcolo verso oggi).
+1. Se il tag contiene **due date** → giornate lavorative tra prima e seconda data (inclusi).
+2. Se contiene **una sola data** e esiste un tag successivo → giornate lavorative fino alla data del tag successivo.
+3. Se contiene **una sola data** e non ci sono tag successivi → giornate lavorative fino a **oggi**, tranne per i tag **Done** (solo data di chiusura, nessun calcolo verso oggi).
+
+I tag `# Working -` seguono la stessa logica quando contribuiscono a **Totale Lavorazione** (col. L).
 
 ### Colonna J — InizioLavorazione(GG)
 
 Cerca il tag `# Inizio Attivita' - <data>` e calcola:
 
 ```
-oggi − data_nel_tag
+giornate lavorative (lun–ven) tra data_nel_tag e oggi
 ```
 
 Se il tag non è presente, la colonna resta vuota.
@@ -361,14 +427,14 @@ Se il tag non è presente, la colonna resta vuota.
 
 Considera solo l'**ultimo** tag temporale della Description (escluso `# Estimate`):
 
-- Se inizia con `# Waiting -` → calcola `oggi − data_nel_tag` e applica sfondo giallo pastello (`#FFFDE7`).
+- Se inizia con `# Waiting -` → calcola giornate lavorative da `data_nel_tag` a oggi e applica sfondo giallo pastello (`#FFFDE7`).
 - Altrimenti → cella vuota, senza colore.
 
 > **Importante:** il controllo è sul prefisso esatto `# Waiting -`, non su parole come «Attesa» nel testo del tag.
 
 ### Colonna L — Totale Lavorazione
 
-Somma dei Giorni (col. N) delle righe il cui tag contiene **«Lavorazione»** o **«in Progress»** (case-insensitive).
+Somma delle **giornate lavorative** di tutti i tag `# Working - <start> - <end>` della card. Se manca la data di fine, si usano i giorni lavorativi da start a oggi.
 
 #### Colorazione col. L (percentuale Working)
 
@@ -411,7 +477,7 @@ La colonna **M** viene colorata rispetto all'Estimate:
 - Colonne A–M: celle unite verticalmente nel gruppo.
 - Intero gruppo: bordo perimetrale rosso pastello (`#E8A0A0`).
 
-### Footer (in fondo ai fogli `data-all` e `data-check`)
+### Footer (in fondo al foglio `data-all`)
 
 1. **Riga totali** — numero card (col. A), somme di Estimate (G), Totale Lavorazione (L), Period SUM (M).
 2. **Timestamp** — data/ora di generazione.
@@ -419,21 +485,9 @@ La colonna **M** viene colorata rispetto all'Estimate:
 
 ---
 
-## Fogli `stat` e `graph`
+## Foglio `stat`
 
-### `stat`
-
-Tabella con conteggio card per valore di **Status** (col. C). Status vuoti riportati come `(vuoto)`.
-
-### `graph`
-
-Per ogni acronimo (Title):
-
-```
-Tempo mancante = max(0, Estimate − Period SUM)
-```
-
-Viene generato un grafico a barre «Tempo mancante per acronimo» (asse X: acronimo, asse Y: giorni).
+Tabella con conteggio card per valore di **Status** (col. C). Status vuoti riportati come `(vuoto)`. Una card = un Title distinto nel foglio `data-all` (non conta le sotto-righe dei tag).
 
 ---
 
