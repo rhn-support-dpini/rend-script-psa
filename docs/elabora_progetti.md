@@ -82,6 +82,119 @@ Viene anche generato un file **HTML** omonimo (stesso nome dell'output Excel, es
 
 ---
 
+## Tabelle di output: struttura e calcolo valori
+
+Le tabelle seguenti replicano il layout dei fogli Excel prodotti. Al posto dei valori numerici o testuali, ogni cella riporta **come** quel dato viene determinato dallo script.
+
+**Convenzioni comuni**
+
+| Elemento | Regola |
+|----------|--------|
+| Ore → giornate | Tutte le ore (Actual / Estimated) sono convertite in giornate dividendo per **8**. |
+| Filtro settimane | Se `WeeksLimit=yes` in `script.config`, i calcoli usano solo righe con `sett_calc` in `[StartWeek, EndWeek)`; le note compaiono in fondo ai fogli `progetti` e `Tabella di Export`. |
+| Filtro cliente | Se `cliente` è valorizzato, tutte le tabelle usano solo righe con **Cliente** corrispondente (case-insensitive). |
+| `.prjIgnore` | I progetti elencati nel file sono esclusi da tutti i fogli di output. |
+| Duplicazione tabelle | I fogli `progetti` e `Tabella di Export` contengono **due copie** della stessa tabella: la prima con decimali, la seconda con giornate arrotondate all'intero più vicino (colonne G/H nel foglio progetti; colonne I/J/K nell'Export). |
+
+---
+
+### Foglio `dati`
+
+Tabella a colonne: tutte le colonne del file sorgente PSA/CSV più le colonne derivate dall'assegnazione (colonna C del sorgente).
+
+| Colonna sorgente (indice default) | Calcolo / origine |
+|-----------------------------------|-------------------|
+| Progetto (`ColIdxProgetto` = 0) | Valore grezzo dal file di input. |
+| Colonna indice 1 | Seconda colonna del sorgente (es. OPA / identificativo risorsa). |
+| Assegnazione (indice 2) | Campo pipe-separated del PSA; non modificato, ma espanso nelle colonne derivate sotto. |
+| Ruolo / milestone (`ColIdxRuolo` = 4) | Valore grezzo dal sorgente. |
+| Estimated Hours (`ColIdxStimato` = 7) | Normalizzato: virgola → punto; non numerico → 0. |
+| Actual Hours (`ColIdxEffettivo` = 8) | Come Estimated Hours. |
+| Periodo (`ColIdxPeriodo` = 9) | Valore grezzo (es. `CY2026-W14`). |
+| Colonne K, L (indici 10–11) | Stato schedulazione e Forecast Category; usate per colorazione e foglio `Tentative`. |
+
+| Colonna derivata | Calcolo / origine |
+|------------------|-------------------|
+| `Nome risorsa` | Primo segmento del campo assegnazione (`\|`). |
+| `OPA@profilo` | Secondo segmento; usato per distinguere PM/PC (`@pm`, `@pc`) nei calcoli del foglio `progetti`. |
+| `Cliente` | Terzo segmento. |
+| `Sotto progetto` | Quarto segmento. |
+| `Riferimento tabella 1` | Primo codice numerico del quinto segmento (prima di `&`). |
+| `Sotto Riferimento tabella 1` | Secondo codice numerico, se presente (`6&4`). |
+| `Commento` | Sesto segmento. |
+
+In fondo al foglio: riga **Versione script** con data e hash dell'ultimo commit git.
+
+---
+
+### Foglio `progetti`
+
+Intestazioni fisse (righe 3–10) da `cust.config` (`Intestazione5`, `Intestazione6`, `Intestazione8a`–`10a`). Una riga per ogni **progetto unico** presente nel sorgente (dopo filtri).
+
+| Contract name (A) | OPA Number (B) | Opportunity (C) | End Date (D) | Days redempted PM (E) | Days redempted Consulting (F) | Days Used PM (G) | Days Used Consulting (H) | Days remaining PM (I) | Days remaining Consulting (J) | Riferimento (K) |
+|-------------------|----------------|-----------------|--------------|----------------------|------------------------------|------------------|---------------------------|----------------------|------------------------------|-----------------|
+| Nome progetto dal sorgente (`ColIdxProgetto`). | Valore della **seconda colonna** del sorgente sulla prima riga di quel progetto. | `Opportunity<N>` in `cust.config`, dove `<N>` è il suffisso del contratto con `ContractName<N>` uguale al nome progetto. | `EndDate<N>` in `cust.config` (stesso abbinamento). | Prima parte di `DaysRedempted<N>` (prima della virgola). | Seconda parte di `DaysRedempted<N>` (dopo la virgola). | Somma **Actual Hours** del progetto con `OPA@profilo` contenente `@pm` o `@pc`, **escluse** righe Non-Billable Labor, ÷ 8. | Somma **Actual Hours** del progetto con profilo diverso da PM/PC, **escluse** righe Non-Billable Labor, ÷ 8. | `E − G` (giorni riscattati PM meno giorni usati PM). | `F − H` (giorni riscattati Consulting meno giorni usati Consulting). | `Riferimento tabella 1` dalla prima riga del progetto nel sorgente arricchito. |
+
+**Colori riga (solo formattazione):** colonne A–D in base alla vicinanza di End Date; I se residuo PM &lt; 5 (rosso) o &lt; 40 (giallo); J se residuo Cons. &lt; 10 (rosso) o &lt; 80 (giallo).
+
+---
+
+### Foglio `Riepilogo Settimanale`
+
+Due sezioni in sequenza verticale, stesso schema colonne. Titoli: `ACTUAL HOURS (GIORNATE) - <data>` e `ESTIMATED HOURS (GIORNATE) - <data>`.
+
+| Project: Project Name | Sotto progetto | Milestone | Commento | Resource: Full Name | Riferimento tabella 1 | *Settimana 1* | *Settimana 2* | … | *Settimana N* | TOTALE RIGA |
+|-----------------------|----------------|-----------|----------|---------------------|----------------------|---------------|---------------|---|---------------|-------------|
+| Chiave pivot: nome progetto. | Chiave pivot: sotto-progetto dall'assegnazione. | Chiave pivot: ruolo/milestone del sorgente. | Valori distinti di **Commento** per la stessa chiave attività, separati da virgola e a capo. | Nomi risorsa distinti (`Resource: Full Name` o `Nome risorsa`) per la stessa chiave, separati da virgola e a capo. | Chiave pivot: `Riferimento tabella 1`. | Somma ore (Actual o Estimated, a seconda della sezione) per quella attività in quel periodo, ÷ 8. | Idem per la settimana successiva. | … | Idem. | Somma orizzontale di tutte le colonne settimana della riga. |
+
+| Riga finale | Calcolo |
+|-------------|---------|
+| **TOTALE SETTIMANA** | Per ogni colonna settimana: somma verticale dei valori numerici delle righe dati della sezione. |
+
+**Sezione Actual:** righe con **TOTALE RIGA** = 0 sono omesse. **Settimana corrente:** colonna evidenziata in verde chiaro.
+
+---
+
+### Foglio `Dettaglio Ruoli`
+
+Stessa logica pivot della sezione **Estimated** del Riepilogo, con intestazione `DETTAGLIO RUOLI - ESTIMATED HOURS - <data>`.
+
+| Project: Project Name | Sotto progetto | Milestone | Commento | Resource: Full Name | Riferimento Interno | *Settimana 1* | … | TOTALE RIGA | *(vuota)* | Actual Hours (Giornate) |
+|-----------------------|----------------|-----------|----------|---------------------|---------------------|---------------|---|-------------|-----------|-------------------------|
+| Come Riepilogo Estimated. | Come Riepilogo. | Come Riepilogo. | Come Riepilogo. | Come Riepilogo. | `Riferimento tabella 1` (rinominato). | Ore stimate per attività/settimana, ÷ 8. | … | Somma orizzontale settimane. | Colonna vuota di separazione. | Somma **Actual Hours** per progetto + sotto progetto + milestone + riferimento (tutto il periodo, non per settimana), ÷ 8. |
+
+**Righe 3–4 (sopra le settimane):** riga 3 = intervallo lun–dom della settimana ISO; riga 4 = nome mese (o `mese1-mese2` se a cavallo).
+
+**Dalla settimana corrente in poi:** ogni cella settimana è colorata in base alla coppia dominante (Status K × Forecast L) tra le righe sorgente che confluiscono in quella cella; in caso di coppie miste vince quella con **maggior somma di ore stimate**.
+
+---
+
+### Foglio `Tentative`
+
+Una riga per ogni record che **non** è `Scheduled` + `Commit`, oppure che appartiene a un bucket (progetto × sotto progetto × milestone × riferimento × settimana) con **più coppie K×L** diverse. Righe con ore stimate = 0 escluse.
+
+| Project: Project Name | Resource: Full Name | Estimated Hours | Time Period: Time Period Name | Assignment: Status | Assignment: Forecast Category | Sotto progetto | Riferimento tabella 1 | Sotto Riferimento tabella 1 | Commento |
+|-----------------------|---------------------|-----------------|-------------------------------|--------------------|------------------------------|----------------|----------------------|----------------------------|----------|
+| Nome progetto dal sorgente. | `Resource: Full Name` o `Nome risorsa`. | Ore stimate della riga, ÷ 8 (mostrate come giornate). | Periodo (es. `CY2026-W14`). | Colonna K del sorgente (stato assegnazione). | Colonna L del sorgente (forecast). | Da assegnazione. | Da assegnazione. | Da assegnazione (`&` nel campo riferimento). | Da assegnazione. |
+
+**Colore riga:** pastel in base alla coppia normalizzata (K, L) della singola riga (stessa palette del Dettaglio Ruoli).
+
+---
+
+### Foglio `Tabella di Export`
+
+Titolo riga 1: `Export1` da `cust.config` + data odierna. Intestazioni riga 2: `Export2` (13 colonne A–M). Righe dati: una per ogni voce `Export3`, `Export4`, … in `cust.config`.
+
+| CODICE INTERNO (A) | Codice offerta fornitore (B) | Descrizione/Progetto ISP (C) | Tecnologia fornitura (D) | ODA ISP (E) | Ref. ISP (F) | Ref. fornitore (G) | Tecnico fornitore (H) | gg/u acquistati (I) | gg/u consumati (J) | gg/u residui (K) | Totale ordine € (L) | Tariffa media € gg/u (M) |
+|--------------------|------------------------------|------------------------------|--------------------------|-------------|--------------|--------------------|-----------------------|---------------------|--------------------|--------------------|---------------------|--------------------------|
+| Campo 1 della voce `ExportN`. | Campo 2. | Campo 3. | Campo 4. | Campo 5. | Campo 6. | Campo 7. | Campo 8. | Campo 9 (giornate acquistate, inserite in config). | Somma **Actual Hours** ÷ 8 delle righe il cui `Riferimento tabella 1` **oppure** `Sotto Riferimento tabella 1` coincide con l'**ultimo campo** (colonna M) della voce `ExportN`; include Non-Billable Labor; esclude righe con riferimento vuoto o 0. | `I − consumo billable`, dove il consumo billable usa la stessa regola di J ma **esclude** Non-Billable Labor. | Campo 12 (da config; tipicamente importo ordine). | Campo 13: **codice di riferimento** usato per l'incrocio con le colonne J e K (valore in `Riferimento tabella 1` / `Sotto Riferimento tabella 1` del sorgente). |
+
+**Riga separatore:** se il primo campo di una voce `ExportN` è `-`, la riga è solo visiva (campi da config, senza calcoli J/K).
+
+**Seconda copia della tabella:** colonne I, J, K arrotondate all'intero più vicino; le altre colonne testuali restano invariate.
+
+---
+
 ## Milestone Non-Billable Labor
 
 Le righe con milestone **Non-Billable Labor** (colonna ruolo/milestone del sorgente, confronto case-insensitive) sono **sempre tracciate** nei fogli di dettaglio:
