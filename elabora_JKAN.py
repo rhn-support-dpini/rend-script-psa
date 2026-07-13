@@ -157,19 +157,19 @@ LEGENDA_COMMENTO_COL = 3
 LEGENDA_COMMENTO_COL_FIN = 4
 PASTEL_RED_BORDER = Side(style="medium", color="E8A0A0")
 PASTEL_GREEN_FILL = PatternFill(fill_type="solid", fgColor="D9EAD3")
-PASTEL_DARK_GREEN_FILL = PatternFill(fill_type="solid", fgColor="B6D7A8")
 PASTEL_RED_FILL = PatternFill(fill_type="solid", fgColor="FFEBEE")
 PASTEL_YELLOW_FILL = PatternFill(fill_type="solid", fgColor="FFFDE7")
 PASTEL_GRAY_FILL = PatternFill(fill_type="solid", fgColor="E8E8E8")
-PASTEL_ORANGE_FILL = PatternFill(fill_type="solid", fgColor="FFE5CC")
 PASTEL_BLUE_FILL = PatternFill(fill_type="solid", fgColor="D6EAF8")
+EXPORT_BRIGHT_GREEN_FILL = PatternFill(fill_type="solid", fgColor="81C784")
 BRIGHT_RED_FILL = PatternFill(fill_type="solid", fgColor="E53935")
 EXPORT_STATUS_FILLS = {
     "abandoned": PASTEL_GRAY_FILL,
-    "fab. test in progress": PASTEL_GREEN_FILL,
-    "under analysis": PASTEL_ORANGE_FILL,
+    "fab. test in progress": PASTEL_YELLOW_FILL,
+    "under analysis": PASTEL_RED_FILL,
+    "in progress": PASTEL_GREEN_FILL,
     "backlog": PASTEL_BLUE_FILL,
-    "acronimi done": PASTEL_DARK_GREEN_FILL,
+    "acronimi done": EXPORT_BRIGHT_GREEN_FILL,
 }
 DATE_IN_TAG_RE = re.compile(r"(\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2})")
 ESTIMATE_TAG_RE = re.compile(
@@ -697,13 +697,17 @@ def fill_export_per_status(status):
 
 
 def formatta_foglio_export(ws):
-    """Colora A–D in base a Status (col. B): grigio, verde, arancio, blu pastello."""
-    for row in range(2, ws.max_row + 1):
-        fill = fill_export_per_status(ws.cell(row=row, column=2).value)
-        if fill is None:
-            continue
-        for col in range(1, 5):
-            ws.cell(row=row, column=col).fill = fill
+    """Colora A–D per Status (col. B) e centra verticalmente tutte le colonne."""
+    middle = Alignment(vertical="center")
+    for row in range(1, ws.max_row + 1):
+        fill = None
+        if row >= 2:
+            fill = fill_export_per_status(ws.cell(row=row, column=2).value)
+        for col in range(1, ws.max_column + 1):
+            cell = ws.cell(row=row, column=col)
+            cell.alignment = middle
+            if fill is not None and col <= 4:
+                cell.fill = fill
 
 
 def aggiungi_footer_data(ws, gruppi):
