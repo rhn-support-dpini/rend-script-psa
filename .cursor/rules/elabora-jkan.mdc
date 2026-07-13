@@ -32,7 +32,7 @@ Fogli: `data-all` (principale, tutte le card), `data-export` (export ridotto), `
 
 Righe Description con `#` generano sotto-righe da colonna N. Colonne A–M: merge verticali + bordo rosso pastello per card.
 
-Foglio `data-export`: una riga per card, sole colonne A (Title), C (Status), E (Start Date), F (End Date); esclusi Status `Complete`, `Abandoned`, `Probably dismissed / delayed to 2027`, `new - to be verified`.
+Foglio `data-export`: una riga per card, sole colonne A (Title), C (Status), E (Start Date), F (End Date); esclusi Status `Attività nuove`, `Attività in Backlog`, `Attività in Progress`, `Attività Complete`, `Attività Abbandonate`.
 
 Colonna G (Estimate): valore dal tag `# Estimate` in Description, non dal CSV.
 

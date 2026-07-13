@@ -181,10 +181,11 @@ Una o più righe per card MIRO (espansione tag). Intestazioni riga 1; dati da ri
 
 Una riga per card, **senza** espansione tag. Escluse le card con Status:
 
-- `Complete`
-- `Abandoned`
-- `Probably dismissed / delayed to 2027`
-- `new - to be verified`
+- `Attività nuove`
+- `Attività in Backlog`
+- `Attività in Progress`
+- `Attività Complete`
+- `Attività Abbandonate`
 
 | Title | Status | Start Date | End Date |
 |-------|--------|------------|----------|

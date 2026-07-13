@@ -113,10 +113,11 @@ DATA_EXPORT_SHEET = "data-export"
 COLONNE_EXPORT = ["Title", "Status", "Start Date", "End Date"]
 STATUS_ESCLUSI_EXPORT = frozenset(
     {
-        "Complete",
-        "Abandoned",
-        "Probably dismissed / delayed to 2027",
-        "new - to be verified",
+        "Attività nuove",
+        "Attività in Backlog",
+        "Attività in Progress",
+        "Attività Complete",
+        "Attività Abbandonate",
     }
 )
 STAT_SHEET = "stat"
