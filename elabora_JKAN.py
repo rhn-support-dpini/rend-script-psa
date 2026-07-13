@@ -157,9 +157,20 @@ LEGENDA_COMMENTO_COL = 3
 LEGENDA_COMMENTO_COL_FIN = 4
 PASTEL_RED_BORDER = Side(style="medium", color="E8A0A0")
 PASTEL_GREEN_FILL = PatternFill(fill_type="solid", fgColor="D9EAD3")
+PASTEL_DARK_GREEN_FILL = PatternFill(fill_type="solid", fgColor="B6D7A8")
 PASTEL_RED_FILL = PatternFill(fill_type="solid", fgColor="FFEBEE")
 PASTEL_YELLOW_FILL = PatternFill(fill_type="solid", fgColor="FFFDE7")
+PASTEL_GRAY_FILL = PatternFill(fill_type="solid", fgColor="E8E8E8")
+PASTEL_ORANGE_FILL = PatternFill(fill_type="solid", fgColor="FFE5CC")
+PASTEL_BLUE_FILL = PatternFill(fill_type="solid", fgColor="D6EAF8")
 BRIGHT_RED_FILL = PatternFill(fill_type="solid", fgColor="E53935")
+EXPORT_STATUS_FILLS = {
+    "abandoned": PASTEL_GRAY_FILL,
+    "fab. test in progress": PASTEL_GREEN_FILL,
+    "under analysis": PASTEL_ORANGE_FILL,
+    "backlog": PASTEL_BLUE_FILL,
+    "acronimi done": PASTEL_DARK_GREEN_FILL,
+}
 DATE_IN_TAG_RE = re.compile(r"(\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2})")
 ESTIMATE_TAG_RE = re.compile(
     r"^#\s*Estimate\s*[:-]?\s*([\d.,]+)",
@@ -680,6 +691,21 @@ def righe_export(card):
     ]
 
 
+def fill_export_per_status(status):
+    chiave = normalizza_testo(status, compatta_spazi=True).lower()
+    return EXPORT_STATUS_FILLS.get(chiave)
+
+
+def formatta_foglio_export(ws):
+    """Colora A–D in base a Status (col. B): grigio, verde, arancio, blu pastello."""
+    for row in range(2, ws.max_row + 1):
+        fill = fill_export_per_status(ws.cell(row=row, column=2).value)
+        if fill is None:
+            continue
+        for col in range(1, 5):
+            ws.cell(row=row, column=col).fill = fill
+
+
 def aggiungi_footer_data(ws, gruppi):
     center = Alignment(horizontal="center", vertical="center")
     data_last = ws.max_row
@@ -791,6 +817,7 @@ def scrivi_excel(card, output_path):
 
     wb = load_workbook(output_path)
     gruppi = formatta_foglio_dati(wb[OUTPUT_SHEET])
+    formatta_foglio_export(wb[DATA_EXPORT_SHEET])
     riepilogo = riepilogo_da_gruppi(wb[OUTPUT_SHEET], gruppi)
     crea_foglio_stat(wb, riepilogo)
     wb.save(output_path)
