@@ -27,7 +27,8 @@ Output:
     senza end date nel tag usa i giorni lavorativi da start a oggi; sfondo per % su Estimate.
     Period SUM: somma Giorni con tag in Progress.
     Colonna G (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
-    Giorni: giornate lavorative (lun-ven); se manca la 2ª data si usa oggi, eccetto tag Done.
+    Giorni: giornate lavorative (lun-ven); nei tag a due date (es. Working) inizio incluso,
+    fine esclusa; se manca la 2ª data si usa oggi (incluso), eccetto tag Done.
 """
 
 import argparse
@@ -150,7 +151,11 @@ LEGENDA_COLONNE = [
         "somma giornate lavorative (lun-ven) tag '# Working - start - end'; % su Estimate",
     ),
     ("M", PERIOD_SUM_HEADER, "tempo trascorso dalla prima attivita'"),
-    ("N", GIORNI_COL, "giornate lavorative (lun-ven) per riga tag"),
+    (
+        "N",
+        GIORNI_COL,
+        "giornate lavorative (lun-ven) per riga tag; due date: inizio incluso, fine esclusa",
+    ),
     ("O", TAG_TEMPORALI_COL, "per riga tag"),
 ]
 LEGENDA_COMMENTO_COL = 3
@@ -186,6 +191,19 @@ WAITING_TAG_RE = re.compile(
 )
 WORKING_TAG_RE = re.compile(
     r"^#\s*Working\s*-\s*",
+    re.IGNORECASE,
+)
+TAG_DUE_DATE_PREFIXES = ("Working", "Waiting", "Assignee")
+TAG_DUE_DATE_PREFIX_RE = re.compile(
+    r"^#\s*(" + "|".join(TAG_DUE_DATE_PREFIXES) + r")\s*-\s*",
+    re.IGNORECASE,
+)
+TAG_DUE_DATE_STRUCTURE_RE = re.compile(
+    r"^#\s*(?P<tag>" + "|".join(TAG_DUE_DATE_PREFIXES) + r")\s*-\s*"
+    r"(?P<data1>\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2})\s*-\s*"
+    r"(?:(?P<data2>\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2})\s*-\s*"
+    r"|-\s*)"
+    r"(?P<commento>.*)$",
     re.IGNORECASE,
 )
 
@@ -374,6 +392,69 @@ def estrai_date_da_tag(tag):
     return date
 
 
+def richiede_struttura_due_date(tag):
+    """True per tag con struttura '# <nome> - <data> - <data> -' (es. Working, Waiting)."""
+    if not tag:
+        return False
+    return bool(TAG_DUE_DATE_PREFIX_RE.match(str(tag).strip()))
+
+
+def parse_tag_due_date(tag):
+    """
+    Analizza '# <tag> - <data1> - <data2> - <commento>'.
+    data2 puo' mancare (attivita' in corso, indicata come '- -').
+    Restituisce dict con chiavi data1, data2 (opzionale), commento, oppure None.
+    """
+    if not tag:
+        return None
+    match = TAG_DUE_DATE_STRUCTURE_RE.match(str(tag).strip())
+    if not match:
+        return None
+    data1 = parse_data(match.group("data1"))
+    if data1 is None:
+        return None
+    data2_raw = match.group("data2")
+    data2 = parse_data(data2_raw) if data2_raw else None
+    return {
+        "data1": data1,
+        "data2": data2,
+        "commento": (match.group("commento") or "").strip(),
+    }
+
+
+def estrai_date_campi_due_date(tag):
+    """Estrae le date dai campi '# <tag> - <data1> - <data2> -' (data2 opzionale)."""
+    parsed = parse_tag_due_date(tag)
+    if not parsed:
+        return []
+    date = [parsed["data1"]]
+    if parsed["data2"] is not None:
+        date.append(parsed["data2"])
+    return date
+
+
+def valida_struttura_tag_due_date(tag, title=None):
+    """
+    Verifica la struttura '# <tag> - <data> - <data> -'.
+    La seconda data puo' mancare (attivita' in corso). Stampa Warning se non conforme.
+    """
+    if not richiede_struttura_due_date(tag):
+        return True
+
+    contesto = f" [card: {title}]" if title else ""
+    testo = str(tag).strip()
+    parsed = parse_tag_due_date(tag)
+
+    if parsed is None:
+        print(
+            "Warning: struttura tag non conforme "
+            f"(atteso '# <tag> - <data> - <data> -'): {testo!r}{contesto}"
+        )
+        return False
+
+    return True
+
+
 def is_tag_done(tag):
     if not tag:
         return False
@@ -386,13 +467,21 @@ def tag_contiene_in_progress(tag):
     return bool(re.search(r"\bin progress\b", str(tag), re.IGNORECASE))
 
 
-def giorni_lavorativi_tra(inizio, fine):
-    """Giornate lavorative italiane (lun-ven) nel periodo [inizio, fine] inclusi."""
-    if inizio > fine:
+def giorni_lavorativi_tra(inizio, fine, fine_inclusa=True):
+    """
+    Giornate lavorative italiane (lun-ven).
+    fine_inclusa=True: periodo [inizio, fine] inclusi (default).
+    fine_inclusa=False: periodo [inizio, fine) con data finale esclusa.
+    """
+    if fine_inclusa:
+        if inizio > fine:
+            return 0
+    elif inizio >= fine:
         return 0
+
     giorni = 0
     corrente = inizio
-    while corrente <= fine:
+    while (corrente <= fine) if fine_inclusa else (corrente < fine):
         if corrente.weekday() < 5:
             giorni += 1
         corrente += timedelta(days=1)
@@ -402,16 +491,16 @@ def giorni_lavorativi_tra(inizio, fine):
 def giorni_da_tag_working(tag, data_oggi=None):
     """
     Giornate lavorative nel tag '# Working - <start> - <end>' (solo lun-ven).
-    Con due date esplicite: giorni lavorativi italiani nel periodo.
-    Con sola start date: giornate lavorative da start a oggi (attivita' in corso).
+    Con due date: [start, end) — inizio incluso, fine esclusa.
+    Con sola start date: giornate lavorative da start a oggi incluso (in corso).
     """
     if data_oggi is None:
         data_oggi = datetime.now().date()
     if not is_tag_working(tag):
         return None
-    date = estrai_date_da_tag(tag)
+    date = estrai_date_campi_due_date(tag)
     if len(date) >= 2:
-        return giorni_lavorativi_tra(date[0], date[1])
+        return giorni_lavorativi_tra(date[0], date[1], fine_inclusa=False)
     if date:
         return giorni_lavorativi_tra(date[0], data_oggi)
     return None
@@ -420,20 +509,31 @@ def giorni_da_tag_working(tag, data_oggi=None):
 def giorni_da_tag_temporale(tag, tag_successivo=None, data_oggi=None):
     """
     Giornate lavorative (lun-ven) nel TAG Temporale.
-    Con due date: giorni lavorativi nel periodo incluso.
-    Con una sola data usa il tag successivo; se assente usa oggi,
-    tranne per i tag Done che hanno solo la data di chiusura.
+    Tag a due date (Working, Waiting, …): [inizio, fine) con fine esclusa;
+    senza fine esplicita usa oggi incluso.
+    Tag generici: stessa logica; con una data e tag successivo la data del
+    successivo e' fine esclusa. I tag Done hanno solo la data di chiusura.
     """
     if data_oggi is None:
         data_oggi = datetime.now().date()
 
+    if richiede_struttura_due_date(tag):
+        date = estrai_date_campi_due_date(tag)
+        if len(date) >= 2:
+            return giorni_lavorativi_tra(date[0], date[1], fine_inclusa=False)
+        if date:
+            return giorni_lavorativi_tra(date[0], data_oggi)
+        return None
+
     date = estrai_date_da_tag(tag)
     if len(date) >= 2:
-        return giorni_lavorativi_tra(date[0], date[1])
+        return giorni_lavorativi_tra(date[0], date[1], fine_inclusa=False)
     if tag_successivo:
         date_succ = estrai_date_da_tag(tag_successivo)
         if date and date_succ:
-            return giorni_lavorativi_tra(date[0], date_succ[0])
+            return giorni_lavorativi_tra(
+                date[0], date_succ[0], fine_inclusa=False
+            )
     if date and not is_tag_done(tag):
         return giorni_lavorativi_tra(date[0], data_oggi)
     return None
@@ -479,6 +579,7 @@ def espandi_card_con_tag(card):
             righe.append(nuova)
             continue
         for i, tag in enumerate(tag_list):
+            valida_struttura_tag_due_date(tag, title=record.get("Title"))
             tag_next = tag_list[i + 1] if i + 1 < len(tag_list) else None
             nuova = dict(nuova_base)
             nuova[TOTALE_LAVORAZIONE_COL] = None
