@@ -321,6 +321,48 @@ def df_per_tabella_export(df_per_calc, col_rif="Riferimento tabella 1"):
     return df_per_calc.loc[mask]
 
 
+def export_ref_key(vals):
+    """Codice riferimento (colonna M) da una riga ExportN in cust.config.
+
+    Formato atteso: 13 campi A–M con il codice in colonna M (indice 12).
+    Accetta anche righe legacy a 14 campi con codice come ultimo campo.
+    """
+    if not vals:
+        return ''
+    for idx in (12, 13):
+        if len(vals) > idx:
+            s = str(vals[idx]).strip()
+            if s and s != '-':
+                return s
+    last = str(vals[-1]).strip()
+    return last if last and last != '-' else ''
+
+
+def diagnostica_export_config(config):
+    """Riepilogo righe ExportN per log e foglio VERIFICA."""
+    righe = []
+    idx = 3
+    while f"Export{idx}" in config:
+        raw = config[f"Export{idx}"]
+        vals = [v.strip() for v in raw.split(',')]
+        ref = export_ref_key(vals)
+        righe.append({
+            'export': f"Export{idx}",
+            'campi': len(vals),
+            'codice': vals[0] if vals else '',
+            'ref_key': ref,
+            'gg_acq': vals[8] if len(vals) > 8 else '',
+        })
+        if vals and vals[0] != '-' and not ref:
+            log.warning(
+                "Export%d: ref_key VUOTO (%d campi in config) — colonna J resterà 0. "
+                "Il codice riferimento deve essere in colonna M (campo 13). Riga config: %s",
+                idx, len(vals), raw[:80],
+            )
+        idx += 1
+    return righe
+
+
 MILESTONE_NON_BILLABLE_LABOR = "Non-Billable Labor"
 
 
@@ -1538,9 +1580,10 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_role_name, col_a
 
     righe_export = []
     idx = 3
+    export_j_calc = []
     while f"Export{idx}" in config:
         vals = [v.strip() for v in config[f"Export{idx}"].split(',')]
-        ref_key = vals[-1] if vals else ''
+        ref_key = export_ref_key(vals)
         valore_match = (
             somme_rif.get(ref_key, 0.0) + somme_sotto_rif.get(ref_key, 0.0)
         ) if ref_key else 0.0
@@ -1550,6 +1593,7 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_role_name, col_a
         log.info("Export%d: ref=%r → %.2f gg (rif=%.2f + sotto=%.2f)",
                  idx, ref_key, valore_match,
                  somme_rif.get(ref_key, 0.0), somme_sotto_rif.get(ref_key, 0.0))
+        export_j_calc.append((f"Export{idx}", ref_key, valore_match))
         righe_export.append((vals, valore_match, valore_billable))
         idx += 1
 
@@ -1573,8 +1617,11 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_role_name, col_a
     def scrivi_dati(start_row, arrotonda=False):
         for i, (vals, valore_match, valore_billable) in enumerate(righe_export):
             r = start_row + i
-            for j, v in enumerate(vals):
+            ref_key = export_ref_key(vals)
+            for j, v in enumerate(vals[:13]):
                 ws_e.cell(row=r, column=1 + j).value = v
+            if ref_key:
+                ws_e.cell(row=r, column=13).value = ref_key
             if arrotonda:
                 try:
                     i_raw = ws_e.cell(row=r, column=9).value
@@ -1616,9 +1663,40 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_role_name, col_a
     scrivi_header(dup_start + 1)
     scrivi_dati(dup_start + 2, arrotonda=True)
 
-    return dup_start + 1 + len(righe_export)
+    return dup_start + 1 + len(righe_export), export_j_calc
 
-# --- AGGIUNGI NOTE ---
+# --- FOGLIO VERIFICA ---
+
+def scrivi_foglio_verifica(wb, meta):
+    """Foglio diagnostico: versione script, config e calcoli Export (controllo rapido)."""
+    if 'VERIFICA' in wb.sheetnames:
+        del wb['VERIFICA']
+    ws = wb.create_sheet('VERIFICA')
+    bold = Font(bold=True)
+    r = 1
+    for label, value in meta.get('header', []):
+        ws.cell(row=r, column=1, value=label).font = bold
+        ws.cell(row=r, column=2, value=value)
+        r += 1
+    r += 1
+    ws.cell(row=r, column=1, value='Export').font = bold
+    ws.cell(row=r, column=2, value='ref_key').font = bold
+    ws.cell(row=r, column=3, value='J calc (gg)').font = bold
+    ws.cell(row=r, column=4, value='J Excel').font = bold
+    r += 1
+    ws_export = wb['Tabella di Export'] if 'Tabella di Export' in wb.sheetnames else None
+    for i, (exp_name, ref_key, j_calc) in enumerate(meta.get('export_j', [])):
+        row_excel = 3 + i
+        j_excel = ''
+        if ws_export is not None:
+            j_excel = ws_export.cell(row=row_excel, column=10).value
+        ws.cell(row=r, column=1, value=exp_name)
+        ws.cell(row=r, column=2, value=ref_key)
+        ws.cell(row=r, column=3, value=round(j_calc, 2) if j_calc is not None else '')
+        ws.cell(row=r, column=4, value=j_excel)
+        r += 1
+    autofit_columns(ws, scan_rows=r + 2)
+
 
 def aggiungi_note(ws_p, ws_e, anno_corrente, start_w, end_w, rows_progetti, riga_export, bold):
     """Aggiunge una nota sul filtro settimane attivo in fondo ai fogli 'progetti' ed 'Export'.
@@ -1763,7 +1841,7 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
     i_e = 3
     while f"Export{i_e}" in config:
         vals = [v.strip() for v in config[f"Export{i_e}"].split(',')]
-        ref_key = vals[-1] if vals else ''
+        ref_key = export_ref_key(vals)
         gg = (somme_rif.get(ref_key, 0.0) + somme_sotto_rif_html.get(ref_key, 0.0)) if ref_key else 0.0
         gg_billable = (
             somme_rif_billable.get(ref_key, 0.0) + somme_sotto_rif_billable_html.get(ref_key, 0.0)
@@ -1890,7 +1968,7 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
         if not _v or _v[0] == '-':
             continue
         _desc = _v[2] if len(_v) > 2 and _v[2] else _v[0]
-        _rk = str(_v[-1]) if _v else ''
+        _rk = export_ref_key(_v)
         _ref_isp_col_f = _v[5] if len(_v) > 5 else ''
         try:
             _acq = float(_v[8] if len(_v) > 8 else '0')
@@ -2596,6 +2674,24 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
         }
         contratti_idx = indicizza_contratti(config)
 
+        try:
+            git_rev = subprocess.check_output(
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                cwd=SCRIPT_DIR, stderr=subprocess.DEVNULL,
+            ).decode().strip()
+        except Exception:
+            git_rev = 'n/d'
+
+        export_cfg_diag = diagnostica_export_config(config)
+        log.info("=== DIAGNOSTICA ===")
+        log.info("Script: %s", os.path.abspath(__file__))
+        log.info("Git: %s", git_rev)
+        log.info("script.config: %s", path_script_cfg)
+        log.info("cust.config: %s", path_cust_cfg)
+        log.info("Filtro rif.=0: attivo")
+        for row in export_cfg_diag[:3]:
+            log.info("  %s: %d campi, ref_key=%r", row['export'], row['campi'], row['ref_key'])
+
         start_w = int(config.get('StartWeek', 0))
         end_w = int(config.get('EndWeek', 99))
         weeks_limit_active = config.get('WeeksLimit', 'no').lower() == 'yes'
@@ -2685,10 +2781,24 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
                            df_dati_out, col_proj, col_role_name, col_period, col_status_k, col_status_l,
                            df_per_calc_out, col_actual, col_estimated)
 
-        riga_export = formatta_tab_export(
+        riga_export, export_j_calc = formatta_tab_export(
             wb['Tabella di Export'], config, df_per_calc_out, col_rif, col_role_name, col_actual,
             fill_verde, fill_nero, font_bianco_bold, center, right_align
         )
+
+        scrivi_foglio_verifica(wb, {
+            'header': [
+                ('Script', os.path.abspath(__file__)),
+                ('Git', git_rev),
+                ('Input', file_excel_input),
+                ('Output', os.path.abspath(file_output)),
+                ('script.config', path_script_cfg),
+                ('cust.config', path_cust_cfg),
+                ('WeeksLimit', config.get('WeeksLimit', 'no')),
+                ('Cliente filtro', cliente_filter or '(nessuno)'),
+            ],
+            'export_j': export_j_calc,
+        })
 
         formatta_foglio_tentative(wb['Tentative'], df_dati_out, col_proj, col_role_name, col_period,
                                    col_estimated, col_status_k, col_status_l, bold, center)
@@ -2703,7 +2813,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
                     col_proj, col_period, col_estimated, file_output)
 
         for sheet_name in ['dati', 'progetti', 'Riepilogo Settimanale',
-                            'Dettaglio Ruoli', 'Tabella di Export', 'Tentative']:
+                            'Dettaglio Ruoli', 'Tabella di Export', 'Tentative', 'VERIFICA']:
             autofit_columns(wb[sheet_name])
 
         wb.save(file_output)
