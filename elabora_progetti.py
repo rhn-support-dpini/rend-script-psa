@@ -867,14 +867,14 @@ def prepara_righe_progetti(df_src, df_dati_comp, df_per_calc, col_proj, col_role
 # --- SCRITTURA FOGLI BASE ---
 
 def formatta_assegnazione_dati(ws, df_dati_out, idx_col_assegnazione=2):
-    """Evidenzia in giallo (colonne R–X) le righe con assegnazione non conforme."""
+    """Evidenzia in giallo l'intera riga se l'assegnazione non è conforme."""
     col_assign = df_dati_out.columns[idx_col_assegnazione]
-    col_indices = [df_dati_out.columns.get_loc(c) + 1 for c in COLONNE_ASSEGNAZIONE_DERIVATE]
+    n_cols = len(df_dati_out.columns)
     for i, val in enumerate(df_dati_out[col_assign]):
         if assegnazione_conforme(val):
             continue
         row = i + 2
-        for ci in col_indices:
+        for ci in range(1, n_cols + 1):
             ws.cell(row=row, column=ci).fill = FILLS_GIALLO_ASSEGNAZIONE
 
 
