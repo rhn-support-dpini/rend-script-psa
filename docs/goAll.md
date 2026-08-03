@@ -127,6 +127,17 @@ Per entrambi i flussi `goAll` tiene un elenco dei file già presenti in `Data/` 
 
 Al secondo lancio di `goAll` i file già gestiti non vengono ricopiati né rigenerati.
 
+**Eccezione PSA:** se in `Data/` è ancora presente un `DvPFilter-…` ma la corrispondente versione `RHCC-…` è assente (ad es. cancellata per forzare la rigenerazione), lo script **rielabora** comunque quel file.
+
+### Quale file aprire
+
+| File | Contenuto |
+|------|-----------|
+| `YYYY-MM-DD-Result-PSA.xlsx` | **Report generato** — contiene il foglio `Tabella di Export` |
+| `RHCC-All-Assignments-Full-….xlsx` | **Export grezzo PSA** (input rinominato) — **non** contiene la tabella di export |
+
+Dopo `goAll`, aprire sempre il file `*-Result-PSA.xlsx`, non il file `RHCC-…`.
+
 ---
 
 ## Requisiti

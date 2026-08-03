@@ -110,7 +110,13 @@ for FILEPATH in "$TARGET_DIR"/$PATTERN_PSA; do
     FILENAME=$(basename "$FILEPATH")
 
     if file_gia_presente_psa "$FILENAME"; then
-        continue
+        # DvPFilter già in Data/ prima della copia: di default non si rielabora.
+        # Eccezione: se manca la versione RHCC (es. cancellata per forzare rigenerazione),
+        # rielabora comunque.
+        if file_gia_elaborato_psa "$FILENAME"; then
+            continue
+        fi
+        echo "Rielaborazione: $FILENAME (versione RHCC assente in $TARGET_DIR)"
     fi
 
     if file_gia_elaborato_psa "$FILENAME"; then
@@ -135,6 +141,7 @@ for FILEPATH in "$TARGET_DIR"/$PATTERN_PSA; do
         cd "$SCRIPT_DIR"
         "$PYTHON" elabora_progetti.py "$CLIENTE" "$FILEPATH" "$TARGET_DIR/${DATA_FILE}-Result-PSA.xlsx"
     ); then
+        echo "Output report: $TARGET_DIR/${DATA_FILE}-Result-PSA.xlsx"
         NUOVO_NOME=$(nome_elaborato_psa "$FILENAME")
         echo "Rinomino il file in: $NUOVO_NOME"
         mv "$FILEPATH" "$TARGET_DIR/$NUOVO_NOME"
