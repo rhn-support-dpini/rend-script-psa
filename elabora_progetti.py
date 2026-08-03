@@ -265,20 +265,45 @@ def calcola_date_settimana(week_str):
     except Exception:
         return None
 
-def splitta_assegnazione(val):
-    """Divide il campo assegnazione (colonna C del sorgente) nei suoi 7 componenti.
+COLONNE_ASSEGNAZIONE_DERIVATE = [
+    "Nome risorsa", "RifInterno PSA", "Cliente", "Sotto progetto",
+    "Riferimento tabella 1", "Sotto Riferimento tabella 1", "Commento",
+]
+FILLS_GIALLO_ASSEGNAZIONE = PatternFill(fill_type='solid', fgColor='FFFF00')
 
-    Il formato atteso è: "Nome|OPA@profilo|Cliente|SottoProgetto|Riferimento|Commento"
-    Il campo Riferimento può contenere due valori numerici separati da '&'
-    (es. "6&4" o "6 & 4"): il primo va in "Riferimento tabella 1", il secondo
-    in "Sotto Riferimento tabella 1". Con un solo valore, "Sotto Riferimento
-    tabella 1" resta vuoto. I riferimenti numerici sono convertiti in interi.
+
+def assegnazione_conforme(val):
+    """True se il campo assegnazione rispetta il formato a 6 sottocampi pipe-separated.
+
+    Formato atteso: Nome risorsa | RifInterno PSA | Cliente | Sottoprogetto |
+    ref-key | Commento (quest'ultimo opzionale → almeno 5 segmenti).
+    """
+    if pd.isna(val):
+        return False
+    s = str(val).strip()
+    if not s:
+        return False
+    parti = [p.strip() for p in s.split('|')]
+    if len(parti) < 5:
+        return False
+    if not parti[0]:
+        return False
+    return True
+
+
+def splitta_assegnazione(val):
+    """Divide il campo assegnazione (colonna C del sorgente) in colonne R–X.
+
+    Il formato atteso è: "Nome|RifInterno PSA|Cliente|Sottoprogetto|ref-key|Commento"
+    Il Commento può mancare (5 segmenti). Il ref-key può contenere due valori numerici
+    separati da '&' (es. "6&4"): il primo va in "Riferimento tabella 1", il secondo
+    in "Sotto Riferimento tabella 1". I riferimenti numerici sono convertiti in interi.
 
     Args:
         val: stringa grezza della cella, o NaN.
 
     Returns:
-        Lista di esattamente 7 elementi.
+        Lista di esattamente 7 elementi (colonne Excel R–X nel foglio dati).
     """
     parti = [p.strip() for p in str(val).split('|')] if pd.notna(val) else []
     while len(parti) < 6:
@@ -449,9 +474,8 @@ def carica_dati(file_excel_input, config):
     vengono lette per indice: i valori di default sono compatibili con il formato
     PSA standard ma possono essere sovrascritta tramite config (ColIdxRuolo, ecc.).
 
-    Espande anche la colonna assegnazione (colonna C) nelle 6 colonne derivate:
-    "Nome risorsa", "OPA@profilo", "Cliente", "Sotto progetto",
-    "Riferimento tabella 1", "Commento".
+    Espande anche la colonna assegnazione (colonna C) nelle colonne derivate R–X
+    (Nome risorsa, RifInterno PSA, Cliente, Sottoprogetto, ref-key, Commento).
 
     Args:
         file_excel_input: percorso del file di input (.xlsx/.xlsm/.xls/.csv).
@@ -478,8 +502,7 @@ def carica_dati(file_excel_input, config):
     for c in [col_actual, col_estimated]:
         df_src[c] = pd.to_numeric(df_src[c].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
 
-    nuove_col = ["Nome risorsa", "OPA@profilo", "Cliente", "Sotto progetto",
-                 "Riferimento tabella 1", "Sotto Riferimento tabella 1", "Commento"]
+    nuove_col = list(COLONNE_ASSEGNAZIONE_DERIVATE)
     df_split = pd.DataFrame(df_src.iloc[:, 2].apply(splitta_assegnazione).tolist(), columns=nuove_col)
     df_dati_comp = pd.concat([df_src, df_split], axis=1)
 
@@ -810,7 +833,7 @@ def prepara_righe_progetti(df_src, df_dati_comp, df_per_calc, col_proj, col_role
             df_per_calc[df_per_calc[col_proj] == proj], col_role_name)
 
         # @pm e @pc sono i profili di Project Manager / Project Coordinator
-        pm_mask = df_p_calc['OPA@profilo'].str.contains('@pm|@pc', case=False, na=False)
+        pm_mask = df_p_calc['RifInterno PSA'].str.contains('@pm|@pc', case=False, na=False)
         giorni_pm = float(df_p_calc.loc[pm_mask, col_actual].sum()) / 8.0
         giorni_cons = float(df_p_calc.loc[~pm_mask, col_actual].sum()) / 8.0
 
@@ -842,6 +865,18 @@ def prepara_righe_progetti(df_src, df_dati_comp, df_per_calc, col_proj, col_role
     return rows_progetti
 
 # --- SCRITTURA FOGLI BASE ---
+
+def formatta_assegnazione_dati(ws, df_dati_out, idx_col_assegnazione=2):
+    """Evidenzia in giallo (colonne R–X) le righe con assegnazione non conforme."""
+    col_assign = df_dati_out.columns[idx_col_assegnazione]
+    col_indices = [df_dati_out.columns.get_loc(c) + 1 for c in COLONNE_ASSEGNAZIONE_DERIVATE]
+    for i, val in enumerate(df_dati_out[col_assign]):
+        if assegnazione_conforme(val):
+            continue
+        row = i + 2
+        for ci in col_indices:
+            ws.cell(row=row, column=ci).fill = FILLS_GIALLO_ASSEGNAZIONE
+
 
 def scrivi_fogli_base(file_output, df_dati_comp, rows_progetti):
     """Scrive i fogli con dati grezzi nel file di output.
@@ -1744,6 +1779,7 @@ def scrivi_foglio_verifica(wb, meta):
     ws.cell(row=r, column=4, value='J Excel').font = bold
     ws.cell(row=r, column=5, value='rif (gg)').font = bold
     ws.cell(row=r, column=6, value='sotto (gg)').font = bold
+    ws.cell(row=r, column=7, value='nota').font = bold
     r += 1
     ws_export = wb['Tabella di Export'] if 'Tabella di Export' in wb.sheetnames else None
     somme_rif = somme.get('somme_rif', {})
@@ -2782,11 +2818,17 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
         log.info("1. Caricamento e preparazione dati...")
         df_src, df_dati_comp, col_proj, col_period, col_role_name, col_estimated, col_actual = carica_dati(file_excel_input, config)
 
+        df_dati_comp_full = df_dati_comp.copy()
+        df_dati_comp_full['sett_calc'] = df_dati_comp_full[col_period].apply(estrai_settimana)
+
         if cliente_filter:
             mask = df_dati_comp['Cliente'].str.strip().str.lower() == cliente_filter.strip().lower()
             df_dati_comp = df_dati_comp[mask].reset_index(drop=True)
             df_src = df_src[mask].reset_index(drop=True)
-            log.info("   Filtro cliente '%s': %d righe selezionate.", cliente_filter, len(df_dati_comp))
+            log.info(
+                "   Filtro cliente '%s': %d righe per calcoli (dati tab: tutte %d).",
+                cliente_filter, len(df_dati_comp), len(df_dati_comp_full),
+            )
 
         df_dati_comp['sett_calc'] = df_dati_comp[col_period].apply(estrai_settimana)
 
@@ -2807,7 +2849,8 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
                 len(progetti_ignorati),
                 ', '.join(sorted(progetti_ignorati)),
             )
-        df_dati_out = escludi_progetti_ignorati(df_dati_comp, col_proj, progetti_ignorati)
+        df_dati_out = escludi_progetti_ignorati(df_dati_comp_full, col_proj, progetti_ignorati)
+        df_dati_calc_out = escludi_progetti_ignorati(df_dati_comp, col_proj, progetti_ignorati)
         df_per_calc_out = escludi_progetti_ignorati(df_per_calc, col_proj, progetti_ignorati)
         rows_progetti_out = escludi_righe_progetti_ignorati(rows_progetti, progetti_ignorati)
         pivot_actual_out = escludi_pivot_progetti_ignorati(pivot_actual, col_proj, progetti_ignorati)
@@ -2821,6 +2864,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
         wb = load_workbook(file_output)
 
         ws_d = wb['dati']
+        formatta_assegnazione_dati(ws_d, df_dati_out)
 
         try:
             git_date = subprocess.check_output(
@@ -2846,13 +2890,13 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
 
         formatta_tab_progetti(wb['progetti'], config, rows_progetti_out, weeks_limit_active, bold, center)
         # Colonne K e L del sorgente contengono lo stato di schedulazione e commit/exclude
-        col_status_k = df_dati_comp.columns[10]
-        col_status_l = df_dati_comp.columns[11]
+        col_status_k = df_dati_comp_full.columns[10]
+        col_status_l = df_dati_comp_full.columns[11]
         formatta_riepilogo(wb['Riepilogo Settimanale'], wb['Dettaglio Ruoli'],
                            pivot_actual_out, pivot_estimated_out, pivot_role_est_out,
                            current_week_str, bold, center, green_fill, red_thick,
                            fill_verde, fill_nero, font_bianco_bold,
-                           df_dati_out, col_proj, col_role_name, col_period, col_status_k, col_status_l,
+                           df_dati_calc_out, col_proj, col_role_name, col_period, col_status_k, col_status_l,
                            df_per_calc_out, col_actual, col_estimated)
 
         riga_export, export_j_calc, somme_export = formatta_tab_export(
@@ -2865,7 +2909,8 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
                 ('Script', os.path.abspath(__file__)),
                 ('Git', git_rev),
                 ('Input', file_excel_input),
-                ('Righe input (post-filtri)', len(df_per_calc_out)),
+                ('Righe dati tab', len(df_dati_out)),
+                ('Righe calcoli (post-filtri)', len(df_per_calc_out)),
                 ('Output', os.path.abspath(file_output)),
                 ('script.config', path_script_cfg),
                 ('cust.config', path_cust_cfg),
@@ -2876,7 +2921,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
             'somme': somme_export,
         })
 
-        formatta_foglio_tentative(wb['Tentative'], df_dati_out, col_proj, col_role_name, col_period,
+        formatta_foglio_tentative(wb['Tentative'], df_dati_calc_out, col_proj, col_role_name, col_period,
                                    col_estimated, col_status_k, col_status_l, bold, center)
 
         if weeks_limit_active:
@@ -2884,7 +2929,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
                           start_w, end_w, rows_progetti_out, riga_export, bold)
 
         log.info("4. Generazione file HTML...")
-        genera_html(df_dati_out, rows_progetti_out, pivot_actual_out, pivot_estimated_out,
+        genera_html(df_dati_calc_out, rows_progetti_out, pivot_actual_out, pivot_estimated_out,
                     pivot_role_est_out, df_per_calc_out, config, col_rif, col_role_name, col_actual,
                     col_proj, col_period, col_estimated, file_output)
 
