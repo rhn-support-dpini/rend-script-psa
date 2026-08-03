@@ -321,21 +321,60 @@ def df_per_tabella_export(df_per_calc, col_rif="Riferimento tabella 1"):
     return df_per_calc.loc[mask]
 
 
-def export_ref_key(vals):
-    """Codice riferimento (colonna M) da una riga ExportN in cust.config.
+def norm_ref_key(k):
+    """Normalizza codice riferimento per lookup (1, '1' e 1.0 equivalenze)."""
+    if k is None or (isinstance(k, float) and pd.isna(k)):
+        return ''
+    s = str(k).strip()
+    if not s:
+        return ''
+    try:
+        f = float(s.replace(',', '.'))
+        if f == int(f):
+            return str(int(f))
+    except (ValueError, TypeError):
+        pass
+    return s
 
-    Formato atteso: 13 campi A–M con il codice in colonna M (indice 12).
-    Accetta anche righe legacy a 14 campi con codice come ultimo campo.
+
+def somme_giornate_dict(df, group_col, col_actual):
+    """Somma ore per group_col convertite in gg, chiavi riferimento normalizzate."""
+    if df is None or df.empty:
+        return {}
+    raw = (df.groupby(group_col)[col_actual].sum() / 8.0).to_dict()
+    out = {}
+    for k, v in raw.items():
+        nk = norm_ref_key(k)
+        if nk:
+            out[nk] = out.get(nk, 0.0) + float(v)
+    return out
+
+
+def export_ref_key(vals):
+    """Codice riferimento (colonna N) da una riga ExportN in cust.config.
+
+    Formato atteso: 14 campi — A–M (campi 1–13, M vuoto) + codice in colonna N
+    (campo 14, indice 13). Accetta legacy con codice in colonna M (indice 12).
     """
     if not vals:
         return ''
-    for idx in (12, 13):
-        if len(vals) > idx:
-            s = str(vals[idx]).strip()
-            if s and s != '-':
-                return s
+    if len(vals) > 13:
+        s = str(vals[13]).strip()
+        if s and s != '-':
+            return norm_ref_key(s)
+    if len(vals) > 12:
+        s = str(vals[12]).strip()
+        if s and s != '-':
+            return norm_ref_key(s)
     last = str(vals[-1]).strip()
-    return last if last and last != '-' else ''
+    return norm_ref_key(last) if last and last != '-' else ''
+
+
+def lookup_somma_ref(somme, ref_key):
+    """Lookup in somme_giornate_dict con chiave normalizzata."""
+    if not ref_key:
+        return 0.0
+    return float(somme.get(norm_ref_key(ref_key), 0.0))
 
 
 def diagnostica_export_config(config):
@@ -356,7 +395,7 @@ def diagnostica_export_config(config):
         if vals and vals[0] != '-' and not ref:
             log.warning(
                 "Export%d: ref_key VUOTO (%d campi in config) — colonna J resterà 0. "
-                "Il codice riferimento deve essere in colonna M (campo 13). Riga config: %s",
+                "Il codice riferimento deve essere in colonna N (campo 14). Riga config: %s",
                 idx, len(vals), raw[:80],
             )
         idx += 1
@@ -1561,20 +1600,12 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_role_name, col_a
     """
     df_export = df_per_tabella_export(df_per_calc, col_rif)
     df_export_billable = df_per_detrazione_giornate(df_export, col_role_name)
-    somme_rif = (df_export.groupby(col_rif)[col_actual].sum() / 8.0).to_dict()
-    somme_rif = {str(k).strip(): v for k, v in somme_rif.items()}
-    somme_rif_billable = (
-        df_export_billable.groupby(col_rif)[col_actual].sum() / 8.0
-    ).to_dict()
-    somme_rif_billable = {str(k).strip(): v for k, v in somme_rif_billable.items()}
+    somme_rif = somme_giornate_dict(df_export, col_rif, col_actual)
+    somme_rif_billable = somme_giornate_dict(df_export_billable, col_rif, col_actual)
 
     col_sotto_rif = "Sotto Riferimento tabella 1"
-    somme_sotto_rif = (df_export.groupby(col_sotto_rif)[col_actual].sum() / 8.0).to_dict()
-    somme_sotto_rif = {str(k).strip(): v for k, v in somme_sotto_rif.items()}
-    somme_sotto_rif_billable = (
-        df_export_billable.groupby(col_sotto_rif)[col_actual].sum() / 8.0
-    ).to_dict()
-    somme_sotto_rif_billable = {str(k).strip(): v for k, v in somme_sotto_rif_billable.items()}
+    somme_sotto_rif = somme_giornate_dict(df_export, col_sotto_rif, col_actual)
+    somme_sotto_rif_billable = somme_giornate_dict(df_export_billable, col_sotto_rif, col_actual)
     log.info("Riferimenti disponibili: %s | Sotto-rif: %s",
              list(somme_rif.keys()), list(somme_sotto_rif.keys()))
 
@@ -1585,14 +1616,16 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_role_name, col_a
         vals = [v.strip() for v in config[f"Export{idx}"].split(',')]
         ref_key = export_ref_key(vals)
         valore_match = (
-            somme_rif.get(ref_key, 0.0) + somme_sotto_rif.get(ref_key, 0.0)
+            lookup_somma_ref(somme_rif, ref_key) + lookup_somma_ref(somme_sotto_rif, ref_key)
         ) if ref_key else 0.0
         valore_billable = (
-            somme_rif_billable.get(ref_key, 0.0) + somme_sotto_rif_billable.get(ref_key, 0.0)
+            lookup_somma_ref(somme_rif_billable, ref_key)
+            + lookup_somma_ref(somme_sotto_rif_billable, ref_key)
         ) if ref_key else 0.0
         log.info("Export%d: ref=%r → %.2f gg (rif=%.2f + sotto=%.2f)",
                  idx, ref_key, valore_match,
-                 somme_rif.get(ref_key, 0.0), somme_sotto_rif.get(ref_key, 0.0))
+                 lookup_somma_ref(somme_rif, ref_key),
+                 lookup_somma_ref(somme_sotto_rif, ref_key))
         export_j_calc.append((f"Export{idx}", ref_key, valore_match))
         righe_export.append((vals, valore_match, valore_billable))
         idx += 1
@@ -1618,10 +1651,14 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_role_name, col_a
         for i, (vals, valore_match, valore_billable) in enumerate(righe_export):
             r = start_row + i
             ref_key = export_ref_key(vals)
-            for j, v in enumerate(vals[:13]):
-                ws_e.cell(row=r, column=1 + j).value = v
+            for j in range(13):
+                v = vals[j] if j < len(vals) else ''
+                # Il codice riferimento va solo in colonna N, non in M
+                if j == 12 and ref_key and norm_ref_key(v) == ref_key:
+                    v = ''
+                ws_e.cell(row=r, column=1 + j).value = v if v != '' else None
             if ref_key:
-                ws_e.cell(row=r, column=13).value = ref_key
+                ws_e.cell(row=r, column=14).value = ref_key
             if arrotonda:
                 try:
                     i_raw = ws_e.cell(row=r, column=9).value
@@ -1663,7 +1700,10 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_role_name, col_a
     scrivi_header(dup_start + 1)
     scrivi_dati(dup_start + 2, arrotonda=True)
 
-    return dup_start + 1 + len(righe_export), export_j_calc
+    return dup_start + 1 + len(righe_export), export_j_calc, {
+        'somme_rif': somme_rif,
+        'somme_sotto_rif': somme_sotto_rif,
+    }
 
 # --- FOGLIO VERIFICA ---
 
@@ -1678,13 +1718,25 @@ def scrivi_foglio_verifica(wb, meta):
         ws.cell(row=r, column=1, value=label).font = bold
         ws.cell(row=r, column=2, value=value)
         r += 1
+    somme = meta.get('somme', {})
+    if somme:
+        r += 1
+        ws.cell(row=r, column=1, value='Chiavi rif. (gg)').font = bold
+        ws.cell(row=r, column=2, value=str(somme.get('somme_rif', {})))
+        r += 1
+        ws.cell(row=r, column=1, value='Chiavi sotto-rif. (gg)').font = bold
+        ws.cell(row=r, column=2, value=str(somme.get('somme_sotto_rif', {})))
     r += 1
     ws.cell(row=r, column=1, value='Export').font = bold
     ws.cell(row=r, column=2, value='ref_key').font = bold
     ws.cell(row=r, column=3, value='J calc (gg)').font = bold
     ws.cell(row=r, column=4, value='J Excel').font = bold
+    ws.cell(row=r, column=5, value='rif (gg)').font = bold
+    ws.cell(row=r, column=6, value='sotto (gg)').font = bold
     r += 1
     ws_export = wb['Tabella di Export'] if 'Tabella di Export' in wb.sheetnames else None
+    somme_rif = somme.get('somme_rif', {})
+    somme_sotto = somme.get('somme_sotto_rif', {})
     for i, (exp_name, ref_key, j_calc) in enumerate(meta.get('export_j', [])):
         row_excel = 3 + i
         j_excel = ''
@@ -1694,6 +1746,8 @@ def scrivi_foglio_verifica(wb, meta):
         ws.cell(row=r, column=2, value=ref_key)
         ws.cell(row=r, column=3, value=round(j_calc, 2) if j_calc is not None else '')
         ws.cell(row=r, column=4, value=j_excel)
+        ws.cell(row=r, column=5, value=lookup_somma_ref(somme_rif, ref_key) if ref_key else '')
+        ws.cell(row=r, column=6, value=lookup_somma_ref(somme_sotto, ref_key) if ref_key else '')
         r += 1
     autofit_columns(ws, scan_rows=r + 2)
 
@@ -1826,15 +1880,19 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
     # ── DataFrame export ─────────────────────────────────────────────────────
     df_export = df_per_tabella_export(df_per_calc, col_rif)
     df_export_billable = df_per_detrazione_giornate(df_export, col_role_name)
-    somme_rif = {str(k).strip(): round(v / 8.0, 2)
-                 for k, v in df_export.groupby(col_rif)[col_actual].sum().items()}
-    somme_rif_billable = {str(k).strip(): round(v / 8.0, 2)
-                          for k, v in df_export_billable.groupby(col_rif)[col_actual].sum().items()}
-    somme_sotto_rif_html = {str(k).strip(): round(v / 8.0, 2)
-                            for k, v in df_export.groupby("Sotto Riferimento tabella 1")[col_actual].sum().items()}
+    somme_rif = {k: round(v, 2) for k, v in somme_giornate_dict(df_export, col_rif, col_actual).items()}
+    somme_rif_billable = {
+        k: round(v, 2) for k, v in somme_giornate_dict(df_export_billable, col_rif, col_actual).items()
+    }
+    somme_sotto_rif_html = {
+        k: round(v, 2)
+        for k, v in somme_giornate_dict(df_export, "Sotto Riferimento tabella 1", col_actual).items()
+    }
     somme_sotto_rif_billable_html = {
-        str(k).strip(): round(v / 8.0, 2)
-        for k, v in df_export_billable.groupby("Sotto Riferimento tabella 1")[col_actual].sum().items()
+        k: round(v, 2)
+        for k, v in somme_giornate_dict(
+            df_export_billable, "Sotto Riferimento tabella 1", col_actual
+        ).items()
     }
     hdr_exp = [h.strip() for h in config.get('Export2', '').split(',')]
     righe_exp = []
@@ -1842,9 +1900,12 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
     while f"Export{i_e}" in config:
         vals = [v.strip() for v in config[f"Export{i_e}"].split(',')]
         ref_key = export_ref_key(vals)
-        gg = (somme_rif.get(ref_key, 0.0) + somme_sotto_rif_html.get(ref_key, 0.0)) if ref_key else 0.0
+        gg = (
+            lookup_somma_ref(somme_rif, ref_key) + lookup_somma_ref(somme_sotto_rif_html, ref_key)
+        ) if ref_key else 0.0
         gg_billable = (
-            somme_rif_billable.get(ref_key, 0.0) + somme_sotto_rif_billable_html.get(ref_key, 0.0)
+            lookup_somma_ref(somme_rif_billable, ref_key)
+            + lookup_somma_ref(somme_sotto_rif_billable_html, ref_key)
         ) if ref_key else 0.0
         try:
             i_num = float(str(vals[8] if len(vals) > 8 else '0').replace(',', '.'))
@@ -2781,7 +2842,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
                            df_dati_out, col_proj, col_role_name, col_period, col_status_k, col_status_l,
                            df_per_calc_out, col_actual, col_estimated)
 
-        riga_export, export_j_calc = formatta_tab_export(
+        riga_export, export_j_calc, somme_export = formatta_tab_export(
             wb['Tabella di Export'], config, df_per_calc_out, col_rif, col_role_name, col_actual,
             fill_verde, fill_nero, font_bianco_bold, center, right_align
         )
@@ -2798,6 +2859,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
                 ('Cliente filtro', cliente_filter or '(nessuno)'),
             ],
             'export_j': export_j_calc,
+            'somme': somme_export,
         })
 
         formatta_foglio_tentative(wb['Tentative'], df_dati_out, col_proj, col_role_name, col_period,
