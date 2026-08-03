@@ -1703,6 +1703,11 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_role_name, col_a
     return dup_start + 1 + len(righe_export), export_j_calc, {
         'somme_rif': somme_rif,
         'somme_sotto_rif': somme_sotto_rif,
+        'somme_rif_raw': somme_giornate_dict(df_per_calc, col_rif, col_actual),
+        'somme_escluse_rif0': somme_giornate_dict(
+            df_per_calc.loc[~df_per_calc[col_rif].apply(rif_impatta_tabella_export)],
+            col_rif, col_actual,
+        ),
     }
 
 # --- FOGLIO VERIFICA ---
@@ -1721,7 +1726,13 @@ def scrivi_foglio_verifica(wb, meta):
     somme = meta.get('somme', {})
     if somme:
         r += 1
-        ws.cell(row=r, column=1, value='Chiavi rif. (gg)').font = bold
+        ws.cell(row=r, column=1, value='Chiavi rif. grezze (gg)').font = bold
+        ws.cell(row=r, column=2, value=str(somme.get('somme_rif_raw', {})))
+        r += 1
+        ws.cell(row=r, column=1, value='Chiavi escluse rif=0 (gg)').font = bold
+        ws.cell(row=r, column=2, value=str(somme.get('somme_escluse_rif0', {})))
+        r += 1
+        ws.cell(row=r, column=1, value='Chiavi rif. export (gg)').font = bold
         ws.cell(row=r, column=2, value=str(somme.get('somme_rif', {})))
         r += 1
         ws.cell(row=r, column=1, value='Chiavi sotto-rif. (gg)').font = bold
@@ -1748,6 +1759,8 @@ def scrivi_foglio_verifica(wb, meta):
         ws.cell(row=r, column=4, value=j_excel)
         ws.cell(row=r, column=5, value=lookup_somma_ref(somme_rif, ref_key) if ref_key else '')
         ws.cell(row=r, column=6, value=lookup_somma_ref(somme_sotto, ref_key) if ref_key else '')
+        if ref_key and not lookup_somma_ref(somme_rif, ref_key) and not lookup_somma_ref(somme_sotto, ref_key):
+            ws.cell(row=r, column=7, value='ref assente nel sorgente')
         r += 1
     autofit_columns(ws, scan_rows=r + 2)
 
@@ -2852,6 +2865,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
                 ('Script', os.path.abspath(__file__)),
                 ('Git', git_rev),
                 ('Input', file_excel_input),
+                ('Righe input (post-filtri)', len(df_per_calc_out)),
                 ('Output', os.path.abspath(file_output)),
                 ('script.config', path_script_cfg),
                 ('cust.config', path_cust_cfg),
