@@ -35,9 +35,9 @@ Opzioni:
 Configurazione (cartella dello script):
     script.config   Impostazioni generiche (sempre letto).
     cust.config     Configurazione cliente.
-    .prjIgnore      Elenco progetti da omettere negli output (un nome per riga,
-                     colonna "Project: Project Name"; # = commento). I calcoli
-                     restano su tutti i dati; il filtro vale solo su Excel/HTML.
+    .prjIgnore      Voci da omettere negli output (un valore per riga; # = commento):
+                     - nome progetto PSA (Project: Project Name) → tab progetti e calcoli;
+                     - codice interno (colonna A, Tabella di Export) → tab Export/HTML.
 """
 
 import argparse
@@ -132,11 +132,13 @@ def config_codice_interno_intestazioni(config):
     return config.get('CodiceInternoIntestazioni') or config.get('Export2', '')
 
 
-def iter_righe_codice_interno_config(config, start_idx=3):
+def iter_righe_codice_interno_config(config, start_idx=3, codici_ignorati=None):
     """Yield (chiave_config, codice_interno, vals) per ogni riga dati in cust.config.
 
     Le righe dati usano chiavi CodiceInterno3, CodiceInterno4, … (legacy: Export3, …).
     Il codice_interno è il primo campo (colonna A del foglio).
+    Se codici_ignorati è valorizzato, salta le righe il cui codice interno vi compare
+    (es. voci in .prjIgnore).
     """
     idx = start_idx
     while True:
@@ -148,23 +150,56 @@ def iter_righe_codice_interno_config(config, start_idx=3):
             raw, used_key = config[legacy], legacy
         else:
             break
-        vals = [v.strip() for v in raw.split(',')]
+        vals = [p.strip() for p in raw.split(',')]
         codice = vals[0] if vals else ''
+        if codici_ignorati and codice.strip() in codici_ignorati:
+            idx += 1
+            continue
         yield used_key, codice, vals
         idx += 1
 
 
+def codici_interno_in_config(config):
+    """Insieme dei codici interno (colonna A) definiti in cust.config."""
+    return {codice.strip() for _, codice, _ in iter_righe_codice_interno_config(config) if codice.strip()}
+
+
+def log_prj_ignore(progetti_ignorati, config, col_proj, df_dati_comp):
+    """Logga l'effetto delle voci .prjIgnore su tab progetti e codice interno."""
+    if not progetti_ignorati:
+        return
+    codici_cfg = codici_interno_in_config(config)
+    if df_dati_comp is not None and not df_dati_comp.empty:
+        progetti_src = set(df_dati_comp[col_proj].astype(str).str.strip())
+    else:
+        progetti_src = set()
+    per_progetti = sorted(n for n in progetti_ignorati if n in progetti_src)
+    per_codice = sorted(n for n in progetti_ignorati if n in codici_cfg)
+    non_riconosciuti = sorted(progetti_ignorati - set(per_progetti) - set(per_codice))
+    log.info("   .prjIgnore: %d voce/i", len(progetti_ignorati))
+    if per_progetti:
+        log.info("      tab progetti (nome PSA): %s", ', '.join(per_progetti))
+    if per_codice:
+        log.info("      tab codice interno (col. A): %s", ', '.join(per_codice))
+    if non_riconosciuti:
+        log.info("      (nessuna corrispondenza nel sorgente/config): %s",
+                 ', '.join(non_riconosciuti))
+
+
 def carica_prj_ignore(nome_file='.prjIgnore'):
-    """Legge .prjIgnore: un nome progetto per riga (Project: Project Name).
+    """Legge .prjIgnore: una voce per riga da escludere dagli output.
 
-    Ignora righe vuote e righe che iniziano con '#'. I nomi sono confrontati
-    dopo strip(), senza normalizzazione case-insensitive.
+    Ogni riga può essere:
+    - un nome progetto PSA (colonna Project: Project Name) → escluso dal tab
+      ``progetti`` e dalle ore usate nei calcoli;
+    - un codice interno (colonna A del tab ``Tabella di Export``, da cust.config)
+      → la riga corrispondente non compare nel tab Export né nell'HTML.
 
-    Args:
-        nome_file: percorso del file (relativo alla cartella dello script).
+    Ignora righe vuote e righe che iniziano con '#'. Confronto dopo strip(),
+    case-sensitive.
 
     Returns:
-        set di stringhe con i nomi progetto da escludere dagli output.
+        set di stringhe da escludere.
     """
     path = risolvi_config(nome_file)
     if not os.path.exists(path):
@@ -1627,7 +1662,8 @@ def formatta_foglio_tentative(ws_t, df_dati_comp, col_proj, col_role_name, col_p
 # --- FORMATTAZIONE TAB CODICE INTERNO (foglio "Tabella di Export") ---
 
 def formatta_tabella_codice_interno(ws_e, config, df_per_calc, col_rif, col_role_name, col_actual,
-                                    fill_verde, fill_nero, font_bianco_bold, center, right_align):
+                                    fill_verde, fill_nero, font_bianco_bold, center, right_align,
+                                    codici_ignorati=None):
     """Riempie il foglio 'Tabella di Export' con il riepilogo giornate per codice interno.
 
     Legge le righe dalla config (CodiceInterno3, CodiceInterno4, …): ogni riga
@@ -1642,6 +1678,9 @@ def formatta_tabella_codice_interno(ws_e, config, df_per_calc, col_rif, col_role
 
     Le righe con "Riferimento tabella 1" vuoto o pari a zero sono escluse
     dalle somme (restano visibili negli altri fogli).
+
+    Le voci in codici_ignorati (.prjIgnore) il cui valore coincide con il codice
+    interno (colonna A) non vengono scritte nel foglio.
 
     Come per il foglio progetti, la tabella è duplicata: la prima copia ha
     valori esatti, la seconda arrotonda le giornate all'intero più vicino.
@@ -1662,7 +1701,7 @@ def formatta_tabella_codice_interno(ws_e, config, df_per_calc, col_rif, col_role
 
     righe_codice_interno = []
     codice_interno_j_calc = []
-    for used_key, codice, vals in iter_righe_codice_interno_config(config):
+    for used_key, codice, vals in iter_righe_codice_interno_config(config, codici_ignorati=codici_ignorati):
         ref_key = ref_key_riga_codice_interno(vals)
         valore_match = (
             lookup_somma_ref(somme_rif, ref_key) + lookup_somma_ref(somme_sotto_rif, ref_key)
@@ -1903,7 +1942,7 @@ def _etichetta_solo_num_settimana(periodo):
 
 def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
                 pivot_role_est, df_per_calc, config, col_rif, col_role_name, col_actual,
-                col_proj, col_period, col_estimated, file_output):
+                col_proj, col_period, col_estimated, file_output, codici_ignorati=None):
     """Genera un file HTML navigabile con tabelle e grafici Chart.js.
 
     Il file ha lo stesso nome del file Excel con estensione .html e viene
@@ -1955,7 +1994,7 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
     }
     hdr_exp = [h.strip() for h in config_codice_interno_intestazioni(config).split(',')]
     righe_exp = []
-    for _used_key, _codice, vals in iter_righe_codice_interno_config(config):
+    for _used_key, _codice, vals in iter_righe_codice_interno_config(config, codici_ignorati=codici_ignorati):
         ref_key = ref_key_riga_codice_interno(vals)
         gg = (
             lookup_somma_ref(somme_rif, ref_key) + lookup_somma_ref(somme_sotto_rif_html, ref_key)
@@ -2078,7 +2117,7 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
     col_sotto_rif_ts = "Sotto Riferimento tabella 1"
     col_f_ci_hdr = hdr_exp[5].strip() if len(hdr_exp) > 5 else 'Ref. ISP'
     voci_cfg_html = []
-    for _used_key, _codice, _v in iter_righe_codice_interno_config(config):
+    for _used_key, _codice, _v in iter_righe_codice_interno_config(config, codici_ignorati=codici_ignorati):
         if not _v or _v[0] == '-':
             continue
         _desc = _v[2] if len(_v) > 2 and _v[2] else _v[0]
@@ -2848,12 +2887,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
             col_actual, config, contratti_idx)
 
         progetti_ignorati = carica_prj_ignore()
-        if progetti_ignorati:
-            log.info(
-                "   .prjIgnore: %d progetto/i esclusi dagli output: %s",
-                len(progetti_ignorati),
-                ', '.join(sorted(progetti_ignorati)),
-            )
+        log_prj_ignore(progetti_ignorati, config, col_proj, df_dati_comp_full)
         df_dati_out = escludi_progetti_ignorati(df_dati_comp_full, col_proj, progetti_ignorati)
         df_dati_calc_out = escludi_progetti_ignorati(df_dati_comp, col_proj, progetti_ignorati)
         df_per_calc_out = escludi_progetti_ignorati(df_per_calc, col_proj, progetti_ignorati)
@@ -2906,7 +2940,8 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
 
         riga_tabella_ci, codice_interno_j_calc, somme_ci = formatta_tabella_codice_interno(
             wb['Tabella di Export'], config, df_per_calc_out, col_rif, col_role_name, col_actual,
-            fill_verde, fill_nero, font_bianco_bold, center, right_align
+            fill_verde, fill_nero, font_bianco_bold, center, right_align,
+            codici_ignorati=progetti_ignorati,
         )
 
         scrivi_foglio_verifica(wb, {
@@ -2936,7 +2971,8 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
         log.info("4. Generazione file HTML...")
         genera_html(df_dati_calc_out, rows_progetti_out, pivot_actual_out, pivot_estimated_out,
                     pivot_role_est_out, df_per_calc_out, config, col_rif, col_role_name, col_actual,
-                    col_proj, col_period, col_estimated, file_output)
+                    col_proj, col_period, col_estimated, file_output,
+                    codici_ignorati=progetti_ignorati)
 
         for sheet_name in ['dati', 'progetti', 'Riepilogo Settimanale',
                             'Dettaglio Ruoli', 'Tabella di Export', 'Tentative', 'VERIFICA']:
