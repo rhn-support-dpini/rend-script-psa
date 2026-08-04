@@ -183,13 +183,13 @@ Una riga per ogni record che **non** è `Scheduled` + `Commit`, oppure che appar
 
 ### Foglio `Tabella di Export`
 
-Titolo riga 1: `Export1` da `cust.config` + data odierna. Intestazioni riga 2: `Export2` (13 colonne A–M). Righe dati: una per ogni voce `Export3`, `Export4`, … in `cust.config`.
+Titolo riga 1: `CodiceInternoTitolo` da `cust.config` + data odierna. Intestazioni riga 2: `CodiceInternoIntestazioni` (13 colonne A–M; colonna A = **CODICE INTERNO**). Righe dati: una per ogni voce `CodiceInterno3`, `CodiceInterno4`, … in `cust.config`.
 
 | CODICE INTERNO (A) | Codice offerta fornitore (B) | Descrizione/Progetto ISP (C) | Tecnologia fornitura (D) | ODA ISP (E) | Ref. ISP (F) | Ref. fornitore (G) | Tecnico fornitore (H) | gg/u acquistati (I) | gg/u consumati (J) | gg/u residui (K) | Totale ordine € (L) | Tariffa media € gg/u (M) |
 |--------------------|------------------------------|------------------------------|--------------------------|-------------|--------------|--------------------|-----------------------|---------------------|--------------------|--------------------|---------------------|--------------------------|
-| Campo 1 della voce `ExportN`. | Campo 2. | Campo 3. | Campo 4. | Campo 5. | Campo 6. | Campo 7. | Campo 8. | Campo 9 (giornate acquistate, inserite in config). | Somma **Actual Hours** ÷ 8 delle righe il cui `Riferimento tabella 1` **oppure** `Sotto Riferimento tabella 1` coincide con l'**ultimo campo** (colonna M) della voce `ExportN`; include Non-Billable Labor; esclude righe con riferimento vuoto o 0. | `I − consumo billable`, dove il consumo billable usa la stessa regola di J ma **esclude** Non-Billable Labor. | Campo 12 (da config; tipicamente importo ordine). | Campo 13: **codice di riferimento** usato per l'incrocio con le colonne J e K (valore in `Riferimento tabella 1` / `Sotto Riferimento tabella 1` del sorgente). |
+| Campo 1 (codice interno, colonna A) della voce `CodiceInternoN`. | Campo 2. | Campo 3. | Campo 4. | Campo 5. | Campo 6. | Campo 7. | Campo 8. | Campo 9 (giornate acquistate, inserite in config). | Somma **Actual Hours** ÷ 8 delle righe il cui `Riferimento tabella 1` **oppure** `Sotto Riferimento tabella 1` coincide con il **ref-key** (colonna N, campo 14) della voce `CodiceInternoN`; include Non-Billable Labor; esclude righe con riferimento vuoto o 0. | `I − consumo billable`, dove il consumo billable usa la stessa regola di J ma **esclude** Non-Billable Labor. | Campo 12 (da config; tipicamente importo ordine). | Campo 13 (tariffa media; colonna M resta vuota in output). Ref-key in colonna N. |
 
-**Riga separatore:** se il primo campo di una voce `ExportN` è `-`, la riga è solo visiva (campi da config, senza calcoli J/K).
+**Riga separatore:** se il codice interno (campo 1 / colonna A) è `-`, la riga è solo visiva (campi da config, senza calcoli J/K).
 
 **Seconda copia della tabella:** colonne I, J, K arrotondate all'intero più vicino; le altre colonne testuali restano invariate.
 
@@ -230,13 +230,15 @@ Il campo riferimento nell'assegnazione può contenere uno o due valori numerici 
 
 ---
 
-## Tabella di Export
+## Tabella codice interno (foglio «Tabella di Export»)
 
-Il foglio **Tabella di Export** (e la sezione omonima nel report HTML) riepiloga le giornate consuntivate per codice ordine, incrociando le righe del sorgente con le voci definite in `script.config` / `cust.config` (`Export3`, `Export4`, …).
+Il foglio **Tabella di Export** (e la sezione omonima nel report HTML) riepiloga le giornate consuntivate per **codice interno** (colonna A), incrociando le righe del sorgente con le voci definite in `cust.config` (`CodiceInterno3`, `CodiceInterno4`, …).
 
-**Regola di esclusione:** le righe con **Riferimento tabella 1** vuoto, mancante o pari a **0** restano nel flusso normale (pivot, foglio `progetti`, riepiloghi, Tentative, grafici) ma **non** entrano nelle somme del tab Export — né per il riferimento principale né per il sotto-riferimento di quella riga.
+**Chiavi config:** `CodiceInternoTitolo`, `CodiceInternoIntestazioni`, `CodiceInterno3` … (legacy: `Export1`, `Export2`, `Export3` … ancora accettate).
 
-Le righe con riferimento valorizzato e diverso da zero contribuiscono alle colonne J/K (giornate consuntivate e residuo) incrociando sia `Riferimento tabella 1` sia `Sotto Riferimento tabella 1` con l'ultimo campo di ciascuna voce `ExportN` in config.
+**Regola di esclusione:** le righe con **Riferimento tabella 1** vuoto, mancante o pari a **0** restano nel flusso normale (pivot, foglio `progetti`, riepiloghi, Tentative, grafici) ma **non** entrano nelle somme J/K del tab codice interno — né per il riferimento principale né per il sotto-riferimento di quella riga.
+
+Le righe con riferimento valorizzato e diverso da zero contribuiscono alle colonne J/K (giornate consuntivate e residuo) incrociando sia `Riferimento tabella 1` sia `Sotto Riferimento tabella 1` con il ref-key (colonna N) di ciascuna voce `CodiceInternoN` in config.
 
 - **Colonna J:** somma di tutte le ore consuntivate (in giornate), incluse quelle con milestone **Non-Billable Labor**.
 - **Colonna K:** giornate acquisite (config) meno solo le ore **billable**; le ore Non-Billable Labor non riducono il residuo.

@@ -8,7 +8,7 @@ Excel di output multi-foglio con:
   - Riepilogo Settimanale : pivot actual/estimated per attività e settimana
   - Dettaglio Ruoli       : pivot estimated con breakdown per ruolo/milestone
   - Tentative             : stati ≠ Scheduled/Commit più righe in aggregazioni miste K×L
-  - Tabella di Export     : riepilogo giornate per codice ordine
+  - Tabella di Export     : riepilogo giornate per codice interno (colonna A)
 
 Utilizzo:
     python elabora_progetti.py [cliente] [input] [output.xlsx]
@@ -119,6 +119,40 @@ def carica_config(nome_file):
                 key, value = line.split('=', 1)
                 config[key.strip()] = value.strip()
     return config
+
+# --- Config tab "Tabella di Export" (chiavi CodiceInterno* in cust.config) ---
+
+def config_codice_interno_titolo(config):
+    """Titolo riga 1 del foglio (ex Export1)."""
+    return config.get('CodiceInternoTitolo') or config.get('Export1', '')
+
+
+def config_codice_interno_intestazioni(config):
+    """Intestazioni colonne A–M (ex Export2); colonna A = CODICE INTERNO."""
+    return config.get('CodiceInternoIntestazioni') or config.get('Export2', '')
+
+
+def iter_righe_codice_interno_config(config, start_idx=3):
+    """Yield (chiave_config, codice_interno, vals) per ogni riga dati in cust.config.
+
+    Le righe dati usano chiavi CodiceInterno3, CodiceInterno4, … (legacy: Export3, …).
+    Il codice_interno è il primo campo (colonna A del foglio).
+    """
+    idx = start_idx
+    while True:
+        key = f'CodiceInterno{idx}'
+        legacy = f'Export{idx}'
+        if key in config:
+            raw, used_key = config[key], key
+        elif legacy in config:
+            raw, used_key = config[legacy], legacy
+        else:
+            break
+        vals = [v.strip() for v in raw.split(',')]
+        codice = vals[0] if vals else ''
+        yield used_key, codice, vals
+        idx += 1
+
 
 def carica_prj_ignore(nome_file='.prjIgnore'):
     """Legge .prjIgnore: un nome progetto per riga (Project: Project Name).
@@ -323,11 +357,11 @@ def splitta_assegnazione(val):
     return [parti[0], parti[1], parti[2], parti[3], rif1, rif2, parti[5]]
 
 
-def rif_impatta_tabella_export(val):
-    """True se il valore di 'Riferimento tabella 1' contribuisce al tab Export.
+def rif_impatta_somme_codice_interno(val):
+    """True se 'Riferimento tabella 1' contribuisce alle somme del tab Codice interno.
 
     Righe con riferimento vuoto, mancante o pari a zero restano nel flusso
-    normale (pivot, progetti, riepilogo) ma non entrano nelle somme Export.
+    normale (pivot, progetti, riepilogo) ma non entrano nelle somme J/K.
     """
     if pd.isna(val):
         return False
@@ -340,9 +374,9 @@ def rif_impatta_tabella_export(val):
         return True
 
 
-def df_per_tabella_export(df_per_calc, col_rif="Riferimento tabella 1"):
-    """Sottoinsieme di df_per_calc usato solo per il tab 'Tabella di Export'."""
-    mask = df_per_calc[col_rif].apply(rif_impatta_tabella_export)
+def df_per_somme_codice_interno(df_per_calc, col_rif="Riferimento tabella 1"):
+    """Sottoinsieme di df_per_calc usato per le somme del tab 'Tabella di Export'."""
+    mask = df_per_calc[col_rif].apply(rif_impatta_somme_codice_interno)
     return df_per_calc.loc[mask]
 
 
@@ -375,8 +409,8 @@ def somme_giornate_dict(df, group_col, col_actual):
     return out
 
 
-def export_ref_key(vals):
-    """Codice riferimento (colonna N) da una riga ExportN in cust.config.
+def ref_key_riga_codice_interno(vals):
+    """Codice riferimento (colonna N) da una riga CodiceInternoN in cust.config.
 
     Formato atteso: 14 campi — A–M (campi 1–13, M vuoto) + codice in colonna N
     (campo 14, indice 13). Accetta legacy con codice in colonna M (indice 12).
@@ -402,28 +436,24 @@ def lookup_somma_ref(somme, ref_key):
     return float(somme.get(norm_ref_key(ref_key), 0.0))
 
 
-def diagnostica_export_config(config):
-    """Riepilogo righe ExportN per log e foglio VERIFICA."""
+def diagnostica_codice_interno_config(config):
+    """Riepilogo righe CodiceInternoN per log e foglio VERIFICA."""
     righe = []
-    idx = 3
-    while f"Export{idx}" in config:
-        raw = config[f"Export{idx}"]
-        vals = [v.strip() for v in raw.split(',')]
-        ref = export_ref_key(vals)
+    for used_key, codice, vals in iter_righe_codice_interno_config(config):
+        ref = ref_key_riga_codice_interno(vals)
         righe.append({
-            'export': f"Export{idx}",
+            'chiave': used_key,
+            'codice_interno': codice,
             'campi': len(vals),
-            'codice': vals[0] if vals else '',
             'ref_key': ref,
             'gg_acq': vals[8] if len(vals) > 8 else '',
         })
-        if vals and vals[0] != '-' and not ref:
+        if vals and codice != '-' and not ref:
             log.warning(
-                "Export%d: ref_key VUOTO (%d campi in config) — colonna J resterà 0. "
+                "%s (%s): ref_key VUOTO (%d campi in config) — colonna J resterà 0. "
                 "Il codice riferimento deve essere in colonna N (campo 14). Riga config: %s",
-                idx, len(vals), raw[:80],
+                used_key, codice, len(vals), ','.join(vals)[:80],
             )
-        idx += 1
     return righe
 
 
@@ -1594,19 +1624,18 @@ def formatta_foglio_tentative(ws_t, df_dati_comp, col_proj, col_role_name, col_p
             cell.fill = row_fill
             cell.alignment = center
 
-# --- FORMATTAZIONE TAB EXPORT ---
+# --- FORMATTAZIONE TAB CODICE INTERNO (foglio "Tabella di Export") ---
 
-def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_role_name, col_actual,
-                        fill_verde, fill_nero, font_bianco_bold, center, right_align):
-    """Riempie il foglio 'Tabella di Export' con il riepilogo giornate per codice ordine.
+def formatta_tabella_codice_interno(ws_e, config, df_per_calc, col_rif, col_role_name, col_actual,
+                                    fill_verde, fill_nero, font_bianco_bold, center, right_align):
+    """Riempie il foglio 'Tabella di Export' con il riepilogo giornate per codice interno.
 
-    Legge le righe di esportazione dalla config (Export3, Export4, …): ogni riga
-    è una lista di valori separati da virgola che rappresentano i campi della
-    tabella (codice interno, codice offerta, descrizione, …).
+    Legge le righe dalla config (CodiceInterno3, CodiceInterno4, …): ogni riga
+    è una lista di valori separati da virgola; il primo campo è la colonna A
+    (CODICE INTERNO).
 
-    Per ogni riga cerca se uno dei valori del campo "codice" è presente nella
-    colonna "Riferimento tabella 1" del sorgente e, se sì, riporta la somma
-    delle ore consuntivate (in giornate) nella colonna J.
+    Per ogni riga incrocia ref-key (colonna N) con Riferimento tabella 1 del
+    sorgente e riporta le ore consuntivate (in giornate) nella colonna J.
 
     La colonna K (giornate rimanenti) detrae solo le ore billable; le milestone
     "Non-Billable Labor" compaiono in J ma non riducono il residuo.
@@ -1617,39 +1646,24 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_role_name, col_a
     Come per il foglio progetti, la tabella è duplicata: la prima copia ha
     valori esatti, la seconda arrotonda le giornate all'intero più vicino.
 
-    Args:
-        ws_e:             worksheet 'Tabella di Export'.
-        config:           dizionario della configurazione.
-        df_per_calc:      DataFrame filtrato per i calcoli.
-        col_rif:          nome della colonna riferimento (es. "Riferimento tabella 1").
-        col_role_name:    nome della colonna milestone/ruolo.
-        col_actual:       nome della colonna ore consuntivate.
-        fill_verde:       PatternFill verde scuro per la riga titolo.
-        fill_nero:        PatternFill nero per le righe header.
-        font_bianco_bold: Font bianco grassetto per testo su sfondo scuro.
-        center:           Alignment(horizontal='center').
-        right_align:      Alignment(horizontal='right').
-
     Returns:
-        int: numero di riga dell'ultima riga scritta nella tabella duplicata.
+        Tuple (ultima riga tabella duplicata, calcoli J per VERIFICA, somme dict).
     """
-    df_export = df_per_tabella_export(df_per_calc, col_rif)
-    df_export_billable = df_per_detrazione_giornate(df_export, col_role_name)
-    somme_rif = somme_giornate_dict(df_export, col_rif, col_actual)
-    somme_rif_billable = somme_giornate_dict(df_export_billable, col_rif, col_actual)
+    df_ci = df_per_somme_codice_interno(df_per_calc, col_rif)
+    df_ci_billable = df_per_detrazione_giornate(df_ci, col_role_name)
+    somme_rif = somme_giornate_dict(df_ci, col_rif, col_actual)
+    somme_rif_billable = somme_giornate_dict(df_ci_billable, col_rif, col_actual)
 
     col_sotto_rif = "Sotto Riferimento tabella 1"
-    somme_sotto_rif = somme_giornate_dict(df_export, col_sotto_rif, col_actual)
-    somme_sotto_rif_billable = somme_giornate_dict(df_export_billable, col_sotto_rif, col_actual)
+    somme_sotto_rif = somme_giornate_dict(df_ci, col_sotto_rif, col_actual)
+    somme_sotto_rif_billable = somme_giornate_dict(df_ci_billable, col_sotto_rif, col_actual)
     log.info("Riferimenti disponibili: %s | Sotto-rif: %s",
              list(somme_rif.keys()), list(somme_sotto_rif.keys()))
 
-    righe_export = []
-    idx = 3
-    export_j_calc = []
-    while f"Export{idx}" in config:
-        vals = [v.strip() for v in config[f"Export{idx}"].split(',')]
-        ref_key = export_ref_key(vals)
+    righe_codice_interno = []
+    codice_interno_j_calc = []
+    for used_key, codice, vals in iter_righe_codice_interno_config(config):
+        ref_key = ref_key_riga_codice_interno(vals)
         valore_match = (
             lookup_somma_ref(somme_rif, ref_key) + lookup_somma_ref(somme_sotto_rif, ref_key)
         ) if ref_key else 0.0
@@ -1657,23 +1671,22 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_role_name, col_a
             lookup_somma_ref(somme_rif_billable, ref_key)
             + lookup_somma_ref(somme_sotto_rif_billable, ref_key)
         ) if ref_key else 0.0
-        log.info("Export%d: ref=%r → %.2f gg (rif=%.2f + sotto=%.2f)",
-                 idx, ref_key, valore_match,
+        log.info("%s (%s): ref=%r → %.2f gg (rif=%.2f + sotto=%.2f)",
+                 used_key, codice, ref_key, valore_match,
                  lookup_somma_ref(somme_rif, ref_key),
                  lookup_somma_ref(somme_sotto_rif, ref_key))
-        export_j_calc.append((f"Export{idx}", ref_key, valore_match))
-        righe_export.append((vals, valore_match, valore_billable))
-        idx += 1
+        codice_interno_j_calc.append((codice or used_key, ref_key, valore_match))
+        righe_codice_interno.append((vals, valore_match, valore_billable))
 
     def scrivi_titolo(start_row):
         ws_e.merge_cells(f"B{start_row}:M{start_row}")
-        ws_e[f'B{start_row}'] = f"{config.get('Export1', '')} {datetime.now().strftime('%d/%m/%Y')}"
+        ws_e[f'B{start_row}'] = f"{config_codice_interno_titolo(config)} {datetime.now().strftime('%d/%m/%Y')}"
         ws_e[f'B{start_row}'].fill = fill_verde
         ws_e[f'B{start_row}'].font = font_bianco_bold
         ws_e[f'B{start_row}'].alignment = center
 
     def scrivi_header(start_row):
-        header_vals = config.get('Export2', '').split(',')
+        header_vals = config_codice_interno_intestazioni(config).split(',')
         for i in range(1, 14):
             cella = ws_e.cell(row=start_row, column=i)
             if i <= len(header_vals):
@@ -1683,12 +1696,11 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_role_name, col_a
             cella.alignment = center
 
     def scrivi_dati(start_row, arrotonda=False):
-        for i, (vals, valore_match, valore_billable) in enumerate(righe_export):
+        for i, (vals, valore_match, valore_billable) in enumerate(righe_codice_interno):
             r = start_row + i
-            ref_key = export_ref_key(vals)
+            ref_key = ref_key_riga_codice_interno(vals)
             for j in range(13):
                 v = vals[j] if j < len(vals) else ''
-                # Il codice riferimento va solo in colonna N, non in M
                 if j == 12 and ref_key and norm_ref_key(v) == ref_key:
                     v = ''
                 ws_e.cell(row=r, column=1 + j).value = v if v != '' else None
@@ -1710,18 +1722,16 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_role_name, col_a
                 ws_e.cell(row=r, column=11).value = k_val
             except (ValueError, TypeError):
                 ws_e.cell(row=r, column=11).value = ''
-        return start_row + len(righe_export)
+        return start_row + len(righe_codice_interno)
 
     fill_pastello = PatternFill(fill_type="solid", fgColor="D9E1F2")
-    n_righe = len(righe_export)
+    n_righe = len(righe_codice_interno)
     dup_start_pre = 3 + n_righe + 5
 
-    # Prima tabella (decimale, righe 1..dup_start_pre-1): tutte le colonne A-N
     for r in range(1, dup_start_pre):
         for c in range(1, 15):
             ws_e.cell(row=r, column=c).fill = fill_pastello
 
-    # Seconda tabella (arrotondata): solo colonne A e N
     for r in range(dup_start_pre, dup_start_pre + 2 + n_righe):
         ws_e.cell(row=r, column=1).fill = fill_pastello
         ws_e.cell(row=r, column=14).fill = fill_pastello
@@ -1735,12 +1745,12 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_role_name, col_a
     scrivi_header(dup_start + 1)
     scrivi_dati(dup_start + 2, arrotonda=True)
 
-    return dup_start + 1 + len(righe_export), export_j_calc, {
+    return dup_start + 1 + len(righe_codice_interno), codice_interno_j_calc, {
         'somme_rif': somme_rif,
         'somme_sotto_rif': somme_sotto_rif,
         'somme_rif_raw': somme_giornate_dict(df_per_calc, col_rif, col_actual),
         'somme_escluse_rif0': somme_giornate_dict(
-            df_per_calc.loc[~df_per_calc[col_rif].apply(rif_impatta_tabella_export)],
+            df_per_calc.loc[~df_per_calc[col_rif].apply(rif_impatta_somme_codice_interno)],
             col_rif, col_actual,
         ),
     }
@@ -1748,7 +1758,7 @@ def formatta_tab_export(ws_e, config, df_per_calc, col_rif, col_role_name, col_a
 # --- FOGLIO VERIFICA ---
 
 def scrivi_foglio_verifica(wb, meta):
-    """Foglio diagnostico: versione script, config e calcoli Export (controllo rapido)."""
+    """Foglio diagnostico: versione script, config e calcoli codice interno."""
     if 'VERIFICA' in wb.sheetnames:
         del wb['VERIFICA']
     ws = wb.create_sheet('VERIFICA')
@@ -1767,13 +1777,13 @@ def scrivi_foglio_verifica(wb, meta):
         ws.cell(row=r, column=1, value='Chiavi escluse rif=0 (gg)').font = bold
         ws.cell(row=r, column=2, value=str(somme.get('somme_escluse_rif0', {})))
         r += 1
-        ws.cell(row=r, column=1, value='Chiavi rif. export (gg)').font = bold
+        ws.cell(row=r, column=1, value='Chiavi rif. codice interno (gg)').font = bold
         ws.cell(row=r, column=2, value=str(somme.get('somme_rif', {})))
         r += 1
         ws.cell(row=r, column=1, value='Chiavi sotto-rif. (gg)').font = bold
         ws.cell(row=r, column=2, value=str(somme.get('somme_sotto_rif', {})))
     r += 1
-    ws.cell(row=r, column=1, value='Export').font = bold
+    ws.cell(row=r, column=1, value='Codice interno').font = bold
     ws.cell(row=r, column=2, value='ref_key').font = bold
     ws.cell(row=r, column=3, value='J calc (gg)').font = bold
     ws.cell(row=r, column=4, value='J Excel').font = bold
@@ -1781,15 +1791,15 @@ def scrivi_foglio_verifica(wb, meta):
     ws.cell(row=r, column=6, value='sotto (gg)').font = bold
     ws.cell(row=r, column=7, value='nota').font = bold
     r += 1
-    ws_export = wb['Tabella di Export'] if 'Tabella di Export' in wb.sheetnames else None
+    ws_tab_ci = wb['Tabella di Export'] if 'Tabella di Export' in wb.sheetnames else None
     somme_rif = somme.get('somme_rif', {})
     somme_sotto = somme.get('somme_sotto_rif', {})
-    for i, (exp_name, ref_key, j_calc) in enumerate(meta.get('export_j', [])):
+    for i, (codice_interno, ref_key, j_calc) in enumerate(meta.get('codice_interno_j', [])):
         row_excel = 3 + i
         j_excel = ''
-        if ws_export is not None:
-            j_excel = ws_export.cell(row=row_excel, column=10).value
-        ws.cell(row=r, column=1, value=exp_name)
+        if ws_tab_ci is not None:
+            j_excel = ws_tab_ci.cell(row=row_excel, column=10).value
+        ws.cell(row=r, column=1, value=codice_interno)
         ws.cell(row=r, column=2, value=ref_key)
         ws.cell(row=r, column=3, value=round(j_calc, 2) if j_calc is not None else '')
         ws.cell(row=r, column=4, value=j_excel)
@@ -1801,8 +1811,8 @@ def scrivi_foglio_verifica(wb, meta):
     autofit_columns(ws, scan_rows=r + 2)
 
 
-def aggiungi_note(ws_p, ws_e, anno_corrente, start_w, end_w, rows_progetti, riga_export, bold):
-    """Aggiunge una nota sul filtro settimane attivo in fondo ai fogli 'progetti' ed 'Export'.
+def aggiungi_note(ws_p, ws_e, anno_corrente, start_w, end_w, rows_progetti, riga_tabella_ci, bold):
+    """Aggiunge una nota sul filtro settimane attivo in fondo ai fogli progetti e Tabella di Export.
 
     La nota riporta l'intervallo di settimane e le date corrispondenti.
 
@@ -1813,7 +1823,7 @@ def aggiungi_note(ws_p, ws_e, anno_corrente, start_w, end_w, rows_progetti, riga
         start_w:        prima settimana del filtro.
         end_w:          ultima settimana del filtro.
         rows_progetti:  lista righe progetto (per calcolare la posizione).
-        riga_export:    ultima riga scritta nel foglio Export.
+        riga_tabella_ci: ultima riga scritta nel foglio Tabella di Export.
         bold:           Font(bold=True).
     """
     d_s, d_e = get_date_range(anno_corrente, start_w, end_w)
@@ -1821,7 +1831,7 @@ def aggiungi_note(ws_p, ws_e, anno_corrente, start_w, end_w, rows_progetti, riga
     nota2 = f"    Range: {start_w} - {end_w} [{d_s} - {d_e}]"
     n = len(rows_progetti)
     lr_p = _riga_note_progetti(n)
-    for ws_t, lr_t in [(ws_p, lr_p), (ws_e, riga_export)]:
+    for ws_t, lr_t in [(ws_p, lr_p), (ws_e, riga_tabella_ci)]:
         ws_t[f'A{lr_t + 2}'] = nota1
         ws_t[f'A{lr_t + 2}'].font = Font(italic=True)
         ws_t[f'A{lr_t + 3}'] = nota2
@@ -1926,29 +1936,27 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
         'Riferimento':   r['K'],
     } for r in rows_progetti])
 
-    # ── DataFrame export ─────────────────────────────────────────────────────
-    df_export = df_per_tabella_export(df_per_calc, col_rif)
-    df_export_billable = df_per_detrazione_giornate(df_export, col_role_name)
-    somme_rif = {k: round(v, 2) for k, v in somme_giornate_dict(df_export, col_rif, col_actual).items()}
+    # ── DataFrame tabella codice interno ─────────────────────────────────────
+    df_ci = df_per_somme_codice_interno(df_per_calc, col_rif)
+    df_ci_billable = df_per_detrazione_giornate(df_ci, col_role_name)
+    somme_rif = {k: round(v, 2) for k, v in somme_giornate_dict(df_ci, col_rif, col_actual).items()}
     somme_rif_billable = {
-        k: round(v, 2) for k, v in somme_giornate_dict(df_export_billable, col_rif, col_actual).items()
+        k: round(v, 2) for k, v in somme_giornate_dict(df_ci_billable, col_rif, col_actual).items()
     }
     somme_sotto_rif_html = {
         k: round(v, 2)
-        for k, v in somme_giornate_dict(df_export, "Sotto Riferimento tabella 1", col_actual).items()
+        for k, v in somme_giornate_dict(df_ci, "Sotto Riferimento tabella 1", col_actual).items()
     }
     somme_sotto_rif_billable_html = {
         k: round(v, 2)
         for k, v in somme_giornate_dict(
-            df_export_billable, "Sotto Riferimento tabella 1", col_actual
+            df_ci_billable, "Sotto Riferimento tabella 1", col_actual
         ).items()
     }
-    hdr_exp = [h.strip() for h in config.get('Export2', '').split(',')]
+    hdr_exp = [h.strip() for h in config_codice_interno_intestazioni(config).split(',')]
     righe_exp = []
-    i_e = 3
-    while f"Export{i_e}" in config:
-        vals = [v.strip() for v in config[f"Export{i_e}"].split(',')]
-        ref_key = export_ref_key(vals)
+    for _used_key, _codice, vals in iter_righe_codice_interno_config(config):
+        ref_key = ref_key_riga_codice_interno(vals)
         gg = (
             lookup_somma_ref(somme_rif, ref_key) + lookup_somma_ref(somme_sotto_rif_html, ref_key)
         ) if ref_key else 0.0
@@ -1964,7 +1972,6 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
         while len(vals) < 9:
             vals.append('')
         righe_exp.append(vals[:9] + [round(gg, 2)] + [k_val])
-        i_e += 1
 
     if righe_exp:
         nc     = max(len(r) for r in righe_exp)
@@ -2069,16 +2076,13 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
                 pass
 
     col_sotto_rif_ts = "Sotto Riferimento tabella 1"
-    col_f_export_hdr = hdr_exp[5].strip() if len(hdr_exp) > 5 else 'Ref. ISP'
+    col_f_ci_hdr = hdr_exp[5].strip() if len(hdr_exp) > 5 else 'Ref. ISP'
     voci_cfg_html = []
-    _ie = 3
-    while f"Export{_ie}" in config:
-        _v = [v.strip() for v in config[f"Export{_ie}"].split(',')]
-        _ie += 1
+    for _used_key, _codice, _v in iter_righe_codice_interno_config(config):
         if not _v or _v[0] == '-':
             continue
         _desc = _v[2] if len(_v) > 2 and _v[2] else _v[0]
-        _rk = export_ref_key(_v)
+        _rk = ref_key_riga_codice_interno(_v)
         _ref_isp_col_f = _v[5] if len(_v) > 5 else ''
         try:
             _acq = float(_v[8] if len(_v) > 8 else '0')
@@ -2127,7 +2131,7 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
                 ser_data.append(rim)
         ref_isp_txt = str(ref_isp_f).strip() if ref_isp_f is not None else ''
         chart_lbl = (
-            [desc, f'{col_f_export_hdr}: {ref_isp_txt}']
+            [desc, f'{col_f_ci_hdr}: {ref_isp_txt}']
             if ref_isp_txt else desc)
         intesa_series.append({'label': chart_lbl, 'data': ser_data})
 
@@ -2470,9 +2474,9 @@ tr.sep-progetto:hover{background:transparent !important}
   <div class="sub-sec">{_tbl_dettaglio_ruoli(pv_ruoli, hi_week_ruoli)}</div>
 </section>"""
 
-    exp_title = config.get('Export1', 'Tabella di Export')
+    exp_title = config_codice_interno_titolo(config) or 'Tabella di Export'
     sec_exp = f"""
-<section class="sec" id="export">
+<section class="sec" id="codice-interno">
   <div class="sec-hdr"><h2>Tabella di Export</h2></div>
   <div class="sub-sec">
     <h3>{exp_title}</h3>
@@ -2545,7 +2549,7 @@ tr.sep-progetto:hover{background:transparent !important}
     <li><a href="#actual" class="sub">&#x2937; Actual</a></li>
     <li><a href="#estimated" class="sub">&#x2937; Estimated</a></li>
     <li><a href="#dettaglio-ruoli">Dettaglio Ruoli</a></li>
-    <li><a href="#export">Tabella Export</a></li>
+    <li><a href="#codice-interno">Codice interno</a></li>
     <li><a href="#grafici">Grafici</a></li>
     <li><a href="#grafici-rh" class="subchart">Grafici RH</a></li>
     <li><a href="#grafici-intesa" class="subchart">Grafici Intesa</a></li>
@@ -2757,7 +2761,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
 
     Args:
         file_excel_input: percorso del file sorgente (.xlsx/.xlsm/.xls/.csv).
-        file_cust_config: config specifica del cliente (contratti, Export, contatti);
+        file_cust_config: config specifica del cliente (contratti, codice interno, contatti);
                           se percorso relativo, cercata accanto allo script (.py).
         file_output:      percorso del file Excel di output da generare.
         cliente_filter:   se non vuoto, filtra le righe dove la colonna "Cliente"
@@ -2772,7 +2776,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
             log.error(
                 "ERRORE: cust.config non trovato (%s).\n"
                 "   Il foglio 'progetti' e la 'Tabella di Export' leggono intestazioni "
-                "e righe Export da quel file.\n"
+                "e righe CodiceInterno da quel file.\n"
                 "   Posiziona cust.config nella stessa cartella di elabora_progetti.py "
                 "oppure passa un percorso assoluto a elabora_dati(..., file_cust_config=...).",
                 os.path.abspath(path_cust_cfg),
@@ -2792,15 +2796,16 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
         except Exception:
             git_rev = 'n/d'
 
-        export_cfg_diag = diagnostica_export_config(config)
+        ci_cfg_diag = diagnostica_codice_interno_config(config)
         log.info("=== DIAGNOSTICA ===")
         log.info("Script: %s", os.path.abspath(__file__))
         log.info("Git: %s", git_rev)
         log.info("script.config: %s", path_script_cfg)
         log.info("cust.config: %s", path_cust_cfg)
         log.info("Filtro rif.=0: attivo")
-        for row in export_cfg_diag[:3]:
-            log.info("  %s: %d campi, ref_key=%r", row['export'], row['campi'], row['ref_key'])
+        for row in ci_cfg_diag[:3]:
+            log.info("  %s (%s): %d campi, ref_key=%r",
+                     row['chiave'], row['codice_interno'], row['campi'], row['ref_key'])
 
         start_w = int(config.get('StartWeek', 0))
         end_w = int(config.get('EndWeek', 99))
@@ -2899,7 +2904,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
                            df_dati_calc_out, col_proj, col_role_name, col_period, col_status_k, col_status_l,
                            df_per_calc_out, col_actual, col_estimated)
 
-        riga_export, export_j_calc, somme_export = formatta_tab_export(
+        riga_tabella_ci, codice_interno_j_calc, somme_ci = formatta_tabella_codice_interno(
             wb['Tabella di Export'], config, df_per_calc_out, col_rif, col_role_name, col_actual,
             fill_verde, fill_nero, font_bianco_bold, center, right_align
         )
@@ -2917,8 +2922,8 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
                 ('WeeksLimit', config.get('WeeksLimit', 'no')),
                 ('Cliente filtro', cliente_filter or '(nessuno)'),
             ],
-            'export_j': export_j_calc,
-            'somme': somme_export,
+            'codice_interno_j': codice_interno_j_calc,
+            'somme': somme_ci,
         })
 
         formatta_foglio_tentative(wb['Tentative'], df_dati_calc_out, col_proj, col_role_name, col_period,
@@ -2926,7 +2931,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
 
         if weeks_limit_active:
             aggiungi_note(wb['progetti'], wb['Tabella di Export'], anno_corrente,
-                          start_w, end_w, rows_progetti_out, riga_export, bold)
+                          start_w, end_w, rows_progetti_out, riga_tabella_ci, bold)
 
         log.info("4. Generazione file HTML...")
         genera_html(df_dati_calc_out, rows_progetti_out, pivot_actual_out, pivot_estimated_out,
@@ -2938,7 +2943,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
             autofit_columns(wb[sheet_name])
 
         wb.save(file_output)
-        log.info("SUCCESSO: File generato con tutte le intestazioni e dati Export.")
+        log.info("SUCCESSO: File generato con tutte le intestazioni e dati codice interno.")
 
     except Exception as e:
         log.error("ERRORE: %s", str(e))
