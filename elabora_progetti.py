@@ -363,7 +363,8 @@ COLONNE_ASSEGNAZIONE_DERIVATE = [
     "Nome risorsa", "RifInterno PSA", "Cliente", "Sotto progetto",
     "Riferimento tabella 1", "Sotto Riferimento tabella 1", "Commento",
 ]
-FILLS_GIALLO_ASSEGNAZIONE = PatternFill(fill_type='solid', fgColor='FFFF00')
+FILLS_GRIGIO_ASSEGNAZIONE = PatternFill(fill_type='solid', fgColor='D9D9D9')
+FILLS_GRIGIO_PRJ_IGNORE = FILLS_GRIGIO_ASSEGNAZIONE
 
 
 def assegnazione_conforme(val):
@@ -957,7 +958,7 @@ def prepara_righe_progetti(df_src, df_dati_comp, df_per_calc, col_proj, col_role
 # --- SCRITTURA FOGLI BASE ---
 
 def formatta_assegnazione_dati(ws, df_dati_out, idx_col_assegnazione=2):
-    """Evidenzia in giallo l'intera riga se l'assegnazione non è conforme."""
+    """Evidenzia in grigio chiaro l'intera riga se l'assegnazione non è conforme."""
     col_assign = df_dati_out.columns[idx_col_assegnazione]
     n_cols = len(df_dati_out.columns)
     for i, val in enumerate(df_dati_out[col_assign]):
@@ -965,7 +966,20 @@ def formatta_assegnazione_dati(ws, df_dati_out, idx_col_assegnazione=2):
             continue
         row = i + 2
         for ci in range(1, n_cols + 1):
-            ws.cell(row=row, column=ci).fill = FILLS_GIALLO_ASSEGNAZIONE
+            ws.cell(row=row, column=ci).fill = FILLS_GRIGIO_ASSEGNAZIONE
+
+
+def evidenzia_progetti_prj_ignore_dettaglio_ruoli(ws_dr, data_start_row, ultima_riga,
+                                                  progetti_filtrati):
+    """Colonne A–F in grigio chiaro per Project Name in .prjIgnore (solo stampa tab progetti)."""
+    if not progetti_filtrati:
+        return
+    for r in range(data_start_row, ultima_riga + 1):
+        proj = ws_dr.cell(row=r, column=1).value
+        if proj is None or str(proj).strip() not in progetti_filtrati:
+            continue
+        for c in range(1, 7):
+            ws_dr.cell(row=r, column=c).fill = FILLS_GRIGIO_PRJ_IGNORE
 
 
 def scrivi_fogli_base(file_output, df_dati_comp, rows_progetti):
@@ -1270,7 +1284,7 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
                        current_week_str, bold, center, green_fill, red_thick,
                        fill_verde, fill_nero, font_bianco_bold,
                        df_dati_comp, col_proj, col_role_name, col_period, col_status_k, col_status_l,
-                       df_per_calc, col_actual, col_estimated):
+                       df_per_calc, col_actual, col_estimated, progetti_prj_ignore_stampa=None):
     """Riempie i fogli 'Riepilogo Settimanale' e 'Dettaglio Ruoli'.
 
     Riepilogo Settimanale: due pivot (actual e estimated) in sequenza verticale,
@@ -1589,6 +1603,9 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
     tot_act.value = totale_actual
     tot_act.font = bold
     tot_act.alignment = center
+
+    evidenzia_progetti_prj_ignore_dettaglio_ruoli(
+        ws_dr, data_start_row, ultima_riga_ws, progetti_prj_ignore_stampa)
 
     # Legenda colori sotto la tabella a partire dalla colonna settimana corrente
     if current_week_col_dr is not None:
@@ -2971,12 +2988,15 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
         # Colonne K e L del sorgente contengono lo stato di schedulazione e commit/exclude
         col_status_k = df_dati_comp_full.columns[10]
         col_status_l = df_dati_comp_full.columns[11]
+        per_progetti_prj_ignore, _, _ = classifica_prj_ignore(
+            progetti_ignorati, config, col_proj, df_dati_comp_full)
         formatta_riepilogo(wb['Riepilogo Settimanale'], wb['Dettaglio Ruoli'],
                            pivot_actual, pivot_estimated, pivot_role_est,
                            current_week_str, bold, center, green_fill, red_thick,
                            fill_verde, fill_nero, font_bianco_bold,
                            df_dati_comp, col_proj, col_role_name, col_period, col_status_k, col_status_l,
-                           df_per_calc, col_actual, col_estimated)
+                           df_per_calc, col_actual, col_estimated,
+                           progetti_prj_ignore_stampa=set(per_progetti_prj_ignore))
 
         riga_tabella_ci, codice_interno_j_calc, somme_ci = formatta_tabella_codice_interno(
             wb['Tabella di Export'], config, df_per_calc, col_rif, col_role_name, col_actual,
