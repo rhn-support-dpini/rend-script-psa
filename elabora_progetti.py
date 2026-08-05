@@ -165,10 +165,10 @@ def codici_interno_in_config(config):
     return {codice.strip() for _, codice, _ in iter_righe_codice_interno_config(config) if codice.strip()}
 
 
-def log_prj_ignore(progetti_ignorati, config, col_proj, df_dati_comp):
-    """Logga l'effetto delle voci .prjIgnore sulla stampa tab progetti e codice interno."""
+def classifica_prj_ignore(progetti_ignorati, config, col_proj, df_dati_comp):
+    """Classifica le voci .prjIgnore per tab progetti, Export e non riconosciute."""
     if not progetti_ignorati:
-        return
+        return [], [], []
     codici_cfg = codici_interno_in_config(config)
     if df_dati_comp is not None and not df_dati_comp.empty:
         progetti_src = set(df_dati_comp[col_proj].astype(str).str.strip())
@@ -177,6 +177,29 @@ def log_prj_ignore(progetti_ignorati, config, col_proj, df_dati_comp):
     per_progetti = sorted(n for n in progetti_ignorati if n in progetti_src)
     per_codice = sorted(n for n in progetti_ignorati if n in codici_cfg)
     non_riconosciuti = sorted(progetti_ignorati - set(per_progetti) - set(per_codice))
+    return per_progetti, per_codice, non_riconosciuti
+
+
+def elenco_righe_filtrate_prj_ignore(progetti_ignorati, config, col_proj, df_dati_comp):
+    """Elenco (tab, voce, nota) delle righe omesse in stampa per .prjIgnore."""
+    per_progetti, per_codice, non_riconosciuti = classifica_prj_ignore(
+        progetti_ignorati, config, col_proj, df_dati_comp)
+    righe = []
+    for voce in per_progetti:
+        righe.append(('progetti', voce, ''))
+    for voce in per_codice:
+        righe.append(('Tabella di Export', voce, ''))
+    for voce in non_riconosciuti:
+        righe.append(('', voce, 'nessuna corrispondenza nel sorgente/config'))
+    return righe
+
+
+def log_prj_ignore(progetti_ignorati, config, col_proj, df_dati_comp):
+    """Logga l'effetto delle voci .prjIgnore sulla stampa tab progetti e codice interno."""
+    if not progetti_ignorati:
+        return
+    per_progetti, per_codice, non_riconosciuti = classifica_prj_ignore(
+        progetti_ignorati, config, col_proj, df_dati_comp)
     log.info("   .prjIgnore: %d voce/i", len(progetti_ignorati))
     if per_progetti:
         log.info("      tab progetti (nome PSA): %s", ', '.join(per_progetti))
@@ -1810,6 +1833,24 @@ def scrivi_foglio_verifica(wb, meta):
         ws.cell(row=r, column=1, value=label).font = bold
         ws.cell(row=r, column=2, value=value)
         r += 1
+    prj_ignore_filtrate = meta.get('prj_ignore_filtrate', [])
+    r += 1
+    ws.cell(row=r, column=1, value='.prjIgnore — righe omesse in stampa').font = bold
+    r += 1
+    ws.cell(row=r, column=1, value='Tab').font = bold
+    ws.cell(row=r, column=2, value='Voce').font = bold
+    ws.cell(row=r, column=3, value='Nota').font = bold
+    r += 1
+    if prj_ignore_filtrate:
+        for tab, voce, nota in prj_ignore_filtrate:
+            ws.cell(row=r, column=1, value=tab)
+            ws.cell(row=r, column=2, value=voce)
+            if nota:
+                ws.cell(row=r, column=3, value=nota)
+            r += 1
+    else:
+        ws.cell(row=r, column=1, value='(nessuna voce in .prjIgnore o nessuna corrispondenza)')
+        r += 1
     somme = meta.get('somme', {})
     if somme:
         r += 1
@@ -2956,6 +2997,8 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
                 ('WeeksLimit', config.get('WeeksLimit', 'no')),
                 ('Cliente filtro', cliente_filter or '(nessuno)'),
             ],
+            'prj_ignore_filtrate': elenco_righe_filtrate_prj_ignore(
+                progetti_ignorati, config, col_proj, df_dati_comp_full),
             'codice_interno_j': codice_interno_j_calc,
             'somme': somme_ci,
         })
