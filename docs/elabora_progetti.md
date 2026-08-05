@@ -93,7 +93,7 @@ Le tabelle seguenti replicano il layout dei fogli Excel prodotti. Al posto dei v
 | Ore → giornate | Tutte le ore (Actual / Estimated) sono convertite in giornate dividendo per **8**. |
 | Filtro settimane | Se `WeeksLimit=yes` in `script.config`, i calcoli usano solo righe con `sett_calc` in `[StartWeek, EndWeek)`; le note compaiono in fondo ai fogli `progetti` e `Tabella di Export`. |
 | Filtro cliente | Se `cliente` è valorizzato, tutte le tabelle usano solo righe con **Cliente** corrispondente (case-insensitive). |
-| `.prjIgnore` | Esclusioni per voce (case-sensitive): **nome progetto PSA** → tab `progetti` e calcoli ore; **codice interno** (col. A, `cust.config`) → tab `Tabella di Export` e sezione HTML omonima. |
+| `.prjIgnore` | Esclusioni solo in **stampa tabellare** (case-sensitive): **nome progetto PSA** → riga omessa nel tab `progetti` (e tabella HTML Progetti); **codice interno** (col. A, `cust.config`) → riga omessa nel tab `Tabella di Export` e sezione HTML omonima. Calcoli, pivot, Riepilogo, Dettaglio Ruoli, Tentative e foglio `dati` includono sempre tutte le righe sorgente. |
 | Duplicazione tabelle | I fogli `progetti` e `Tabella di Export` contengono **due copie** della stessa tabella: la prima con decimali, la seconda con giornate arrotondate all'intero più vicino (colonne G/H nel foglio progetti; colonne I/J/K nell'Export). |
 
 ---

@@ -35,9 +35,10 @@ Opzioni:
 Configurazione (cartella dello script):
     script.config   Impostazioni generiche (sempre letto).
     cust.config     Configurazione cliente.
-    .prjIgnore      Voci da omettere negli output (un valore per riga; # = commento):
-                     - nome progetto PSA (Project: Project Name) → tab progetti e calcoli;
+    .prjIgnore      Voci omesse solo in stampa tab progetti / Tabella di Export (e HTML):
+                     - nome progetto PSA (Project: Project Name) → tab progetti;
                      - codice interno (colonna A, Tabella di Export) → tab Export/HTML.
+                     I calcoli e il foglio dati includono sempre tutte le righe sorgente.
 """
 
 import argparse
@@ -165,7 +166,7 @@ def codici_interno_in_config(config):
 
 
 def log_prj_ignore(progetti_ignorati, config, col_proj, df_dati_comp):
-    """Logga l'effetto delle voci .prjIgnore su tab progetti e codice interno."""
+    """Logga l'effetto delle voci .prjIgnore sulla stampa tab progetti e codice interno."""
     if not progetti_ignorati:
         return
     codici_cfg = codici_interno_in_config(config)
@@ -187,19 +188,20 @@ def log_prj_ignore(progetti_ignorati, config, col_proj, df_dati_comp):
 
 
 def carica_prj_ignore(nome_file='.prjIgnore'):
-    """Legge .prjIgnore: una voce per riga da escludere dagli output.
+    """Legge .prjIgnore: una voce per riga da omettere solo in stampa tabellare.
 
     Ogni riga può essere:
-    - un nome progetto PSA (colonna Project: Project Name) → escluso dal tab
-      ``progetti`` e dalle ore usate nei calcoli;
+    - un nome progetto PSA (colonna Project: Project Name) → non stampato nel tab
+      ``progetti`` (e tabella HTML Progetti); i calcoli restano su tutti i dati;
     - un codice interno (colonna A del tab ``Tabella di Export``, da cust.config)
-      → la riga corrispondente non compare nel tab Export né nell'HTML.
+      → la riga non compare nel tab Export né nella tabella HTML omonima; J/K restano
+      calcolati su tutte le ore sorgente.
 
     Ignora righe vuote e righe che iniziano con '#'. Confronto dopo strip(),
     case-sensitive.
 
     Returns:
-        set di stringhe da escludere.
+        set di stringhe da escludere dalla stampa.
     """
     path = risolvi_config(nome_file)
     if not os.path.exists(path):
@@ -1680,7 +1682,8 @@ def formatta_tabella_codice_interno(ws_e, config, df_per_calc, col_rif, col_role
     dalle somme (restano visibili negli altri fogli).
 
     Le voci in codici_ignorati (.prjIgnore) il cui valore coincide con il codice
-    interno (colonna A) non vengono scritte nel foglio.
+    interno (colonna A) non vengono scritte nel foglio (i calcoli J/K usano tutte
+    le ore del sorgente, incluse quelle dei codici omessi in stampa).
 
     Come per il foglio progetti, la tabella è duplicata: la prima copia ha
     valori esatti, la seconda arrotonda le giornate all'intero più vicino.
@@ -1942,7 +1945,8 @@ def _etichetta_solo_num_settimana(periodo):
 
 def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
                 pivot_role_est, df_per_calc, config, col_rif, col_role_name, col_actual,
-                col_proj, col_period, col_estimated, file_output, codici_ignorati=None):
+                col_proj, col_period, col_estimated, file_output,
+                codici_ignorati=None, progetti_ignorati=None):
     """Genera un file HTML navigabile con tabelle e grafici Chart.js.
 
     Il file ha lo stesso nome del file Excel con estensione .html e viene
@@ -1960,7 +1964,8 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
         try:    return round(float(v), 2)
         except: return v or ''
 
-    # ── DataFrame progetti ───────────────────────────────────────────────────
+    # ── DataFrame progetti (solo stampa tabella; calcoli/grafici su rows_progetti) ─
+    rows_progetti_tab = escludi_righe_progetti_ignorati(rows_progetti, progetti_ignorati)
     df_proj = pd.DataFrame([{
         'Contract Name': r['A'],
         'OPA Number':    r['B'],
@@ -1973,7 +1978,7 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
         'Rem. PM':       _f(r['E'] - r['G']),
         'Rem. Cons.':    _f(r['F'] - r['H']),
         'Riferimento':   r['K'],
-    } for r in rows_progetti])
+    } for r in rows_progetti_tab])
 
     # ── DataFrame tabella codice interno ─────────────────────────────────────
     df_ci = df_per_somme_codice_interno(df_per_calc, col_rif)
@@ -2117,7 +2122,7 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
     col_sotto_rif_ts = "Sotto Riferimento tabella 1"
     col_f_ci_hdr = hdr_exp[5].strip() if len(hdr_exp) > 5 else 'Ref. ISP'
     voci_cfg_html = []
-    for _used_key, _codice, _v in iter_righe_codice_interno_config(config, codici_ignorati=codici_ignorati):
+    for _used_key, _codice, _v in iter_righe_codice_interno_config(config):
         if not _v or _v[0] == '-':
             continue
         _desc = _v[2] if len(_v) > 2 and _v[2] else _v[0]
@@ -2888,22 +2893,16 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
 
         progetti_ignorati = carica_prj_ignore()
         log_prj_ignore(progetti_ignorati, config, col_proj, df_dati_comp_full)
-        df_dati_out = escludi_progetti_ignorati(df_dati_comp_full, col_proj, progetti_ignorati)
-        df_dati_calc_out = escludi_progetti_ignorati(df_dati_comp, col_proj, progetti_ignorati)
-        df_per_calc_out = escludi_progetti_ignorati(df_per_calc, col_proj, progetti_ignorati)
-        rows_progetti_out = escludi_righe_progetti_ignorati(rows_progetti, progetti_ignorati)
-        pivot_actual_out = escludi_pivot_progetti_ignorati(pivot_actual, col_proj, progetti_ignorati)
-        pivot_estimated_out = escludi_pivot_progetti_ignorati(pivot_estimated, col_proj, progetti_ignorati)
-        pivot_role_est_out = escludi_pivot_progetti_ignorati(pivot_role_est, col_proj, progetti_ignorati)
+        rows_progetti_tab = escludi_righe_progetti_ignorati(rows_progetti, progetti_ignorati)
 
         log.info("2. Scrittura fogli base...")
-        scrivi_fogli_base(file_output, df_dati_out, rows_progetti_out)
+        scrivi_fogli_base(file_output, df_dati_comp_full, rows_progetti_tab)
 
         log.info("3. Applicazione formattazione e dati mancanti...")
         wb = load_workbook(file_output)
 
         ws_d = wb['dati']
-        formatta_assegnazione_dati(ws_d, df_dati_out)
+        formatta_assegnazione_dati(ws_d, df_dati_comp_full)
 
         try:
             git_date = subprocess.check_output(
@@ -2914,7 +2913,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
         except Exception:
             git_date = ""
         # startrow=0 → header a riga 1, dati da riga 2 fino a riga 1+n
-        ultima_riga_dati = 1 + len(df_dati_out)
+        ultima_riga_dati = 1 + len(df_dati_comp_full)
         versione_row = ultima_riga_dati + 2
         ws_d.cell(row=versione_row, column=1).value = f"Versione script: {git_date}"
 
@@ -2927,19 +2926,19 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
         fill_nero = PatternFill(fill_type="solid", fgColor="000000")
         font_bianco_bold = Font(color="FFFFFF", bold=True)
 
-        formatta_tab_progetti(wb['progetti'], config, rows_progetti_out, weeks_limit_active, bold, center)
+        formatta_tab_progetti(wb['progetti'], config, rows_progetti_tab, weeks_limit_active, bold, center)
         # Colonne K e L del sorgente contengono lo stato di schedulazione e commit/exclude
         col_status_k = df_dati_comp_full.columns[10]
         col_status_l = df_dati_comp_full.columns[11]
         formatta_riepilogo(wb['Riepilogo Settimanale'], wb['Dettaglio Ruoli'],
-                           pivot_actual_out, pivot_estimated_out, pivot_role_est_out,
+                           pivot_actual, pivot_estimated, pivot_role_est,
                            current_week_str, bold, center, green_fill, red_thick,
                            fill_verde, fill_nero, font_bianco_bold,
-                           df_dati_calc_out, col_proj, col_role_name, col_period, col_status_k, col_status_l,
-                           df_per_calc_out, col_actual, col_estimated)
+                           df_dati_comp, col_proj, col_role_name, col_period, col_status_k, col_status_l,
+                           df_per_calc, col_actual, col_estimated)
 
         riga_tabella_ci, codice_interno_j_calc, somme_ci = formatta_tabella_codice_interno(
-            wb['Tabella di Export'], config, df_per_calc_out, col_rif, col_role_name, col_actual,
+            wb['Tabella di Export'], config, df_per_calc, col_rif, col_role_name, col_actual,
             fill_verde, fill_nero, font_bianco_bold, center, right_align,
             codici_ignorati=progetti_ignorati,
         )
@@ -2949,8 +2948,8 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
                 ('Script', os.path.abspath(__file__)),
                 ('Git', git_rev),
                 ('Input', file_excel_input),
-                ('Righe dati tab', len(df_dati_out)),
-                ('Righe calcoli (post-filtri)', len(df_per_calc_out)),
+                ('Righe dati tab', len(df_dati_comp_full)),
+                ('Righe calcoli', len(df_per_calc)),
                 ('Output', os.path.abspath(file_output)),
                 ('script.config', path_script_cfg),
                 ('cust.config', path_cust_cfg),
@@ -2961,18 +2960,18 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
             'somme': somme_ci,
         })
 
-        formatta_foglio_tentative(wb['Tentative'], df_dati_calc_out, col_proj, col_role_name, col_period,
+        formatta_foglio_tentative(wb['Tentative'], df_dati_comp, col_proj, col_role_name, col_period,
                                    col_estimated, col_status_k, col_status_l, bold, center)
 
         if weeks_limit_active:
             aggiungi_note(wb['progetti'], wb['Tabella di Export'], anno_corrente,
-                          start_w, end_w, rows_progetti_out, riga_tabella_ci, bold)
+                          start_w, end_w, rows_progetti_tab, riga_tabella_ci, bold)
 
         log.info("4. Generazione file HTML...")
-        genera_html(df_dati_calc_out, rows_progetti_out, pivot_actual_out, pivot_estimated_out,
-                    pivot_role_est_out, df_per_calc_out, config, col_rif, col_role_name, col_actual,
+        genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
+                    pivot_role_est, df_per_calc, config, col_rif, col_role_name, col_actual,
                     col_proj, col_period, col_estimated, file_output,
-                    codici_ignorati=progetti_ignorati)
+                    codici_ignorati=progetti_ignorati, progetti_ignorati=progetti_ignorati)
 
         for sheet_name in ['dati', 'progetti', 'Riepilogo Settimanale',
                             'Dettaglio Ruoli', 'Tabella di Export', 'Tentative', 'VERIFICA']:
