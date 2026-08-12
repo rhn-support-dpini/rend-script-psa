@@ -170,6 +170,7 @@ PASTEL_BLUE_FILL = PatternFill(fill_type="solid", fgColor="D6EAF8")
 EXPORT_BRIGHT_GREEN_FILL = PatternFill(fill_type="solid", fgColor="81C784")
 BRIGHT_RED_FILL = PatternFill(fill_type="solid", fgColor="E53935")
 EXPORT_BLUE_BORDER = Side(style="medium", color="2563EB")
+EXPORT_COL_DIVIDER = Side(style="thin", color="93C5FD")
 EXPORT_STATUS_FILLS = {
     "abandoned": PASTEL_GRAY_FILL,
     "fab. test in progress": PASTEL_YELLOW_FILL,
@@ -799,15 +800,27 @@ def fill_export_per_status(status):
     return EXPORT_STATUS_FILLS.get(chiave)
 
 
+def applica_bordo_riga_export(ws, row, min_col, max_col):
+    """Bordo blu perimetrale alla riga e divisori blu chiaro tra le colonne."""
+    for col in range(min_col, max_col + 1):
+        cell = ws.cell(row=row, column=col)
+        cell.border = Border(
+            left=EXPORT_BLUE_BORDER if col == min_col else None,
+            right=EXPORT_COL_DIVIDER if col < max_col else EXPORT_BLUE_BORDER,
+            top=EXPORT_BLUE_BORDER,
+            bottom=EXPORT_BLUE_BORDER,
+        )
+
+
 def formatta_foglio_export(ws):
-    """Colora A–E per Status (col. B), centra celle, bordo blu per riga."""
+    """Colora A–E per Status (col. B), centra celle, bordi riga e colonne."""
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
     max_col = min(ws.max_column, EXPORT_COL_LAST)
     for row in range(1, ws.max_row + 1):
         fill = None
         if row >= 2:
             fill = fill_export_per_status(ws.cell(row=row, column=2).value)
-        applica_bordo_gruppo(ws, row, row, 1, max_col, EXPORT_BLUE_BORDER)
+        applica_bordo_riga_export(ws, row, 1, max_col)
         for col in range(1, max_col + 1):
             cell = ws.cell(row=row, column=col)
             cell.alignment = center
