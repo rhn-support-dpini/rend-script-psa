@@ -13,6 +13,7 @@
 !.cursor/rules/**
 !docs/
 !docs/**
+!PROJECT_STATE.md
 !goAll
 !copia_drive-PSA.sh
 !copia_drive-Miro.sh
