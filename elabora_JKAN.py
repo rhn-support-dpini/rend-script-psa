@@ -111,7 +111,8 @@ TAGS_SUM_COL = "Tags_sum"
 PERIOD_SUM_HEADER = "Period SUM"
 OUTPUT_SHEET = "data-all"
 DATA_EXPORT_SHEET = "data-export"
-COLONNE_EXPORT = ["Title", "Status", "Start Date", "End Date"]
+COLONNE_EXPORT = ["Title", "Status", "Start Date", "End Date", "Tags"]
+EXPORT_COL_LAST = 5  # E: Tags
 STATUS_ESCLUSI_EXPORT = frozenset(
     {
         "Attività nuove",
@@ -168,6 +169,7 @@ PASTEL_GRAY_FILL = PatternFill(fill_type="solid", fgColor="E8E8E8")
 PASTEL_BLUE_FILL = PatternFill(fill_type="solid", fgColor="D6EAF8")
 EXPORT_BRIGHT_GREEN_FILL = PatternFill(fill_type="solid", fgColor="81C784")
 BRIGHT_RED_FILL = PatternFill(fill_type="solid", fgColor="E53935")
+EXPORT_BLUE_BORDER = Side(style="medium", color="2563EB")
 EXPORT_STATUS_FILLS = {
     "abandoned": PASTEL_GRAY_FILL,
     "fab. test in progress": PASTEL_YELLOW_FILL,
@@ -785,7 +787,7 @@ def filtra_card_per_export(card):
 
 
 def righe_export(card):
-    """Una riga per card con sole colonne Title, Status, Start Date, End Date."""
+    """Una riga per card: Title, Status, Start Date, End Date, Tags (col. E)."""
     return [
         {col: record.get(col, "") for col in COLONNE_EXPORT}
         for record in filtra_card_per_export(card)
@@ -798,16 +800,18 @@ def fill_export_per_status(status):
 
 
 def formatta_foglio_export(ws):
-    """Colora A–D per Status (col. B) e centra verticalmente tutte le colonne."""
-    middle = Alignment(vertical="center")
+    """Colora A–E per Status (col. B), centra celle, bordo blu per riga."""
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    max_col = min(ws.max_column, EXPORT_COL_LAST)
     for row in range(1, ws.max_row + 1):
         fill = None
         if row >= 2:
             fill = fill_export_per_status(ws.cell(row=row, column=2).value)
-        for col in range(1, ws.max_column + 1):
+        applica_bordo_gruppo(ws, row, row, 1, max_col, EXPORT_BLUE_BORDER)
+        for col in range(1, max_col + 1):
             cell = ws.cell(row=row, column=col)
-            cell.alignment = middle
-            if fill is not None and col <= 4:
+            cell.alignment = center
+            if fill is not None:
                 cell.fill = fill
 
 
