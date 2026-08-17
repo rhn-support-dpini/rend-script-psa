@@ -18,13 +18,14 @@ Output:
     Fogli: data-all (tutte le card), data-export (export ridotto), stat.
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
     <input>.html — report Scrum/Kanban (stesso percorso del .xlsx prodotto).
-    Le righe Description con prefisso "#" generano sotto-righe da colonna O (TAG Temporali);
-    A–M sono merge verticali per Title, con bordo rosso pastello per card.
+    Le righe Description con prefisso "#" generano sotto-righe da colonna P (TAG Temporali);
+    A–N sono merge verticali per Title, con bordo rosso pastello per card.
     Colonna K (InizioLavorazione(GG)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
-    L (Totale Waiting): somma giornate dei tag "# Waiting -" in colonna O.
-    M (Totale Lavorazione): somma giornate dei tag "# Working -" in colonna O;
+    L (Totale Waiting): somma giornate dei tag "# Waiting -" in colonna P.
+    M (Totale Lavorazione): somma giornate dei tag "# Working -" in colonna P;
     sfondo per % Working su Estimate.
-    N (Fix time): somma giornate dei tag "# Fix -" in colonna O.
+    N (Fix time): somma giornate dei tag "# Fix" in colonna P.
+    O (Giorni): giornate lavorative per riga tag. P (TAG Temporali): testo del tag per riga.
     Colonna G (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
     Giornate lavorative (lun-ven); nei tag a due date inizio incluso, fine esclusa;
     se manca la 2ª data si usa oggi (incluso), eccetto tag Done.
@@ -102,6 +103,7 @@ KANBAN_COLUMNS = [
     "Tags",
 ]
 FIX_TIME_COL = "Fix time"
+GIORNI_COL = "Giorni"
 TAG_TEMPORALI_COL = "TAG Temporali"
 INIZIO_LAVORAZIONE_COL = "InizioLavorazione(GG)"
 INIZIO_ATTIVITA_K_COL = "InizioLavorazione(GG)"
@@ -121,7 +123,7 @@ STATUS_ESCLUSI_EXPORT = frozenset(
     }
 )
 STAT_SHEET = "stat"
-CENTER_COLS = {3, 4, 7, 10, 11, 12, 13, 14}  # C, D, G, J–N
+CENTER_COLS = {3, 4, 7, 10, 11, 12, 13, 14, 15}  # C, D, G, J–N, O
 COL_ESTIMATE = 7  # G — Estimate (confronto % con col. M)
 COL_TAGS_ORIG = 9  # I
 COL_INIZIO_LAVORAZIONE = 10  # J (vuota)
@@ -130,9 +132,9 @@ COL_TOTALE_WAITING = 12  # L
 COL_TOTALE_LAVORAZIONE = 13  # M
 COL_FIX_TIME = 14  # N
 COL_CARD_END = 14  # A–N: dati card (merge verticali per Title)
-COL_GIORNI = COL_FIX_TIME
-COL_TAG = 15  # O
-COL_LAST = 15
+COL_GIORNI = 15  # O
+COL_TAG = 16  # P
+COL_LAST = 16
 LEGENDA_COLONNE = [
     ("A–I", "", "dati card"),
     ("J", "", "non usata"),
@@ -144,20 +146,25 @@ LEGENDA_COLONNE = [
     (
         "L",
         TOTALE_WAITING_COL,
-        "somma giornate lavorative (lun-ven) dei tag '# Waiting -' in colonna O",
+        "somma giornate lavorative (lun-ven) dei tag '# Waiting -' in colonna P",
     ),
     (
         "M",
         TOTALE_LAVORAZIONE_COL,
-        "somma giornate lavorative (lun-ven) tag '# Working -' in colonna O; "
+        "somma giornate lavorative (lun-ven) tag '# Working -' in colonna P; "
         "sfondo M: (M/Estimate)×100 — ≤50% verde, 51–80% giallo, 81–100% rosso pastello, >100% rosso acceso",
     ),
     (
         "N",
         FIX_TIME_COL,
-        "somma giornate lavorative (lun-ven) dei tag '# Fix -' in colonna O",
+        "somma giornate lavorative (lun-ven) dei tag '# Fix -' in colonna P",
     ),
-    ("O", TAG_TEMPORALI_COL, "per riga tag"),
+    (
+        "O",
+        GIORNI_COL,
+        "giornate lavorative (lun-ven) per riga tag; due date: inizio incluso, fine esclusa",
+    ),
+    ("P", TAG_TEMPORALI_COL, "per riga tag"),
 ]
 LEGENDA_COMMENTO_COL = 3
 LEGENDA_COMMENTO_COL_FIN = 4
@@ -571,15 +578,18 @@ def espandi_card_con_tag(card):
             nuova[TOTALE_WAITING_COL] = None
             nuova[TOTALE_LAVORAZIONE_COL] = None
             nuova[FIX_TIME_COL] = None
+            nuova[GIORNI_COL] = None
             nuova[TAG_TEMPORALI_COL] = ""
             righe.append(nuova)
             continue
         for i, tag in enumerate(tag_list):
             valida_struttura_tag_due_date(tag, title=record.get("Title"))
+            tag_next = tag_list[i + 1] if i + 1 < len(tag_list) else None
             nuova = dict(nuova_base)
             nuova[TOTALE_WAITING_COL] = None
             nuova[TOTALE_LAVORAZIONE_COL] = None
             nuova[FIX_TIME_COL] = None
+            nuova[GIORNI_COL] = giorni_da_tag_temporale(tag, tag_next)
             nuova[TAG_TEMPORALI_COL] = tag
             righe.append(nuova)
     return righe
@@ -592,12 +602,13 @@ def colonne_output():
         TOTALE_WAITING_COL,
         TOTALE_LAVORAZIONE_COL,
         FIX_TIME_COL,
+        GIORNI_COL,
         TAG_TEMPORALI_COL,
     ]
 
 
 def somma_giorni_tag_gruppo(ws, start, end, matcher, data_oggi=None):
-    """Somma giornate lavorative per righe tag (col. O) che passano matcher."""
+    """Somma giornate lavorative per righe tag (col. P) che passano matcher."""
     if data_oggi is None:
         data_oggi = datetime.now().date()
     totale = 0.0
