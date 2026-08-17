@@ -22,9 +22,9 @@ Output:
     A–M sono merge verticali per Title, con bordo rosso pastello per card.
     Colonna K (InizioLavorazione(GG)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
     L (Totale Waiting): somma giornate dei tag "# Waiting -" in colonna O.
-    M (Totale Lavorazione): somma giornate dei tag "# Working -" e "# Fix -" in colonna O;
-    sfondo per % Working/Fix su Estimate.
-    N: vuota (nessun titolo). O: TAG Temporali.
+    M (Totale Lavorazione): somma giornate dei tag "# Working -" in colonna O;
+    sfondo per % Working su Estimate.
+    N (Fix time): somma giornate dei tag "# Fix -" in colonna O.
     Colonna G (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
     Giornate lavorative (lun-ven); nei tag a due date inizio incluso, fine esclusa;
     se manca la 2ª data si usa oggi (incluso), eccetto tag Done.
@@ -101,7 +101,7 @@ KANBAN_COLUMNS = [
     "Priority",
     "Tags",
 ]
-GIORNI_COL = "Giorni"
+FIX_TIME_COL = "Fix time"
 TAG_TEMPORALI_COL = "TAG Temporali"
 INIZIO_LAVORAZIONE_COL = "InizioLavorazione(GG)"
 INIZIO_ATTIVITA_K_COL = "InizioLavorazione(GG)"
@@ -121,15 +121,16 @@ STATUS_ESCLUSI_EXPORT = frozenset(
     }
 )
 STAT_SHEET = "stat"
-CENTER_COLS = {3, 4, 7, 10, 11, 12, 13}  # C, D, G, J, K, L, M
+CENTER_COLS = {3, 4, 7, 10, 11, 12, 13, 14}  # C, D, G, J–N
 COL_ESTIMATE = 7  # G — Estimate (confronto % con col. M)
 COL_TAGS_ORIG = 9  # I
 COL_INIZIO_LAVORAZIONE = 10  # J (vuota)
 COL_INIZIO_ATTIVITA_K = 11  # K
 COL_TOTALE_WAITING = 12  # L
 COL_TOTALE_LAVORAZIONE = 13  # M
-COL_CARD_END = 13  # A–M: dati card (merge verticali per Title)
-COL_GIORNI = 14  # N (vuota)
+COL_FIX_TIME = 14  # N
+COL_CARD_END = 14  # A–N: dati card (merge verticali per Title)
+COL_GIORNI = COL_FIX_TIME
 COL_TAG = 15  # O
 COL_LAST = 15
 LEGENDA_COLONNE = [
@@ -148,10 +149,14 @@ LEGENDA_COLONNE = [
     (
         "M",
         TOTALE_LAVORAZIONE_COL,
-        "somma giornate lavorative (lun-ven) tag '# Working -' e '# Fix -' in colonna O; "
+        "somma giornate lavorative (lun-ven) tag '# Working -' in colonna O; "
         "sfondo M: (M/Estimate)×100 — ≤50% verde, 51–80% giallo, 81–100% rosso pastello, >100% rosso acceso",
     ),
-    ("N", "", "vuota"),
+    (
+        "N",
+        FIX_TIME_COL,
+        "somma giornate lavorative (lun-ven) dei tag '# Fix -' in colonna O",
+    ),
     ("O", TAG_TEMPORALI_COL, "per riga tag"),
 ]
 LEGENDA_COMMENTO_COL = 3
@@ -192,7 +197,7 @@ WORKING_TAG_RE = re.compile(
     re.IGNORECASE,
 )
 FIX_TAG_RE = re.compile(
-    r"^#\s*Fix\s*-\s*",
+    r"^#\s*Fix\b",
     re.IGNORECASE,
 )
 TAG_DUE_DATE_PREFIXES = ("Working", "Waiting", "Assignee")
@@ -332,10 +337,6 @@ def is_tag_fix(tag):
     if not tag:
         return False
     return bool(FIX_TAG_RE.match(str(tag).strip()))
-
-
-def is_tag_working_o_fix(tag):
-    return is_tag_working(tag) or is_tag_fix(tag)
 
 
 def estrai_estimate_da_description(description):
@@ -569,7 +570,7 @@ def espandi_card_con_tag(card):
             nuova = dict(nuova_base)
             nuova[TOTALE_WAITING_COL] = None
             nuova[TOTALE_LAVORAZIONE_COL] = None
-            nuova[GIORNI_COL] = None
+            nuova[FIX_TIME_COL] = None
             nuova[TAG_TEMPORALI_COL] = ""
             righe.append(nuova)
             continue
@@ -578,7 +579,7 @@ def espandi_card_con_tag(card):
             nuova = dict(nuova_base)
             nuova[TOTALE_WAITING_COL] = None
             nuova[TOTALE_LAVORAZIONE_COL] = None
-            nuova[GIORNI_COL] = None
+            nuova[FIX_TIME_COL] = None
             nuova[TAG_TEMPORALI_COL] = tag
             righe.append(nuova)
     return righe
@@ -590,7 +591,7 @@ def colonne_output():
         INIZIO_ATTIVITA_K_COL,
         TOTALE_WAITING_COL,
         TOTALE_LAVORAZIONE_COL,
-        GIORNI_COL,
+        FIX_TIME_COL,
         TAG_TEMPORALI_COL,
     ]
 
@@ -654,12 +655,15 @@ def applica_totali_gruppo(ws, start, end):
     cella_wait.alignment = center
     applica_colore_totale_waiting(cella_wait)
 
-    tot_lavorazione = somma_giorni_tag_gruppo(
-        ws, start, end, is_tag_working_o_fix
-    )
+    tot_lavorazione = somma_giorni_tag_gruppo(ws, start, end, is_tag_working)
     cella_lav = ws.cell(row=start, column=COL_TOTALE_LAVORAZIONE)
     cella_lav.value = tot_lavorazione
     cella_lav.alignment = center
+
+    tot_fix = somma_giorni_tag_gruppo(ws, start, end, is_tag_fix)
+    cella_fix = ws.cell(row=start, column=COL_FIX_TIME)
+    cella_fix.value = tot_fix
+    cella_fix.alignment = center
 
     estimate = parse_numero(ws.cell(row=start, column=COL_ESTIMATE).value)
     applica_colore_colonna_m(cella_lav, estimate, tot_lavorazione)
@@ -902,7 +906,7 @@ def formatta_foglio_dati(ws):
     ws.cell(row=1, column=COL_INIZIO_LAVORAZIONE).value = ""
     ws.cell(row=1, column=COL_TOTALE_WAITING).value = TOTALE_WAITING_COL
     ws.cell(row=1, column=COL_TOTALE_LAVORAZIONE).value = TOTALE_LAVORAZIONE_COL
-    ws.cell(row=1, column=COL_GIORNI).value = ""
+    ws.cell(row=1, column=COL_FIX_TIME).value = FIX_TIME_COL
     gruppi = formatta_foglio_card(ws)
     aggiungi_footer_data(ws, gruppi)
     return gruppi
