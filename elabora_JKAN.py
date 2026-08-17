@@ -18,14 +18,14 @@ Output:
     Fogli: data-all (tutte le card), data-export (export ridotto), stat.
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
     <input>.html — report Scrum/Kanban (stesso percorso del .xlsx prodotto).
-    Le righe Description con prefisso "#" generano sotto-righe da colonna Q (TAG Temporali);
-    A–O sono merge verticali per Title, con bordo rosso pastello per card.
-    K (InizioLavorazione(GG)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
-    L (Totale Waiting): somma giornate tag "# Waiting -"; sfondo giallo se valorizzato.
-    M (Totale Lavorazione): somma tag "# Working -"; sfondo per % su Estimate (col. G).
-    N (Rework time): somma col. P (Giorni) per tag "# Rework" in col. Q.
-    O (Fix time): somma giornate tag "# Fix" in col. Q.
-    P (Giorni): giornate per riga tag. Q (TAG Temporali): testo del tag per riga.
+    Le righe Description con prefisso "#" generano sotto-righe da colonna P (TAG Temporali);
+    A–N sono merge verticali per Title, con bordo rosso pastello per card.
+    J (InizioLavorazione(GG)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
+    K (Totale Waiting): somma giornate tag "# Waiting -" in col. P.
+    L (Totale Lavorazione): somma tag "# Working -"; sfondo per % su Estimate (col. G).
+    M (Rework time): somma col. O (Giorni) per tag "# Rework" in col. P.
+    N (Fix time): somma giornate tag "# Fix" in col. P.
+    O (Giorni): giornate per riga tag. P (TAG Temporali): testo del tag per riga.
     Colonna G (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
     Giornate lavorative (lun-ven); nei tag a due date inizio incluso, fine esclusa;
     se manca la 2ª data si usa oggi (incluso), eccetto tag Done.
@@ -107,7 +107,6 @@ FIX_TIME_COL = "Fix time"
 GIORNI_COL = "Giorni"
 TAG_TEMPORALI_COL = "TAG Temporali"
 INIZIO_LAVORAZIONE_COL = "InizioLavorazione(GG)"
-INIZIO_ATTIVITA_K_COL = "InizioLavorazione(GG)"
 TOTALE_WAITING_COL = "Totale Waiting"
 TOTALE_LAVORAZIONE_COL = "Totale Lavorazione"
 REWORK_TIME_COL = "Rework time"
@@ -125,54 +124,52 @@ STATUS_ESCLUSI_EXPORT = frozenset(
     }
 )
 STAT_SHEET = "stat"
-CENTER_COLS = {3, 4, 7, 10, 11, 12, 13, 14, 15, 16}  # C, D, G, J–P
-COL_ESTIMATE = 7  # G — Estimate (confronto % con col. M)
+CENTER_COLS = {3, 4, 7, 10, 11, 12, 13, 14, 15, 16}  # C, D, G, J–O
+COL_ESTIMATE = 7  # G — Estimate (confronto % con col. L)
 COL_TAGS_ORIG = 9  # I
-COL_INIZIO_LAVORAZIONE = 10  # J (vuota)
-COL_INIZIO_ATTIVITA_K = 11  # K
-COL_TOTALE_WAITING = 12  # L
-COL_TOTALE_LAVORAZIONE = 13  # M
-COL_REWORK_TIME = 14  # N
-COL_FIX_TIME = 15  # O
-COL_CARD_END = 15  # A–O: dati card (merge verticali per Title)
-COL_GIORNI = 16  # P
-COL_TAG = 17  # Q
-COL_LAST = 17
+COL_INIZIO_LAVORAZIONE = 10  # J
+COL_TOTALE_WAITING = 11  # K
+COL_TOTALE_LAVORAZIONE = 12  # L
+COL_REWORK_TIME = 13  # M
+COL_FIX_TIME = 14  # N
+COL_CARD_END = 14  # A–N: dati card (merge verticali per Title)
+COL_GIORNI = 15  # O
+COL_TAG = 16  # P
+COL_LAST = 16
 LEGENDA_COLONNE = [
     ("A–I", "", "dati card"),
-    ("J", "", "non usata"),
     (
-        "K",
-        INIZIO_ATTIVITA_K_COL,
+        "J",
+        INIZIO_LAVORAZIONE_COL,
         "giornate lavorative (lun-ven) dal tag '# Inizio Attivita' - <data>' a oggi",
     ),
     (
-        "L",
+        "K",
         TOTALE_WAITING_COL,
-        "somma giornate lavorative (lun-ven) dei tag '# Waiting -' in colonna Q",
+        "somma giornate lavorative (lun-ven) dei tag '# Waiting -' in colonna P",
+    ),
+    (
+        "L",
+        TOTALE_LAVORAZIONE_COL,
+        "somma giornate lavorative (lun-ven) tag '# Working -' in colonna P; "
+        "sfondo L: (L/Estimate)×100 — ≤50% verde, 51–80% giallo, 81–100% rosso pastello, >100% rosso acceso",
     ),
     (
         "M",
-        TOTALE_LAVORAZIONE_COL,
-        "somma giornate lavorative (lun-ven) tag '# Working -' in colonna Q; "
-        "sfondo M: (M/Estimate)×100 — ≤50% verde, 51–80% giallo, 81–100% rosso pastello, >100% rosso acceso",
+        REWORK_TIME_COL,
+        "somma colonna O (Giorni) per righe con tag '# Rework' in colonna P",
     ),
     (
         "N",
-        REWORK_TIME_COL,
-        "somma colonna P (Giorni) per righe con tag '# Rework' in colonna Q",
+        FIX_TIME_COL,
+        "somma giornate lavorative (lun-ven) dei tag '# Fix' in colonna P",
     ),
     (
         "O",
-        FIX_TIME_COL,
-        "somma giornate lavorative (lun-ven) dei tag '# Fix' in colonna Q",
-    ),
-    (
-        "P",
         GIORNI_COL,
         "giornate lavorative (lun-ven) per riga tag; due date: inizio incluso, fine esclusa",
     ),
-    ("Q", TAG_TEMPORALI_COL, "per riga tag"),
+    ("P", TAG_TEMPORALI_COL, "per riga tag"),
 ]
 LEGENDA_COMMENTO_COL = 3
 LEGENDA_COMMENTO_COL_FIN = 4
@@ -582,9 +579,9 @@ def espandi_card_con_tag(card):
             nuova_base["Estimate"] = estimate_csv
         else:
             nuova_base["Estimate"] = ""
-        nuova_base[INIZIO_LAVORAZIONE_COL] = None
-        inizio_k = giorni_da_inizio_attivita(record.get("Description", ""))
-        nuova_base[INIZIO_ATTIVITA_K_COL] = inizio_k
+        nuova_base[INIZIO_LAVORAZIONE_COL] = giorni_da_inizio_attivita(
+            record.get("Description", "")
+        )
 
         tag_list = [
             tag
@@ -618,7 +615,6 @@ def espandi_card_con_tag(card):
 def colonne_output():
     return KANBAN_COLUMNS + [
         INIZIO_LAVORAZIONE_COL,
-        INIZIO_ATTIVITA_K_COL,
         TOTALE_WAITING_COL,
         TOTALE_LAVORAZIONE_COL,
         REWORK_TIME_COL,
@@ -629,7 +625,7 @@ def colonne_output():
 
 
 def somma_giorni_tag_gruppo(ws, start, end, matcher, data_oggi=None):
-    """Somma giornate lavorative per righe tag (col. Q) che passano matcher."""
+    """Somma giornate lavorative per righe tag (col. P) che passano matcher."""
     if data_oggi is None:
         data_oggi = datetime.now().date()
     totale = 0.0
@@ -649,7 +645,7 @@ def somma_giorni_tag_gruppo(ws, start, end, matcher, data_oggi=None):
 
 
 def somma_colonna_giorni_filtrata(ws, start, end, matcher):
-    """Somma colonna P (Giorni) per righe il cui tag (col. Q) passa matcher."""
+    """Somma colonna O (Giorni) per righe il cui tag (col. P) passa matcher."""
     totale = 0.0
     ha_valori = False
     for row in range(start, end + 1):
@@ -714,8 +710,8 @@ def applica_totali_gruppo(ws, start, end):
     estimate = parse_numero(ws.cell(row=start, column=COL_ESTIMATE).value)
     applica_colore_colonna_m(cella_lav, estimate, tot_lavorazione)
 
-    cella_k = ws.cell(row=start, column=COL_INIZIO_ATTIVITA_K)
-    cella_k.alignment = center
+    cella_inizio = ws.cell(row=start, column=COL_INIZIO_LAVORAZIONE)
+    cella_inizio.alignment = center
 
 
 def gruppi_righe_per_title(ws):
@@ -956,7 +952,7 @@ def crea_foglio_stat(wb, riepilogo):
 
 
 def formatta_foglio_dati(ws):
-    ws.cell(row=1, column=COL_INIZIO_LAVORAZIONE).value = ""
+    ws.cell(row=1, column=COL_INIZIO_LAVORAZIONE).value = INIZIO_LAVORAZIONE_COL
     ws.cell(row=1, column=COL_TOTALE_WAITING).value = TOTALE_WAITING_COL
     ws.cell(row=1, column=COL_TOTALE_LAVORAZIONE).value = TOTALE_LAVORAZIONE_COL
     ws.cell(row=1, column=COL_REWORK_TIME).value = REWORK_TIME_COL
@@ -1075,16 +1071,45 @@ def conteggio_card_new_to_be_verified(card):
 
 
 def riepilogo_acronimi_scope(card):
-    """Target, concordati (scope Kanban), in verifica e gap da target."""
+    """Target, concordati (scope Kanban), in verifica, gap e liste acronimi per verifica."""
     conteggi, _ = conteggio_per_colonna_kanban(card)
+    concordati_list = []
+    in_verifica_list = []
+    non_mappati_list = []
+    tutti_board = []
+    per_colonna = {col: [] for col in KANBAN_SNAPSHOT_COLS}
+
+    for record in card:
+        title = normalizza_testo(record.get("Title", "")) or "(senza title)"
+        tutti_board.append(title)
+        status = record.get("Status", "")
+        if is_status_new_to_be_verified(status):
+            in_verifica_list.append(title)
+        colonna = classifica_colonna_kanban(
+            status,
+            record.get("Description", ""),
+        )
+        if colonna in KANBAN_SNAPSHOT_COLS:
+            concordati_list.append(title)
+            per_colonna[colonna].append(title)
+        elif colonna is None:
+            non_mappati_list.append(title)
+
     concordati = int(sum(conteggi[col] for col in KANBAN_SNAPSHOT_COLS))
-    in_verifica = conteggio_card_new_to_be_verified(card)
+    in_verifica = len(set(in_verifica_list))
     target = SCOPE_TOTALE_CARD
     return {
         "target": target,
         "concordati": concordati,
         "in_verifica": in_verifica,
         "da_aggiungere": target - concordati,
+        "acronimi_tutti_board": sorted(set(tutti_board)),
+        "acronimi_concordati": sorted(set(concordati_list)),
+        "acronimi_in_verifica": sorted(set(in_verifica_list)),
+        "acronimi_non_mappati": sorted(set(non_mappati_list)),
+        "acronimi_per_colonna": {
+            col: sorted(set(per_colonna[col])) for col in KANBAN_SNAPSHOT_COLS
+        },
     }
 
 
@@ -1233,6 +1258,26 @@ def _html_griglia_colonne_kanban():
     return "\n".join(cards)
 
 
+def _html_lista_acronimi(acronimi):
+    """Lista HTML degli acronimi (Title card) per verifica KPI."""
+    if not acronimi:
+        return "<em>nessuno</em>"
+    items = "".join(f"<li>{html.escape(t)}</li>" for t in acronimi)
+    return f'<ul class="acronimi-list">{items}</ul>'
+
+
+def _html_dettaglio_per_colonna(per_colonna):
+    """Breakdown acronimi concordati per colonna Kanban."""
+    parti = []
+    for col in KANBAN_SNAPSHOT_COLS:
+        acronimi = per_colonna.get(col, [])
+        label = html.escape(KANBAN_DISPLAY_LABELS[col])
+        n = len(acronimi)
+        lista = _html_lista_acronimi(acronimi)
+        parti.append(f"<strong>{label} ({n})</strong>{lista}")
+    return "".join(parti)
+
+
 def _testo_colonne_kanban_concordati():
     """Etichette display delle colonne Kanban sommate in Acronimi concordati."""
     return ", ".join(KANBAN_DISPLAY_LABELS[col] for col in KANBAN_SNAPSHOT_COLS)
@@ -1243,32 +1288,53 @@ def _html_kpi_acronimi(riepilogo):
     if not riepilogo:
         return ""
     colonne = html.escape(_testo_colonne_kanban_concordati())
-    righe = [
+    tutti = riepilogo.get("acronimi_tutti_board", [])
+    concordati = riepilogo.get("acronimi_concordati", [])
+    in_verifica = riepilogo.get("acronimi_in_verifica", [])
+    non_mappati = riepilogo.get("acronimi_non_mappati", [])
+    per_colonna = riepilogo.get("acronimi_per_colonna", {})
+
+    dettagli = [
         (
             "Acronimi target",
             riepilogo["target"],
-            "Valore cablato di progetto",
+            (
+                f"Valore cablato di progetto · card sul board ({len(tutti)}):"
+                f"{_html_lista_acronimi(tutti)}"
+            ),
         ),
         (
             "Acronimi concordati",
             riepilogo["concordati"],
-            f"Somma colonne Kanban: {colonne}",
+            (
+                f"Somma colonne Kanban: {colonne}<br>"
+                f"Acronimi ({len(concordati)}):"
+                f"{_html_dettaglio_per_colonna(per_colonna)}"
+            ),
         ),
         (
             "Acronimi in verifica",
             riepilogo["in_verifica"],
-            "Status: new - to be verified",
+            (
+                "Status: new - to be verified<br>"
+                f"Acronimi ({len(in_verifica)}):"
+                f"{_html_lista_acronimi(in_verifica)}"
+            ),
         ),
         (
             "Da aggiungere",
             riepilogo["da_aggiungere"],
-            f"Target − concordati (colonne: {colonne})",
+            (
+                f"Target − concordati (colonne: {colonne})<br>"
+                f"Non mappati nel scope Kanban ({len(non_mappati)}):"
+                f"{_html_lista_acronimi(non_mappati)}"
+            ),
         ),
     ]
     return "\n".join(
         f'    <div class="kpi"><b>{val}</b>'
         f'<span>{html.escape(label)}<br><small>{dettaglio}</small></span></div>'
-        for label, val, dettaglio in righe
+        for label, val, dettaglio in dettagli
     )
 
 
@@ -1364,6 +1430,16 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronim
     .kpi b {{ display: block; font-size: 1.5rem; color: var(--accent); }}
     .kpi span {{ font-size: .85rem; color: var(--muted); }}
     .kpi span small {{ display: block; margin-top: .35rem; font-size: .78rem; line-height: 1.35; color: var(--muted); }}
+    .kpis-acronimi {{
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }}
+    .kpis-acronimi .kpi span small {{
+      max-height: 14rem; overflow-y: auto;
+    }}
+    .acronimi-list {{
+      margin: .25rem 0 0; padding-left: 1.1rem; font-size: .74rem;
+    }}
+    .acronimi-list li {{ margin-bottom: .15rem; }}
     section {{
       background: var(--card); border: 1px solid var(--border);
       border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.25rem;
@@ -1404,7 +1480,7 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronim
   <section id="acronimi-scope">
     <h2>Riepilogo acronimi</h2>
     <p class="sub">Snapshot corrente: target di progetto, scope concordato sul board Kanban, card in verifica e gap residuo.</p>
-    <div class="kpis">
+    <div class="kpis kpis-acronimi">
 {kpi_acronimi_html}
     </div>
   </section>
