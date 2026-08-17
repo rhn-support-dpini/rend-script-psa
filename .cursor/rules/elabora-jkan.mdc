@@ -25,13 +25,14 @@ Fogli: `data-all` (principale, tutte le card), `data-export` (export ridotto), `
 | A–I | campi card CSV | merge verticali per Title |
 | J | (vuota) | non usata |
 | K | InizioLavorazione(GG) | giornate lavorative (lun-ven) dal tag `# Inizio Attivita' - <data>` a oggi |
-| L | Totale Waiting | somma giornate dei tag `# Waiting -` in colonna P; sfondo giallo se valorizzato |
-| M | Totale Lavorazione | somma giornate dei tag `# Working -` in colonna P; sfondo per (M/Estimate)×100: ≤50% verde, 51–80% giallo, 81–100% rosso pastello, >100% rosso acceso (Estimate in col. G) |
-| N | Fix time | somma giornate dei tag `# Fix -` in colonna P |
-| O | Giorni | giornate lavorative (lun-ven) per riga tag; due date: inizio incluso, fine esclusa |
-| P | TAG Temporali | testo del tag `#` della riga |
+| L | Totale Waiting | somma giornate `# Waiting -` in col. Q; titolo legenda include N card con valore |
+| M | Totale Lavorazione | somma `# Working -` in col. Q; sfondo (M/Estimate)×100 |
+| N | Rework time | somma col. P (Giorni) per tag `# Rework` in col. Q |
+| O | Fix time | somma giornate `# Fix` in col. Q |
+| P | Giorni | giornate lavorative per riga tag |
+| Q | TAG Temporali | testo del tag `#` della riga |
 
-Righe Description con `#` generano sotto-righe da colonna P; colonna O con i giorni per singolo tag. Colonne A–N: merge verticali + bordo rosso pastello per card.
+Righe `#` in Description → sotto-righe col. Q; col. P con giorni per tag. Colonne A–O: merge verticali + bordo rosso pastello per card.
 
 Foglio `data-export`: una riga per card, colonne A (Title), B (Status), C (Start Date), D (End Date), E (Tags); esclusi Status `Attività nuove`, `Attività in Backlog`, `Attività in Progress`, `Attività Complete`, `Attività Abbandonate`. Celle centrificate; bordo blu per riga e divisori blu chiaro tra colonne; sfondo per Status su A–E.
 
@@ -43,15 +44,16 @@ Colonna G (Estimate): valore dal tag `# Estimate` in Description, non dal CSV.
 - Scope tracciato = somma delle sei colonne; target progetto = 30 card (`SCOPE_TOTALE_CARD`).
 - Done = solo colonna Acronimi done. WIP = in progress + waiting for fab. + Fab test in progress.
 - Status mappati con `classifica_colonna_kanban()`: waiting for fab. distinto da Under analysis (Attesa test/fab in Status, Description o ultimo tag).
-- Report HTML: omonimo del `.xlsx` prodotto (`percorso_html_da_xlsx()`); CFD, evoluzione colonne Kanban, pipeline Scrum, burnup, barre impilate, WIP, velocità; asse X data + settimana ISO. Chart.js via CDN.
+- Report HTML: omonimo del `.xlsx` prodotto; include tabella colonne foglio `data-all`, CFD, evoluzione colonne Kanban, pipeline Scrum, burnup, barre impilate, WIP, velocità; Chart.js via CDN.
 
 ## Tag temporali (prefissi esatti)
 
 - `# Estimate` — escluso dall'espansione righe; valorizza solo col. G
 - `# Inizio Attivita' - <data>` — valorizza col. K (regex: `^#\s*Inizio\s+Attivit[aà]'?\s*-\s*`)
-- `# Waiting - <data>` — contribuisce a col. L (somma giornate in col. P)
-- `# Working -` — contribuisce a col. M (somma giornate in col. P)
-- `# Fix -` — contribuisce a col. N Fix time (somma giornate in col. P)
+- `# Waiting - <data>` — contribuisce a col. L (somma giornate in col. Q)
+- `# Working -` — contribuisce a col. M (somma giornate in col. Q)
+- `# Rework` — contribuisce a col. N Rework time (somma col. P Giorni)
+- `# Fix` — contribuisce a col. O Fix time (somma giornate in col. Q)
 
 Date supportate: `dd/mm/yyyy`, `dd/mm/yy`, `yyyy-mm-dd`.
 
@@ -59,7 +61,7 @@ Date supportate: `dd/mm/yyyy`, `dd/mm/yy`, `yyyy-mm-dd`.
 
 Aggiornare sempre insieme: costanti `COL_*`, `COL_CARD_END`, `COL_LAST`, `CENTER_COLS`, `colonne_output()`, `LEGENDA_COLONNE`, docstring iniziale.
 
-Colori esistenti: giallo pastello su L; col. M vs Estimate (G): ≤50% verde, 51–80% giallo, 81–100% rosso pastello, >100% rosso acceso.
+Colori esistenti: col. M vs Estimate (G). Report HTML: tabella acronimi (target/concordati/in verifica/da aggiungere).
 
 ## Commit
 

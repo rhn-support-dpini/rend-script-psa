@@ -18,14 +18,14 @@ Output:
     Fogli: data-all (tutte le card), data-export (export ridotto), stat.
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
     <input>.html — report Scrum/Kanban (stesso percorso del .xlsx prodotto).
-    Le righe Description con prefisso "#" generano sotto-righe da colonna P (TAG Temporali);
-    A–N sono merge verticali per Title, con bordo rosso pastello per card.
-    Colonna K (InizioLavorazione(GG)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
-    L (Totale Waiting): somma giornate dei tag "# Waiting -" in colonna P.
-    M (Totale Lavorazione): somma giornate dei tag "# Working -" in colonna P;
-    sfondo per % Working su Estimate.
-    N (Fix time): somma giornate dei tag "# Fix" in colonna P.
-    O (Giorni): giornate lavorative per riga tag. P (TAG Temporali): testo del tag per riga.
+    Le righe Description con prefisso "#" generano sotto-righe da colonna Q (TAG Temporali);
+    A–O sono merge verticali per Title, con bordo rosso pastello per card.
+    K (InizioLavorazione(GG)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
+    L (Totale Waiting): somma giornate tag "# Waiting -"; sfondo giallo se valorizzato.
+    M (Totale Lavorazione): somma tag "# Working -"; sfondo per % su Estimate (col. G).
+    N (Rework time): somma col. P (Giorni) per tag "# Rework" in col. Q.
+    O (Fix time): somma giornate tag "# Fix" in col. Q.
+    P (Giorni): giornate per riga tag. Q (TAG Temporali): testo del tag per riga.
     Colonna G (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
     Giornate lavorative (lun-ven); nei tag a due date inizio incluso, fine esclusa;
     se manca la 2ª data si usa oggi (incluso), eccetto tag Done.
@@ -33,6 +33,7 @@ Output:
 
 import argparse
 import csv
+import html
 import json
 import os
 import re
@@ -109,6 +110,7 @@ INIZIO_LAVORAZIONE_COL = "InizioLavorazione(GG)"
 INIZIO_ATTIVITA_K_COL = "InizioLavorazione(GG)"
 TOTALE_WAITING_COL = "Totale Waiting"
 TOTALE_LAVORAZIONE_COL = "Totale Lavorazione"
+REWORK_TIME_COL = "Rework time"
 OUTPUT_SHEET = "data-all"
 DATA_EXPORT_SHEET = "data-export"
 COLONNE_EXPORT = ["Title", "Status", "Start Date", "End Date", "Tags"]
@@ -123,18 +125,19 @@ STATUS_ESCLUSI_EXPORT = frozenset(
     }
 )
 STAT_SHEET = "stat"
-CENTER_COLS = {3, 4, 7, 10, 11, 12, 13, 14, 15}  # C, D, G, J–N, O
+CENTER_COLS = {3, 4, 7, 10, 11, 12, 13, 14, 15, 16}  # C, D, G, J–P
 COL_ESTIMATE = 7  # G — Estimate (confronto % con col. M)
 COL_TAGS_ORIG = 9  # I
 COL_INIZIO_LAVORAZIONE = 10  # J (vuota)
 COL_INIZIO_ATTIVITA_K = 11  # K
 COL_TOTALE_WAITING = 12  # L
 COL_TOTALE_LAVORAZIONE = 13  # M
-COL_FIX_TIME = 14  # N
-COL_CARD_END = 14  # A–N: dati card (merge verticali per Title)
-COL_GIORNI = 15  # O
-COL_TAG = 16  # P
-COL_LAST = 16
+COL_REWORK_TIME = 14  # N
+COL_FIX_TIME = 15  # O
+COL_CARD_END = 15  # A–O: dati card (merge verticali per Title)
+COL_GIORNI = 16  # P
+COL_TAG = 17  # Q
+COL_LAST = 17
 LEGENDA_COLONNE = [
     ("A–I", "", "dati card"),
     ("J", "", "non usata"),
@@ -146,25 +149,30 @@ LEGENDA_COLONNE = [
     (
         "L",
         TOTALE_WAITING_COL,
-        "somma giornate lavorative (lun-ven) dei tag '# Waiting -' in colonna P",
+        "somma giornate lavorative (lun-ven) dei tag '# Waiting -' in colonna Q",
     ),
     (
         "M",
         TOTALE_LAVORAZIONE_COL,
-        "somma giornate lavorative (lun-ven) tag '# Working -' in colonna P; "
+        "somma giornate lavorative (lun-ven) tag '# Working -' in colonna Q; "
         "sfondo M: (M/Estimate)×100 — ≤50% verde, 51–80% giallo, 81–100% rosso pastello, >100% rosso acceso",
     ),
     (
         "N",
-        FIX_TIME_COL,
-        "somma giornate lavorative (lun-ven) dei tag '# Fix -' in colonna P",
+        REWORK_TIME_COL,
+        "somma colonna P (Giorni) per righe con tag '# Rework' in colonna Q",
     ),
     (
         "O",
+        FIX_TIME_COL,
+        "somma giornate lavorative (lun-ven) dei tag '# Fix' in colonna Q",
+    ),
+    (
+        "P",
         GIORNI_COL,
         "giornate lavorative (lun-ven) per riga tag; due date: inizio incluso, fine esclusa",
     ),
-    ("P", TAG_TEMPORALI_COL, "per riga tag"),
+    ("Q", TAG_TEMPORALI_COL, "per riga tag"),
 ]
 LEGENDA_COMMENTO_COL = 3
 LEGENDA_COMMENTO_COL_FIN = 4
@@ -205,6 +213,10 @@ WORKING_TAG_RE = re.compile(
 )
 FIX_TAG_RE = re.compile(
     r"^#\s*Fix\b",
+    re.IGNORECASE,
+)
+REWORK_TAG_RE = re.compile(
+    r"^#\s*Rework\b",
     re.IGNORECASE,
 )
 TAG_DUE_DATE_PREFIXES = ("Working", "Waiting", "Assignee")
@@ -344,6 +356,12 @@ def is_tag_fix(tag):
     if not tag:
         return False
     return bool(FIX_TAG_RE.match(str(tag).strip()))
+
+
+def is_tag_rework(tag):
+    if not tag:
+        return False
+    return bool(REWORK_TAG_RE.match(str(tag).strip()))
 
 
 def estrai_estimate_da_description(description):
@@ -577,6 +595,7 @@ def espandi_card_con_tag(card):
             nuova = dict(nuova_base)
             nuova[TOTALE_WAITING_COL] = None
             nuova[TOTALE_LAVORAZIONE_COL] = None
+            nuova[REWORK_TIME_COL] = None
             nuova[FIX_TIME_COL] = None
             nuova[GIORNI_COL] = None
             nuova[TAG_TEMPORALI_COL] = ""
@@ -588,6 +607,7 @@ def espandi_card_con_tag(card):
             nuova = dict(nuova_base)
             nuova[TOTALE_WAITING_COL] = None
             nuova[TOTALE_LAVORAZIONE_COL] = None
+            nuova[REWORK_TIME_COL] = None
             nuova[FIX_TIME_COL] = None
             nuova[GIORNI_COL] = giorni_da_tag_temporale(tag, tag_next)
             nuova[TAG_TEMPORALI_COL] = tag
@@ -601,6 +621,7 @@ def colonne_output():
         INIZIO_ATTIVITA_K_COL,
         TOTALE_WAITING_COL,
         TOTALE_LAVORAZIONE_COL,
+        REWORK_TIME_COL,
         FIX_TIME_COL,
         GIORNI_COL,
         TAG_TEMPORALI_COL,
@@ -608,7 +629,7 @@ def colonne_output():
 
 
 def somma_giorni_tag_gruppo(ws, start, end, matcher, data_oggi=None):
-    """Somma giornate lavorative per righe tag (col. P) che passano matcher."""
+    """Somma giornate lavorative per righe tag (col. Q) che passano matcher."""
     if data_oggi is None:
         data_oggi = datetime.now().date()
     totale = 0.0
@@ -623,6 +644,21 @@ def somma_giorni_tag_gruppo(ws, start, end, matcher, data_oggi=None):
         giorni = giorni_da_tag_temporale(tag, tag_next, data_oggi=data_oggi)
         if giorni is not None:
             totale += giorni
+            ha_valori = True
+    return totale if ha_valori else None
+
+
+def somma_colonna_giorni_filtrata(ws, start, end, matcher):
+    """Somma colonna P (Giorni) per righe il cui tag (col. Q) passa matcher."""
+    totale = 0.0
+    ha_valori = False
+    for row in range(start, end + 1):
+        tag = ws.cell(row=row, column=COL_TAG).value
+        if not matcher(tag):
+            continue
+        val = parse_numero(ws.cell(row=row, column=COL_GIORNI).value)
+        if val is not None:
+            totale += val
             ha_valori = True
     return totale if ha_valori else None
 
@@ -652,11 +688,6 @@ def applica_colore_colonna_m(cella, estimate, totale_lavorazione):
         cella.fill = BRIGHT_RED_FILL
 
 
-def applica_colore_totale_waiting(cella):
-    if parse_numero(cella.value) is not None:
-        cella.fill = PASTEL_YELLOW_FILL
-
-
 def applica_totali_gruppo(ws, start, end):
     center = Alignment(horizontal="center", vertical="center")
 
@@ -664,12 +695,16 @@ def applica_totali_gruppo(ws, start, end):
     cella_wait = ws.cell(row=start, column=COL_TOTALE_WAITING)
     cella_wait.value = tot_waiting
     cella_wait.alignment = center
-    applica_colore_totale_waiting(cella_wait)
 
     tot_lavorazione = somma_giorni_tag_gruppo(ws, start, end, is_tag_working)
     cella_lav = ws.cell(row=start, column=COL_TOTALE_LAVORAZIONE)
     cella_lav.value = tot_lavorazione
     cella_lav.alignment = center
+
+    tot_rework = somma_colonna_giorni_filtrata(ws, start, end, is_tag_rework)
+    cella_rework = ws.cell(row=start, column=COL_REWORK_TIME)
+    cella_rework.value = tot_rework
+    cella_rework.alignment = center
 
     tot_fix = somma_giorni_tag_gruppo(ws, start, end, is_tag_fix)
     cella_fix = ws.cell(row=start, column=COL_FIX_TIME)
@@ -862,13 +897,14 @@ def aggiungi_footer_data(ws, gruppi):
         ws.cell(row=totals_row, column=COL_TOTALE_LAVORAZIONE).value = tot_lavorazione
         ws.cell(row=totals_row, column=COL_TOTALE_LAVORAZIONE).alignment = center
 
+    n_card_waiting = conteggio_card_totale_waiting(ws, gruppi)
     ws.cell(row=ts_row, column=1).value = datetime.now().strftime(
         "%d/%m/%Y %H:%M:%S"
     )
-    aggiungi_legenda_colonne(ws, legend_start)
+    aggiungi_legenda_colonne(ws, legend_start, n_card_totale_waiting=n_card_waiting)
 
 
-def aggiungi_legenda_colonne(ws, start_row):
+def aggiungi_legenda_colonne(ws, start_row, n_card_totale_waiting=None):
     """Legenda colonne: lettera, titolo, commento (C–D senza a capo in C)."""
     left = Alignment(vertical="center", wrap_text=False)
     center = Alignment(horizontal="center", vertical="center", wrap_text=False)
@@ -880,7 +916,13 @@ def aggiungi_legenda_colonne(ws, start_row):
         cell_lettera.alignment = center
 
         cell_titolo = ws.cell(row=row, column=2)
-        cell_titolo.value = titolo
+        if (
+            titolo == TOTALE_WAITING_COL
+            and n_card_totale_waiting is not None
+        ):
+            cell_titolo.value = f"{titolo} ({n_card_totale_waiting} card)"
+        else:
+            cell_titolo.value = titolo
         cell_titolo.alignment = left
 
         ws.merge_cells(
@@ -917,6 +959,7 @@ def formatta_foglio_dati(ws):
     ws.cell(row=1, column=COL_INIZIO_LAVORAZIONE).value = ""
     ws.cell(row=1, column=COL_TOTALE_WAITING).value = TOTALE_WAITING_COL
     ws.cell(row=1, column=COL_TOTALE_LAVORAZIONE).value = TOTALE_LAVORAZIONE_COL
+    ws.cell(row=1, column=COL_REWORK_TIME).value = REWORK_TIME_COL
     ws.cell(row=1, column=COL_FIX_TIME).value = FIX_TIME_COL
     gruppi = formatta_foglio_card(ws)
     aggiungi_footer_data(ws, gruppi)
@@ -1015,6 +1058,44 @@ def conteggio_per_colonna_kanban(card):
             continue
         conteggi[colonna] += 1
     return conteggi, non_mappate
+
+
+def is_status_new_to_be_verified(status):
+    return (
+        normalizza_testo(status, compatta_spazi=True).lower()
+        == "new - to be verified"
+    )
+
+
+def conteggio_card_new_to_be_verified(card):
+    return sum(
+        1 for record in card
+        if is_status_new_to_be_verified(record.get("Status", ""))
+    )
+
+
+def riepilogo_acronimi_scope(card):
+    """Target, concordati (scope Kanban), in verifica e gap da target."""
+    conteggi, _ = conteggio_per_colonna_kanban(card)
+    concordati = int(sum(conteggi[col] for col in KANBAN_SNAPSHOT_COLS))
+    in_verifica = conteggio_card_new_to_be_verified(card)
+    target = SCOPE_TOTALE_CARD
+    return {
+        "target": target,
+        "concordati": concordati,
+        "in_verifica": in_verifica,
+        "da_aggiungere": target - concordati,
+    }
+
+
+def conteggio_card_totale_waiting(ws, gruppi):
+    """Card con Totale Waiting (col. L) valorizzato."""
+    return sum(
+        1
+        for start, _end in gruppi
+        if parse_numero(ws.cell(row=start, column=COL_TOTALE_WAITING).value)
+        is not None
+    )
 
 
 def _migra_colonne_db_jkan(df):
@@ -1152,6 +1233,35 @@ def _html_griglia_colonne_kanban():
     return "\n".join(cards)
 
 
+def _html_tabella_colonne_data_all():
+    """Tabella HTML: colonne del foglio data-all (da LEGENDA_COLONNE)."""
+    rows = []
+    for lettera, titolo, descrizione in LEGENDA_COLONNE:
+        titolo_cell = html.escape(titolo) if titolo else "—"
+        desc_cell = html.escape(descrizione) if descrizione else "—"
+        rows.append(
+            f"<tr><td>{html.escape(lettera)}</td>"
+            f"<td>{titolo_cell}</td><td>{desc_cell}</td></tr>"
+        )
+    return "\n".join(rows)
+
+
+def _html_tabella_acronimi(riepilogo):
+    """Tabella HTML: target, concordati, in verifica, da aggiungere."""
+    if not riepilogo:
+        return ""
+    righe = [
+        ("Acronimi target", riepilogo["target"]),
+        ("Acronimi concordati", riepilogo["concordati"]),
+        ("Acronimi in verifica", riepilogo["in_verifica"]),
+        ("Da aggiungere", riepilogo["da_aggiungere"]),
+    ]
+    return "\n".join(
+        f"<tr><td>{html.escape(label)}</td><td>{val}</td></tr>"
+        for label, val in righe
+    )
+
+
 def _js_griglia_colonne_kanban():
     """JavaScript: grafici linea per singola colonna Kanban."""
     blocks = []
@@ -1178,7 +1288,7 @@ def _js_griglia_colonne_kanban():
     return "".join(blocks)
 
 
-def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
+def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronimi=None):
     """Genera report HTML Scrum/Kanban con burnup, CFD ed evoluzione colonne."""
     if df.empty:
         return
@@ -1187,6 +1297,8 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
     chart_json = json.dumps(dati, ensure_ascii=False)
     griglia_html = _html_griglia_colonne_kanban()
     js_colonne = _js_griglia_colonne_kanban()
+    tabella_colonne_html = _html_tabella_colonne_data_all()
+    tabella_acronimi_html = _html_tabella_acronimi(riepilogo_acronimi)
     thead_cols = "".join(
         f"<th>{KANBAN_DISPLAY_LABELS[col]}</th>" for col in KANBAN_SNAPSHOT_COLS
     )
@@ -1278,6 +1390,39 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None):
     <div class="kpi"><b>{done_ultimo}</b><span>Acronimi Done</span></div>
     <div class="kpi"><b>{len(df)}</b><span>Snapshot</span></div>
   </div>
+
+  <section id="colonne-data-all">
+    <h2>Colonne foglio data-all</h2>
+    <p class="sub">Titoli e descrizione delle colonne del file Excel generato (foglio <code>data-all</code>).</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Colonna</th>
+          <th>Titolo</th>
+          <th>Descrizione</th>
+        </tr>
+      </thead>
+      <tbody>
+        {tabella_colonne_html}
+      </tbody>
+    </table>
+  </section>
+
+  <section id="acronimi-scope">
+    <h2>Riepilogo acronimi</h2>
+    <p class="sub">Snapshot corrente: target di progetto, scope concordato sul board Kanban, card in verifica e gap residuo.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Voce</th>
+          <th>Valore</th>
+        </tr>
+      </thead>
+      <tbody>
+        {tabella_acronimi_html}
+      </tbody>
+    </table>
+  </section>
 
   <section id="cfd">
     <h2>Cumulative Flow Diagram (CFD)</h2>
@@ -1556,7 +1701,13 @@ def elabora(input_csv):
     conteggi, non_mappate = conteggio_per_colonna_kanban(card)
     df_storico = aggiorna_db_jkan(data_snapshot, conteggi)
     html_path = percorso_html_da_xlsx(output_path)
-    genera_html_jkan(df_storico, html_path, data_ultimo_snapshot=data_snapshot)
+    riepilogo_acronimi = riepilogo_acronimi_scope(card)
+    genera_html_jkan(
+        df_storico,
+        html_path,
+        data_ultimo_snapshot=data_snapshot,
+        riepilogo_acronimi=riepilogo_acronimi,
+    )
 
     righe_output = len(espandi_card_con_tag(card))
     print(f"Sezioni kanban: {sezioni}")
