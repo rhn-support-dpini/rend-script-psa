@@ -44,7 +44,7 @@ Colonna G (Estimate): valore dal tag `# Estimate` in Description, non dal CSV.
 - Scope tracciato = somma delle sei colonne; target progetto = 30 card (`SCOPE_TOTALE_CARD`).
 - Done = solo colonna Acronimi done. WIP = in progress + waiting for fab. + Fab test in progress.
 - Status mappati con `classifica_colonna_kanban()`: waiting for fab. distinto da Under analysis (Attesa test/fab in Status, Description o ultimo tag).
-- Report HTML: omonimo del `.xlsx` prodotto; include tabella colonne foglio `data-all`, CFD, evoluzione colonne Kanban, pipeline Scrum, burnup, barre impilate, WIP, velocità; Chart.js via CDN.
+- Report HTML: omonimo del `.xlsx` prodotto; KPI riepilogo acronimi (target/concordati/in verifica/da aggiungere); CFD, evoluzione colonne Kanban, pipeline Scrum, burnup, barre impilate, WIP, velocità; Chart.js via CDN.
 
 ## Tag temporali (prefissi esatti)
 
@@ -61,7 +61,7 @@ Date supportate: `dd/mm/yyyy`, `dd/mm/yy`, `yyyy-mm-dd`.
 
 Aggiornare sempre insieme: costanti `COL_*`, `COL_CARD_END`, `COL_LAST`, `CENTER_COLS`, `colonne_output()`, `LEGENDA_COLONNE`, docstring iniziale.
 
-Colori esistenti: col. M vs Estimate (G). Report HTML: tabella acronimi (target/concordati/in verifica/da aggiungere).
+Colori esistenti: col. M vs Estimate (G). Report HTML: KPI acronimi e grafici Kanban.
 
 ## Commit
 

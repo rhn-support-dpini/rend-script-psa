@@ -1233,32 +1233,42 @@ def _html_griglia_colonne_kanban():
     return "\n".join(cards)
 
 
-def _html_tabella_colonne_data_all():
-    """Tabella HTML: colonne del foglio data-all (da LEGENDA_COLONNE)."""
-    rows = []
-    for lettera, titolo, descrizione in LEGENDA_COLONNE:
-        titolo_cell = html.escape(titolo) if titolo else "—"
-        desc_cell = html.escape(descrizione) if descrizione else "—"
-        rows.append(
-            f"<tr><td>{html.escape(lettera)}</td>"
-            f"<td>{titolo_cell}</td><td>{desc_cell}</td></tr>"
-        )
-    return "\n".join(rows)
+def _testo_colonne_kanban_concordati():
+    """Etichette display delle colonne Kanban sommate in Acronimi concordati."""
+    return ", ".join(KANBAN_DISPLAY_LABELS[col] for col in KANBAN_SNAPSHOT_COLS)
 
 
-def _html_tabella_acronimi(riepilogo):
-    """Tabella HTML: target, concordati, in verifica, da aggiungere."""
+def _html_kpi_acronimi(riepilogo):
+    """Scatole KPI HTML: target, concordati, in verifica, da aggiungere."""
     if not riepilogo:
         return ""
+    colonne = html.escape(_testo_colonne_kanban_concordati())
     righe = [
-        ("Acronimi target", riepilogo["target"]),
-        ("Acronimi concordati", riepilogo["concordati"]),
-        ("Acronimi in verifica", riepilogo["in_verifica"]),
-        ("Da aggiungere", riepilogo["da_aggiungere"]),
+        (
+            "Acronimi target",
+            riepilogo["target"],
+            "Valore cablato di progetto",
+        ),
+        (
+            "Acronimi concordati",
+            riepilogo["concordati"],
+            f"Somma colonne Kanban: {colonne}",
+        ),
+        (
+            "Acronimi in verifica",
+            riepilogo["in_verifica"],
+            "Status: new - to be verified",
+        ),
+        (
+            "Da aggiungere",
+            riepilogo["da_aggiungere"],
+            f"Target − concordati (colonne: {colonne})",
+        ),
     ]
     return "\n".join(
-        f"<tr><td>{html.escape(label)}</td><td>{val}</td></tr>"
-        for label, val in righe
+        f'    <div class="kpi"><b>{val}</b>'
+        f'<span>{html.escape(label)}<br><small>{dettaglio}</small></span></div>'
+        for label, val, dettaglio in righe
     )
 
 
@@ -1297,8 +1307,7 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronim
     chart_json = json.dumps(dati, ensure_ascii=False)
     griglia_html = _html_griglia_colonne_kanban()
     js_colonne = _js_griglia_colonne_kanban()
-    tabella_colonne_html = _html_tabella_colonne_data_all()
-    tabella_acronimi_html = _html_tabella_acronimi(riepilogo_acronimi)
+    kpi_acronimi_html = _html_kpi_acronimi(riepilogo_acronimi)
     thead_cols = "".join(
         f"<th>{KANBAN_DISPLAY_LABELS[col]}</th>" for col in KANBAN_SNAPSHOT_COLS
     )
@@ -1354,6 +1363,7 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronim
     }}
     .kpi b {{ display: block; font-size: 1.5rem; color: var(--accent); }}
     .kpi span {{ font-size: .85rem; color: var(--muted); }}
+    .kpi span small {{ display: block; margin-top: .35rem; font-size: .78rem; line-height: 1.35; color: var(--muted); }}
     section {{
       background: var(--card); border: 1px solid var(--border);
       border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.25rem;
@@ -1391,37 +1401,12 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronim
     <div class="kpi"><b>{len(df)}</b><span>Snapshot</span></div>
   </div>
 
-  <section id="colonne-data-all">
-    <h2>Colonne foglio data-all</h2>
-    <p class="sub">Titoli e descrizione delle colonne del file Excel generato (foglio <code>data-all</code>).</p>
-    <table>
-      <thead>
-        <tr>
-          <th>Colonna</th>
-          <th>Titolo</th>
-          <th>Descrizione</th>
-        </tr>
-      </thead>
-      <tbody>
-        {tabella_colonne_html}
-      </tbody>
-    </table>
-  </section>
-
   <section id="acronimi-scope">
     <h2>Riepilogo acronimi</h2>
     <p class="sub">Snapshot corrente: target di progetto, scope concordato sul board Kanban, card in verifica e gap residuo.</p>
-    <table>
-      <thead>
-        <tr>
-          <th>Voce</th>
-          <th>Valore</th>
-        </tr>
-      </thead>
-      <tbody>
-        {tabella_acronimi_html}
-      </tbody>
-    </table>
+    <div class="kpis">
+{kpi_acronimi_html}
+    </div>
   </section>
 
   <section id="cfd">
