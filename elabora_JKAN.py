@@ -992,28 +992,16 @@ def estrai_data_da_nome_file(path):
     return datetime(anno, mese, giorno).date()
 
 
-def is_attesa_test_o_fab(status, description=""):
-    """True se la card è in attesa test/fabbrica (colonna waiting for fab.)."""
+def is_attesa_test_o_fab(status):
+    """True se lo Status MIRO indica attesa test/fabbrica (colonna waiting for fab.)."""
     testo = normalizza_testo(status, compatta_spazi=True).lower()
-    if re.search(r"waiting\s*(for\s*fab\.?|test)|attesa\s*(fab\.?|test)", testo):
-        return True
-    desc = normalizza_testo(description).lower()
-    if re.search(r"attesa\s*(test|fab\.?)", desc):
-        return True
-    tag_list = [
-        tag
-        for tag in estrai_tag_temporali(description)
-        if not is_tag_estimate(tag)
-    ]
-    if tag_list and re.search(
-        r"attesa\s*(test|fab\.?)", tag_list[-1], re.IGNORECASE
-    ):
-        return True
-    return False
+    return bool(
+        re.search(r"waiting\s*(for\s*fab\.?|test)|attesa\s*(fab\.?|test)", testo)
+    )
 
 
-def classifica_colonna_kanban(status, description=""):
-    """Mappa Status (e Description) a una colonna Kanban dello snapshot."""
+def classifica_colonna_kanban(status):
+    """Mappa il campo Status MIRO a una colonna Kanban dello snapshot."""
     testo = normalizza_testo(status, compatta_spazi=True).lower()
     if not testo:
         return None
@@ -1027,7 +1015,7 @@ def classifica_colonna_kanban(status, description=""):
         return "Fab test in progress"
     if re.search(r"in\s*progress", testo) or re.search(r"lavorazione", testo):
         return "in progress"
-    if is_attesa_test_o_fab(status, description):
+    if is_attesa_test_o_fab(status):
         return "waiting for fab."
     if re.search(r"\bbacklog\b", testo):
         return "backlog"
@@ -1045,10 +1033,7 @@ def conteggio_per_colonna_kanban(card):
     conteggi = Counter({col: 0 for col in KANBAN_SNAPSHOT_COLS})
     non_mappate = 0
     for record in card:
-        colonna = classifica_colonna_kanban(
-            record.get("Status", ""),
-            record.get("Description", ""),
-        )
+        colonna = classifica_colonna_kanban(record.get("Status", ""))
         if colonna is None:
             non_mappate += 1
             continue
@@ -1085,10 +1070,7 @@ def riepilogo_acronimi_scope(card):
         status = record.get("Status", "")
         if is_status_new_to_be_verified(status):
             in_verifica_list.append(title)
-        colonna = classifica_colonna_kanban(
-            status,
-            record.get("Description", ""),
-        )
+        colonna = classifica_colonna_kanban(status)
         if colonna in KANBAN_SNAPSHOT_COLS:
             concordati_list.append(title)
             per_colonna[colonna].append(title)

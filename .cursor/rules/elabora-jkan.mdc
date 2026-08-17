@@ -42,7 +42,7 @@ Colonna G (Estimate): valore dal tag `# Estimate` in Description, non dal CSV.
 - `dbJKAN.csv`: una riga per data snapshot (upsert per stessa data); colonne `data`, Under analysis, backlog, in progress, waiting for fab., Fab test in progress, Acronimi done.
 - Scope tracciato = somma delle sei colonne; target progetto = 30 card (`SCOPE_TOTALE_CARD`).
 - Done = solo colonna Acronimi done. WIP = in progress + waiting for fab. + Fab test in progress.
-- Status mappati con `classifica_colonna_kanban()`: waiting for fab. distinto da Under analysis (Attesa test/fab in Status, Description o ultimo tag).
+- Status mappati con `classifica_colonna_kanban()` **solo dal campo Status MIRO** (nessuna inferenza da Description o tag).
 - Report HTML: omonimo del `.xlsx` prodotto; KPI riepilogo acronimi (target/concordati/in verifica/da aggiungere); CFD, evoluzione colonne Kanban, pipeline Scrum, burnup, barre impilate, WIP, velocità; Chart.js via CDN.
 
 ## Tag temporali (prefissi esatti)
