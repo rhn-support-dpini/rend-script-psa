@@ -1240,12 +1240,20 @@ def _html_griglia_colonne_kanban():
     return "\n".join(cards)
 
 
-def _html_lista_acronimi(acronimi):
-    """Lista HTML degli acronimi (Title card) per verifica KPI."""
+def _nome_acronimo_da_title(title):
+    """Prima riga del Title MIRO (nome acronimo)."""
+    if not title:
+        return "(senza title)"
+    prima = title.splitlines()[0].strip()
+    return prima or "(senza title)"
+
+
+def _html_acronimi_virgola(acronimi):
+    """Nomi acronimo (prima riga Title) separati da virgola."""
     if not acronimi:
         return "<em>nessuno</em>"
-    items = "".join(f"<li>{html.escape(t)}</li>" for t in acronimi)
-    return f'<ul class="acronimi-list">{items}</ul>'
+    nomi = [_nome_acronimo_da_title(t) for t in acronimi]
+    return html.escape(", ".join(nomi))
 
 
 def _html_dettaglio_per_colonna(per_colonna):
@@ -1255,9 +1263,9 @@ def _html_dettaglio_per_colonna(per_colonna):
         acronimi = per_colonna.get(col, [])
         label = html.escape(KANBAN_DISPLAY_LABELS[col])
         n = len(acronimi)
-        lista = _html_lista_acronimi(acronimi)
-        parti.append(f"<strong>{label} ({n})</strong>{lista}")
-    return "".join(parti)
+        lista = _html_acronimi_virgola(acronimi)
+        parti.append(f"<strong>{label} ({n})</strong> {lista}")
+    return "<br>".join(parti)
 
 
 def _testo_colonne_kanban_concordati():
@@ -1266,31 +1274,22 @@ def _testo_colonne_kanban_concordati():
 
 
 def _html_kpi_acronimi(riepilogo):
-    """Scatole KPI HTML: target, concordati, in verifica, da aggiungere."""
+    """Scatole KPI HTML: target, concordati, in verifica."""
     if not riepilogo:
         return ""
     colonne = html.escape(_testo_colonne_kanban_concordati())
-    tutti = riepilogo.get("acronimi_tutti_board", [])
     concordati = riepilogo.get("acronimi_concordati", [])
     in_verifica = riepilogo.get("acronimi_in_verifica", [])
-    non_mappati = riepilogo.get("acronimi_non_mappati", [])
     per_colonna = riepilogo.get("acronimi_per_colonna", {})
 
     dettagli = [
-        (
-            "Acronimi target",
-            riepilogo["target"],
-            (
-                f"Valore cablato di progetto · card sul board ({len(tutti)}):"
-                f"{_html_lista_acronimi(tutti)}"
-            ),
-        ),
+        ("Acronimi target", riepilogo["target"], ""),
         (
             "Acronimi concordati",
             riepilogo["concordati"],
             (
                 f"Somma colonne Kanban: {colonne}<br>"
-                f"Acronimi ({len(concordati)}):"
+                f"Acronimi ({len(concordati)}): "
                 f"{_html_dettaglio_per_colonna(per_colonna)}"
             ),
         ),
@@ -1299,23 +1298,16 @@ def _html_kpi_acronimi(riepilogo):
             riepilogo["in_verifica"],
             (
                 "Status: new - to be verified<br>"
-                f"Acronimi ({len(in_verifica)}):"
-                f"{_html_lista_acronimi(in_verifica)}"
-            ),
-        ),
-        (
-            "Da aggiungere",
-            riepilogo["da_aggiungere"],
-            (
-                f"Target − concordati (colonne: {colonne})<br>"
-                f"Non mappati nel scope Kanban ({len(non_mappati)}):"
-                f"{_html_lista_acronimi(non_mappati)}"
+                f"Acronimi ({len(in_verifica)}): "
+                f"{_html_acronimi_virgola(in_verifica)}"
             ),
         ),
     ]
     return "\n".join(
-        f'    <div class="kpi"><b>{val}</b>'
-        f'<span>{html.escape(label)}<br><small>{dettaglio}</small></span></div>'
+        f'    <div class="kpi"><b>{val}</b><span>'
+        f'{html.escape(label)}'
+        + (f'<br><small>{dettaglio}</small>' if dettaglio else "")
+        + "</span></div>"
         for label, val, dettaglio in dettagli
     )
 
@@ -1418,10 +1410,6 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronim
     .kpis-acronimi .kpi span small {{
       max-height: 14rem; overflow-y: auto;
     }}
-    .acronimi-list {{
-      margin: .25rem 0 0; padding-left: 1.1rem; font-size: .74rem;
-    }}
-    .acronimi-list li {{ margin-bottom: .15rem; }}
     section {{
       background: var(--card); border: 1px solid var(--border);
       border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.25rem;
@@ -1461,7 +1449,7 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronim
 
   <section id="acronimi-scope">
     <h2>Riepilogo acronimi</h2>
-    <p class="sub">Snapshot corrente: target di progetto, scope concordato sul board Kanban, card in verifica e gap residuo.</p>
+    <p class="sub">Snapshot corrente: target di progetto, scope concordato sul board Kanban, card in verifica e gap residuo. Generato il {now_str}.</p>
     <div class="kpis kpis-acronimi">
 {kpi_acronimi_html}
     </div>
