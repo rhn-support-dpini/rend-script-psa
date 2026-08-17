@@ -18,17 +18,16 @@ Output:
     Fogli: data-all (tutte le card), data-export (export ridotto), stat.
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
     <input>.html — report Scrum/Kanban (stesso percorso del .xlsx prodotto).
-    Le righe Description con prefisso "#" generano sotto-righe da colonna N;
+    Le righe Description con prefisso "#" generano sotto-righe da colonna O (TAG Temporali);
     A–M sono merge verticali per Title, con bordo rosso pastello per card.
-    Colonna J (InizioLavorazione(GG)), K (Waiting #), L (Totale Lavorazione),
-    M (Period SUM), N (Giorni), O (TAG Temporali).
-    Waiting #: giorni dall'ultimo tag "# Waiting -" a oggi, con sfondo giallo pastello.
-    Totale Lavorazione (L): somma giornate lavorative (lun-ven) dei tag "# Working - <start> - <end>";
-    senza end date nel tag usa i giorni lavorativi da start a oggi; sfondo per % su Estimate.
-    Period SUM: somma Giorni con tag in Progress.
+    Colonna K (InizioLavorazione(GG)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
+    L (Totale Waiting): somma giornate dei tag "# Waiting -" in colonna O.
+    M (Totale Lavorazione): somma giornate dei tag "# Working -" e "# Fix -" in colonna O;
+    sfondo per % Working/Fix su Estimate.
+    N: vuota (nessun titolo). O: TAG Temporali.
     Colonna G (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
-    Giorni: giornate lavorative (lun-ven); nei tag a due date (es. Working) inizio incluso,
-    fine esclusa; se manca la 2ª data si usa oggi (incluso), eccetto tag Done.
+    Giornate lavorative (lun-ven); nei tag a due date inizio incluso, fine esclusa;
+    se manca la 2ª data si usa oggi (incluso), eccetto tag Done.
 """
 
 import argparse
@@ -105,10 +104,9 @@ KANBAN_COLUMNS = [
 GIORNI_COL = "Giorni"
 TAG_TEMPORALI_COL = "TAG Temporali"
 INIZIO_LAVORAZIONE_COL = "InizioLavorazione(GG)"
-WAITING_COL = "Waiting #"
+INIZIO_ATTIVITA_K_COL = "InizioLavorazione(GG)"
+TOTALE_WAITING_COL = "Totale Waiting"
 TOTALE_LAVORAZIONE_COL = "Totale Lavorazione"
-TAGS_SUM_COL = "Tags_sum"
-PERIOD_SUM_HEADER = "Period SUM"
 OUTPUT_SHEET = "data-all"
 DATA_EXPORT_SHEET = "data-export"
 COLONNE_EXPORT = ["Title", "Status", "Start Date", "End Date", "Tags"]
@@ -126,37 +124,33 @@ STAT_SHEET = "stat"
 CENTER_COLS = {3, 4, 7, 10, 11, 12, 13}  # C, D, G, J, K, L, M
 COL_ESTIMATE = 7  # G
 COL_TAGS_ORIG = 9  # I
-COL_INIZIO_LAVORAZIONE = 10  # J
-COL_WAITING = 11  # K
-COL_TOTALE_LAVORAZIONE = 12  # L
-COL_TAGS_SUM = 13  # M: Period SUM
+COL_INIZIO_LAVORAZIONE = 10  # J (vuota)
+COL_INIZIO_ATTIVITA_K = 11  # K
+COL_TOTALE_WAITING = 12  # L
+COL_TOTALE_LAVORAZIONE = 13  # M
 COL_CARD_END = 13  # A–M: dati card (merge verticali per Title)
-COL_GIORNI = 14  # N
+COL_GIORNI = 14  # N (vuota)
 COL_TAG = 15  # O
 COL_LAST = 15
 LEGENDA_COLONNE = [
     ("A–I", "", "dati card"),
+    ("J", "", "non usata"),
     (
-        "J",
-        INIZIO_LAVORAZIONE_COL,
+        "K",
+        INIZIO_ATTIVITA_K_COL,
         "giornate lavorative (lun-ven) dal tag '# Inizio Attivita' - <data>' a oggi",
     ),
     (
-        "K",
-        WAITING_COL,
-        "giornate lavorative (lun-ven) dall'ultimo tag '# Waiting -' a oggi (sfondo giallo)",
-    ),
-    (
         "L",
-        TOTALE_LAVORAZIONE_COL,
-        "somma giornate lavorative (lun-ven) tag '# Working - start - end'; % su Estimate",
+        TOTALE_WAITING_COL,
+        "somma giornate lavorative (lun-ven) dei tag '# Waiting -' in colonna O",
     ),
-    ("M", PERIOD_SUM_HEADER, "tempo trascorso dalla prima attivita'"),
     (
-        "N",
-        GIORNI_COL,
-        "giornate lavorative (lun-ven) per riga tag; due date: inizio incluso, fine esclusa",
+        "M",
+        TOTALE_LAVORAZIONE_COL,
+        "somma giornate lavorative (lun-ven) tag '# Working -' e '# Fix -' in colonna O; % su Estimate",
     ),
+    ("N", "", "vuota"),
     ("O", TAG_TEMPORALI_COL, "per riga tag"),
 ]
 LEGENDA_COMMENTO_COL = 3
@@ -194,6 +188,10 @@ WAITING_TAG_RE = re.compile(
 )
 WORKING_TAG_RE = re.compile(
     r"^#\s*Working\s*-\s*",
+    re.IGNORECASE,
+)
+FIX_TAG_RE = re.compile(
+    r"^#\s*Fix\s*-\s*",
     re.IGNORECASE,
 )
 TAG_DUE_DATE_PREFIXES = ("Working", "Waiting", "Assignee")
@@ -329,24 +327,14 @@ def is_tag_working(tag):
     return bool(WORKING_TAG_RE.match(str(tag).strip()))
 
 
-def giorni_da_ultimo_tag_waiting(description, data_oggi=None):
-    """Giornate lavorative tra la data nell'ultimo tag '# Waiting -' e oggi."""
-    if data_oggi is None:
-        data_oggi = datetime.now().date()
-    tag_list = [
-        tag
-        for tag in estrai_tag_temporali(description)
-        if not is_tag_estimate(tag)
-    ]
-    if not tag_list:
-        return None
-    ultimo = tag_list[-1]
-    if not is_tag_waiting(ultimo):
-        return None
-    date = estrai_date_da_tag(ultimo)
-    if not date:
-        return None
-    return giorni_lavorativi_tra(date[0], data_oggi)
+def is_tag_fix(tag):
+    if not tag:
+        return False
+    return bool(FIX_TAG_RE.match(str(tag).strip()))
+
+
+def is_tag_working_o_fix(tag):
+    return is_tag_working(tag) or is_tag_fix(tag)
 
 
 def estrai_estimate_da_description(description):
@@ -561,12 +549,9 @@ def espandi_card_con_tag(card):
         nuova_base = dict(record)
         estimate = estrai_estimate_da_description(record.get("Description", ""))
         nuova_base["Estimate"] = estimate if estimate is not None else ""
-        inizio_lavorazione = giorni_da_inizio_attivita(
-            record.get("Description", "")
-        )
-        nuova_base[INIZIO_LAVORAZIONE_COL] = inizio_lavorazione
-        waiting_gg = giorni_da_ultimo_tag_waiting(record.get("Description", ""))
-        nuova_base[WAITING_COL] = waiting_gg
+        nuova_base[INIZIO_LAVORAZIONE_COL] = None
+        inizio_k = giorni_da_inizio_attivita(record.get("Description", ""))
+        nuova_base[INIZIO_ATTIVITA_K_COL] = inizio_k
 
         tag_list = [
             tag
@@ -575,19 +560,18 @@ def espandi_card_con_tag(card):
         ]
         if not tag_list:
             nuova = dict(nuova_base)
+            nuova[TOTALE_WAITING_COL] = None
             nuova[TOTALE_LAVORAZIONE_COL] = None
-            nuova[TAGS_SUM_COL] = None
             nuova[GIORNI_COL] = None
             nuova[TAG_TEMPORALI_COL] = ""
             righe.append(nuova)
             continue
         for i, tag in enumerate(tag_list):
             valida_struttura_tag_due_date(tag, title=record.get("Title"))
-            tag_next = tag_list[i + 1] if i + 1 < len(tag_list) else None
             nuova = dict(nuova_base)
+            nuova[TOTALE_WAITING_COL] = None
             nuova[TOTALE_LAVORAZIONE_COL] = None
-            nuova[TAGS_SUM_COL] = None
-            nuova[GIORNI_COL] = giorni_da_tag_temporale(tag, tag_next)
+            nuova[GIORNI_COL] = None
             nuova[TAG_TEMPORALI_COL] = tag
             righe.append(nuova)
     return righe
@@ -596,37 +580,28 @@ def espandi_card_con_tag(card):
 def colonne_output():
     return KANBAN_COLUMNS + [
         INIZIO_LAVORAZIONE_COL,
-        WAITING_COL,
+        INIZIO_ATTIVITA_K_COL,
+        TOTALE_WAITING_COL,
         TOTALE_LAVORAZIONE_COL,
-        TAGS_SUM_COL,
         GIORNI_COL,
         TAG_TEMPORALI_COL,
     ]
 
 
-def somma_giorni_gruppo(ws, start, end, filtro_tag=None):
-    totale = 0.0
-    ha_valori = False
-    for row in range(start, end + 1):
-        tag = ws.cell(row=row, column=COL_TAG).value
-        if filtro_tag is not None and not filtro_tag(tag):
-            continue
-        val = parse_numero(ws.cell(row=row, column=COL_GIORNI).value)
-        if val is not None:
-            totale += val
-            ha_valori = True
-    return totale if ha_valori else None
-
-
-def somma_giorni_working_gruppo(ws, start, end, data_oggi=None):
-    """Somma giorni di tutti i tag '# Working -' nel gruppo (stesso Title)."""
+def somma_giorni_tag_gruppo(ws, start, end, matcher, data_oggi=None):
+    """Somma giornate lavorative per righe tag (col. O) che passano matcher."""
     if data_oggi is None:
         data_oggi = datetime.now().date()
     totale = 0.0
     ha_valori = False
     for row in range(start, end + 1):
         tag = ws.cell(row=row, column=COL_TAG).value
-        giorni = giorni_da_tag_working(tag, data_oggi=data_oggi)
+        if not matcher(tag):
+            continue
+        tag_next = None
+        if row + 1 <= end:
+            tag_next = ws.cell(row=row + 1, column=COL_TAG).value
+        giorni = giorni_da_tag_temporale(tag, tag_next, data_oggi=data_oggi)
         if giorni is not None:
             totale += giorni
             ha_valori = True
@@ -662,8 +637,7 @@ def applica_colore_totale_lavorazione(cella, estimate, tot_lavorazione):
         cella.fill = BRIGHT_RED_FILL
 
 
-def applica_colore_waiting(ws, start):
-    cella = ws.cell(row=start, column=COL_WAITING)
+def applica_colore_totale_waiting(cella):
     if parse_numero(cella.value) is not None:
         cella.fill = PASTEL_YELLOW_FILL
 
@@ -671,23 +645,24 @@ def applica_colore_waiting(ws, start):
 def applica_totali_gruppo(ws, start, end):
     center = Alignment(horizontal="center", vertical="center")
 
-    tot_lavorazione = somma_giorni_working_gruppo(ws, start, end)
+    tot_waiting = somma_giorni_tag_gruppo(ws, start, end, is_tag_waiting)
+    cella_wait = ws.cell(row=start, column=COL_TOTALE_WAITING)
+    cella_wait.value = tot_waiting
+    cella_wait.alignment = center
+    applica_colore_totale_waiting(cella_wait)
+
+    tot_lavorazione = somma_giorni_tag_gruppo(
+        ws, start, end, is_tag_working_o_fix
+    )
     cella_lav = ws.cell(row=start, column=COL_TOTALE_LAVORAZIONE)
     cella_lav.value = tot_lavorazione
     cella_lav.alignment = center
 
-    somma = somma_giorni_gruppo(ws, start, end, tag_contiene_in_progress)
-    cella = ws.cell(row=start, column=COL_TAGS_SUM)
-    cella.value = somma
-    cella.alignment = center
-
     estimate = parse_numero(ws.cell(row=start, column=COL_ESTIMATE).value)
     applica_colore_totale_lavorazione(cella_lav, estimate, tot_lavorazione)
-    applica_colore_confronto_estimate(cella, estimate, somma)
 
-    cella_waiting = ws.cell(row=start, column=COL_WAITING)
-    cella_waiting.alignment = center
-    applica_colore_waiting(ws, start)
+    cella_k = ws.cell(row=start, column=COL_INIZIO_ATTIVITA_K)
+    cella_k.alignment = center
 
 
 def gruppi_righe_per_title(ws):
@@ -768,7 +743,7 @@ def riepilogo_da_gruppi(ws, gruppi):
                 "status": normalizza_testo(ws.cell(row=start, column=3).value),
                 "estimate": parse_numero(ws.cell(row=start, column=COL_ESTIMATE).value),
                 "period_sum": parse_numero(
-                    ws.cell(row=start, column=COL_TAGS_SUM).value
+                    ws.cell(row=start, column=COL_TOTALE_LAVORAZIONE).value
                 ),
             }
         )
@@ -836,38 +811,38 @@ def aggiungi_footer_data(ws, gruppi):
     legend_start = ts_row + 2
 
     tot_estimate = 0.0
+    tot_waiting = 0.0
     tot_lavorazione = 0.0
-    tot_period = 0.0
     ha_estimate = False
+    ha_waiting = False
     ha_lavorazione = False
-    ha_period = False
     for start, _end in gruppi:
         estimate = parse_numero(ws.cell(row=start, column=COL_ESTIMATE).value)
+        waiting = parse_numero(ws.cell(row=start, column=COL_TOTALE_WAITING).value)
         lavorazione = parse_numero(
             ws.cell(row=start, column=COL_TOTALE_LAVORAZIONE).value
         )
-        period_sum = parse_numero(ws.cell(row=start, column=COL_TAGS_SUM).value)
         if estimate is not None:
             tot_estimate += estimate
             ha_estimate = True
+        if waiting is not None:
+            tot_waiting += waiting
+            ha_waiting = True
         if lavorazione is not None:
             tot_lavorazione += lavorazione
             ha_lavorazione = True
-        if period_sum is not None:
-            tot_period += period_sum
-            ha_period = True
 
     ws.cell(row=totals_row, column=1).value = len(gruppi)
     ws.cell(row=totals_row, column=1).alignment = center
     if ha_estimate:
         ws.cell(row=totals_row, column=COL_ESTIMATE).value = tot_estimate
         ws.cell(row=totals_row, column=COL_ESTIMATE).alignment = center
+    if ha_waiting:
+        ws.cell(row=totals_row, column=COL_TOTALE_WAITING).value = tot_waiting
+        ws.cell(row=totals_row, column=COL_TOTALE_WAITING).alignment = center
     if ha_lavorazione:
         ws.cell(row=totals_row, column=COL_TOTALE_LAVORAZIONE).value = tot_lavorazione
         ws.cell(row=totals_row, column=COL_TOTALE_LAVORAZIONE).alignment = center
-    if ha_period:
-        ws.cell(row=totals_row, column=COL_TAGS_SUM).value = tot_period
-        ws.cell(row=totals_row, column=COL_TAGS_SUM).alignment = center
 
     ws.cell(row=ts_row, column=1).value = datetime.now().strftime(
         "%d/%m/%Y %H:%M:%S"
@@ -921,8 +896,10 @@ def crea_foglio_stat(wb, riepilogo):
 
 
 def formatta_foglio_dati(ws):
+    ws.cell(row=1, column=COL_INIZIO_LAVORAZIONE).value = ""
+    ws.cell(row=1, column=COL_TOTALE_WAITING).value = TOTALE_WAITING_COL
     ws.cell(row=1, column=COL_TOTALE_LAVORAZIONE).value = TOTALE_LAVORAZIONE_COL
-    ws.cell(row=1, column=COL_TAGS_SUM).value = PERIOD_SUM_HEADER
+    ws.cell(row=1, column=COL_GIORNI).value = ""
     gruppi = formatta_foglio_card(ws)
     aggiungi_footer_data(ws, gruppi)
     return gruppi

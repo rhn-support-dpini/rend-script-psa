@@ -23,14 +23,14 @@ Fogli: `data-all` (principale, tutte le card), `data-export` (export ridotto), `
 | Col | Titolo | Logica |
 |-----|--------|--------|
 | A–I | campi card CSV | merge verticali per Title |
-| J | InizioLavorazione(GG) | giornate lavorative (lun-ven) dalla data nel tag `# Inizio Attivita' - <data>` a oggi |
-| K | Waiting # | se l'**ultimo** tag temporale inizia con `# Waiting -`, giornate lavorative da oggi alla data nel tag; sfondo giallo pastello `#FFFDE7`; altrimenti vuoto |
-| L | Totale Lavorazione | somma giornate lavorative tag `# Working -`; sfondo per % Working/Estimate (0–50 verde, 51–80 giallo, 81–100 rosso pastello, >100 rosso acceso) |
-| M | Period SUM | somma Giorni con tag in Progress; verde/rosso pastello vs Estimate |
-| N | Giorni | giornate lavorative (lun-ven) per riga tag; se manca 2ª data usa oggi (tranne Done) |
+| J | (vuota) | non usata |
+| K | InizioLavorazione(GG) | giornate lavorative (lun-ven) dal tag `# Inizio Attivita' - <data>` a oggi |
+| L | Totale Waiting | somma giornate dei tag `# Waiting -` in colonna O; sfondo giallo se valorizzato |
+| M | Totale Lavorazione | somma giornate dei tag `# Working -` e `# Fix -` in colonna O; sfondo per % su Estimate |
+| N | (vuota) | nessun titolo |
 | O | TAG Temporali | testo del tag `#` della riga |
 
-Righe Description con `#` generano sotto-righe da colonna N. Colonne A–M: merge verticali + bordo rosso pastello per card.
+Righe Description con `#` generano sotto-righe da colonna O. Colonne A–M: merge verticali + bordo rosso pastello per card.
 
 Foglio `data-export`: una riga per card, colonne A (Title), B (Status), C (Start Date), D (End Date), E (Tags); esclusi Status `Attività nuove`, `Attività in Backlog`, `Attività in Progress`, `Attività Complete`, `Attività Abbandonate`. Celle centrificate; bordo blu per riga e divisori blu chiaro tra colonne; sfondo per Status su A–E.
 
@@ -47,9 +47,9 @@ Colonna G (Estimate): valore dal tag `# Estimate` in Description, non dal CSV.
 ## Tag temporali (prefissi esatti)
 
 - `# Estimate` — escluso dall'espansione righe; valorizza solo col. G
-- `# Inizio Attivita' - <data>` — valorizza col. J (regex: `^#\s*Inizio\s+Attivit[aà]'?\s*-\s*`)
-- `# Waiting - <data>` — solo se è l'ultimo tag temporale; valorizza col. K (regex: `^#\s*Waiting\s*-\s*`)
-- Altri `# <data> - testo` — espansione righe; Giorni calcolati come sopra
+- `# Inizio Attivita' - <data>` — valorizza col. K (regex: `^#\s*Inizio\s+Attivit[aà]'?\s*-\s*`)
+- `# Waiting - <data>` — contribuisce a col. L (somma giornate in col. O)
+- `# Working -` / `# Fix -` — contribuiscono a col. M (somma giornate in col. O)
 
 Date supportate: `dd/mm/yyyy`, `dd/mm/yy`, `yyyy-mm-dd`.
 
@@ -57,7 +57,7 @@ Date supportate: `dd/mm/yyyy`, `dd/mm/yy`, `yyyy-mm-dd`.
 
 Aggiornare sempre insieme: costanti `COL_*`, `COL_CARD_END`, `COL_LAST`, `CENTER_COLS`, `colonne_output()`, `LEGENDA_COLONNE`, docstring iniziale.
 
-Colori esistenti: percentuale Working su L; verde/rosso pastello su M vs Estimate; giallo pastello su K.
+Colori esistenti: giallo pastello su L; percentuale Working+Fix su M vs Estimate.
 
 ## Commit
 
