@@ -26,7 +26,7 @@ Fogli: `data-all` (principale, tutte le card), `data-export` (export ridotto), `
 | J | (vuota) | non usata |
 | K | InizioLavorazione(GG) | giornate lavorative (lun-ven) dal tag `# Inizio Attivita' - <data>` a oggi |
 | L | Totale Waiting | somma giornate dei tag `# Waiting -` in colonna O; sfondo giallo se valorizzato |
-| M | Totale Lavorazione | somma giornate dei tag `# Working -` e `# Fix -` in colonna O; sfondo per % su Estimate |
+| M | Totale Lavorazione | somma giornate dei tag `# Working -` e `# Fix -` in colonna O; sfondo per (M/Estimate)×100: ≤50% verde, 51–80% giallo, 81–100% rosso pastello, >100% rosso acceso (Estimate in col. G) |
 | N | (vuota) | nessun titolo |
 | O | TAG Temporali | testo del tag `#` della riga |
 
@@ -57,7 +57,7 @@ Date supportate: `dd/mm/yyyy`, `dd/mm/yy`, `yyyy-mm-dd`.
 
 Aggiornare sempre insieme: costanti `COL_*`, `COL_CARD_END`, `COL_LAST`, `CENTER_COLS`, `colonne_output()`, `LEGENDA_COLONNE`, docstring iniziale.
 
-Colori esistenti: giallo pastello su L; percentuale Working+Fix su M vs Estimate.
+Colori esistenti: giallo pastello su L; col. M vs Estimate (G): ≤50% verde, 51–80% giallo, 81–100% rosso pastello, >100% rosso acceso.
 
 ## Commit
 

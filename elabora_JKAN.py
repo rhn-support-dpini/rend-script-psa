@@ -122,7 +122,7 @@ STATUS_ESCLUSI_EXPORT = frozenset(
 )
 STAT_SHEET = "stat"
 CENTER_COLS = {3, 4, 7, 10, 11, 12, 13}  # C, D, G, J, K, L, M
-COL_ESTIMATE = 7  # G
+COL_ESTIMATE = 7  # G — Estimate (confronto % con col. M)
 COL_TAGS_ORIG = 9  # I
 COL_INIZIO_LAVORAZIONE = 10  # J (vuota)
 COL_INIZIO_ATTIVITA_K = 11  # K
@@ -148,7 +148,8 @@ LEGENDA_COLONNE = [
     (
         "M",
         TOTALE_LAVORAZIONE_COL,
-        "somma giornate lavorative (lun-ven) tag '# Working -' e '# Fix -' in colonna O; % su Estimate",
+        "somma giornate lavorative (lun-ven) tag '# Working -' e '# Fix -' in colonna O; "
+        "sfondo M: (M/Estimate)×100 — ≤50% verde, 51–80% giallo, 81–100% rosso pastello, >100% rosso acceso",
     ),
     ("N", "", "vuota"),
     ("O", TAG_TEMPORALI_COL, "per riga tag"),
@@ -547,8 +548,14 @@ def espandi_card_con_tag(card):
     righe = []
     for record in card:
         nuova_base = dict(record)
-        estimate = estrai_estimate_da_description(record.get("Description", ""))
-        nuova_base["Estimate"] = estimate if estimate is not None else ""
+        estimate_tag = estrai_estimate_da_description(record.get("Description", ""))
+        estimate_csv = parse_numero(record.get("Estimate", ""))
+        if estimate_tag is not None:
+            nuova_base["Estimate"] = estimate_tag
+        elif estimate_csv is not None:
+            nuova_base["Estimate"] = estimate_csv
+        else:
+            nuova_base["Estimate"] = ""
         nuova_base[INIZIO_LAVORAZIONE_COL] = None
         inizio_k = giorni_da_inizio_attivita(record.get("Description", ""))
         nuova_base[INIZIO_ATTIVITA_K_COL] = inizio_k
@@ -608,23 +615,19 @@ def somma_giorni_tag_gruppo(ws, start, end, matcher, data_oggi=None):
     return totale if ha_valori else None
 
 
-def percentuale_working_su_estimate(estimate, tot_lavorazione):
-    if estimate is None or tot_lavorazione is None or estimate <= 0:
+def percentuale_su_estimate(estimate, totale):
+    """Percentuale (totale / estimate) × 100 per confronto col. M vs Estimate (G)."""
+    if estimate is None or totale is None or estimate <= 0:
         return None
-    return (tot_lavorazione / estimate) * 100
+    return (totale / estimate) * 100
 
 
-def applica_colore_confronto_estimate(cella, estimate, valore):
-    if estimate is None or valore is None:
-        return
-    if estimate >= valore:
-        cella.fill = PASTEL_GREEN_FILL
-    else:
-        cella.fill = PASTEL_RED_FILL
-
-
-def applica_colore_totale_lavorazione(cella, estimate, tot_lavorazione):
-    percentuale = percentuale_working_su_estimate(estimate, tot_lavorazione)
+def applica_colore_colonna_m(cella, estimate, totale_lavorazione):
+    """
+    Sfondo col. M (Totale Lavorazione) in base a (M / Estimate) × 100.
+    Estimate in col. G. Fasce: ≤50% verde; 51–80% giallo; 81–100% rosso pastello; >100% rosso acceso.
+    """
+    percentuale = percentuale_su_estimate(estimate, totale_lavorazione)
     if percentuale is None:
         return
     if percentuale <= 50:
@@ -659,7 +662,7 @@ def applica_totali_gruppo(ws, start, end):
     cella_lav.alignment = center
 
     estimate = parse_numero(ws.cell(row=start, column=COL_ESTIMATE).value)
-    applica_colore_totale_lavorazione(cella_lav, estimate, tot_lavorazione)
+    applica_colore_colonna_m(cella_lav, estimate, tot_lavorazione)
 
     cella_k = ws.cell(row=start, column=COL_INIZIO_ATTIVITA_K)
     cella_k.alignment = center
