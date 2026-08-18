@@ -1063,17 +1063,20 @@ def riepilogo_acronimi_scope(card):
     non_mappati_list = []
     tutti_board = []
     per_colonna = {col: [] for col in KANBAN_SNAPSHOT_COLS}
+    status_per_colonna = {col: Counter() for col in KANBAN_SNAPSHOT_COLS}
 
     for record in card:
         title = normalizza_testo(record.get("Title", "")) or "(senza title)"
         tutti_board.append(title)
         status = record.get("Status", "")
+        status_label = normalizza_testo(status) or "(vuoto)"
         if is_status_new_to_be_verified(status):
             in_verifica_list.append(title)
         colonna = classifica_colonna_kanban(status)
         if colonna in KANBAN_SNAPSHOT_COLS:
             concordati_list.append(title)
             per_colonna[colonna].append(title)
+            status_per_colonna[colonna][status_label] += 1
         elif colonna is None:
             non_mappati_list.append(title)
 
@@ -1091,6 +1094,9 @@ def riepilogo_acronimi_scope(card):
         "acronimi_non_mappati": sorted(set(non_mappati_list)),
         "acronimi_per_colonna": {
             col: sorted(set(per_colonna[col])) for col in KANBAN_SNAPSHOT_COLS
+        },
+        "status_per_colonna": {
+            col: dict(status_per_colonna[col]) for col in KANBAN_SNAPSHOT_COLS
         },
     }
 
@@ -1256,6 +1262,123 @@ def _html_acronimi_virgola(acronimi):
     return html.escape(", ".join(nomi))
 
 
+def _html_status_breakdown(status_counter):
+    """Elenco Status con conteggio card, ordinato per numero decrescente."""
+    if not status_counter:
+        return "<em>nessuno</em>"
+    items = sorted(status_counter.items(), key=lambda x: (-x[1], x[0]))
+    parti = [f"{html.escape(st)} ({n})" for st, n in items]
+    return ", ".join(parti)
+
+
+def _merge_status_per_colonne(cols, status_per_colonna):
+    merged = Counter()
+    for col in cols:
+        merged.update(status_per_colonna.get(col, {}))
+    return dict(merged)
+
+
+def _merge_acronimi_per_colonne(cols, acronimi_per_colonna):
+    tutti = []
+    for col in cols:
+        tutti.extend(acronimi_per_colonna.get(col, []))
+    return sorted(set(tutti))
+
+
+def _html_kpi_box_dettaglio(status_counter, acronimi, extra_lines=None):
+    """Dettaglio KPI: Status con conteggio e lista acronimi."""
+    lines = []
+    if status_counter:
+        n_status = sum(status_counter.values())
+        lines.append(
+            f"Status ({n_status}): {_html_status_breakdown(status_counter)}"
+        )
+    if acronimi is not None:
+        lines.append(
+            f"Acronimi ({len(acronimi)}): {_html_acronimi_virgola(acronimi)}"
+        )
+    if extra_lines:
+        lines.extend(extra_lines)
+    return "<br>".join(lines) if lines else ""
+
+
+def _html_kpi_top_row_dettaglio(
+    riepilogo, df, tot_ultimo, done_ultimo, wip_ultimo, not_started_ultimo
+):
+    """Seconda riga di 6 KPI sotto il riassunto: Status + acronimi per ciascun riquadro."""
+    if not riepilogo:
+        return ""
+    status_pc = riepilogo.get("status_per_colonna", {})
+    acronimi_pc = riepilogo.get("acronimi_per_colonna", {})
+    all_cols = KANBAN_SNAPSHOT_COLS
+    not_started_cols = ["Under analysis", "backlog"]
+
+    snapshot_dates = [
+        row["data"].strftime("%d/%m/%Y") for _, row in df.iterrows()
+    ]
+    snapshot_extra = [
+        f"Date ({len(snapshot_dates)}): "
+        f"{html.escape(', '.join(snapshot_dates)) if snapshot_dates else 'nessuna'}"
+    ]
+
+    boxes = [
+        (
+            "Scope tracciato",
+            tot_ultimo,
+            _html_kpi_box_dettaglio(
+                _merge_status_per_colonne(all_cols, status_pc),
+                _merge_acronimi_per_colonne(all_cols, acronimi_pc),
+            ),
+        ),
+        (
+            "Target card",
+            SCOPE_TOTALE_CARD,
+            _html_kpi_box_dettaglio(
+                None,
+                None,
+                extra_lines=["Target di progetto: 30 card"],
+            ),
+        ),
+        (
+            "Non avviato (Under analysis + Backlog)",
+            not_started_ultimo,
+            _html_kpi_box_dettaglio(
+                _merge_status_per_colonne(not_started_cols, status_pc),
+                _merge_acronimi_per_colonne(not_started_cols, acronimi_pc),
+            ),
+        ),
+        (
+            "In delivery (WIP)",
+            wip_ultimo,
+            _html_kpi_box_dettaglio(
+                _merge_status_per_colonne(WIP_SNAPSHOT_COLS, status_pc),
+                _merge_acronimi_per_colonne(WIP_SNAPSHOT_COLS, acronimi_pc),
+            ),
+        ),
+        (
+            "Acronimi Done",
+            done_ultimo,
+            _html_kpi_box_dettaglio(
+                status_pc.get("Acronimi done", {}),
+                acronimi_pc.get("Acronimi done", []),
+            ),
+        ),
+        (
+            "Snapshot",
+            len(df),
+            _html_kpi_box_dettaglio(None, None, extra_lines=snapshot_extra),
+        ),
+    ]
+
+    return "\n".join(
+        f'    <div class="kpi"><b>{val}</b><span>'
+        f'{html.escape(label)}'
+        + (f'<br><small>{dettaglio}</small>' if dettaglio else "")
+        + "</span></div>"
+        for label, val, dettaglio in boxes
+    )
+
+
 def _html_dettaglio_per_colonna(per_colonna):
     """Breakdown acronimi concordati per colonna Kanban."""
     parti = []
@@ -1363,6 +1486,14 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronim
     not_started_ultimo = int(
         df["Under analysis"].iloc[-1] + df["backlog"].iloc[-1]
     )
+    kpi_top_dettaglio_html = _html_kpi_top_row_dettaglio(
+        riepilogo_acronimi,
+        df,
+        tot_ultimo,
+        done_ultimo,
+        wip_ultimo,
+        not_started_ultimo,
+    )
 
     tabella_rows = []
     for _, row in df.iterrows():
@@ -1445,6 +1576,10 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronim
     <div class="kpi"><b>{wip_ultimo}</b><span>In delivery (WIP)</span></div>
     <div class="kpi"><b>{done_ultimo}</b><span>Acronimi Done</span></div>
     <div class="kpi"><b>{len(df)}</b><span>Snapshot</span></div>
+  </div>
+
+  <div class="kpis kpis-acronimi">
+{kpi_top_dettaglio_html}
   </div>
 
   <section id="acronimi-scope">
