@@ -295,6 +295,8 @@ def estrai_card_kanban(rows):
                 col: normalizza_testo(data_row[idx]) if idx < len(data_row) else ""
                 for idx, col in enumerate(KANBAN_COLUMNS)
             }
+            record["Start Date"] = formatta_data_corta(record.get("Start Date", ""))
+            record["End Date"] = formatta_data_corta(record.get("End Date", ""))
             if any(record.values()):
                 card.append(record)
 
@@ -393,6 +395,16 @@ def parse_data(valore):
         except ValueError:
             continue
     return None
+
+
+def formatta_data_corta(valore):
+    """Formatta una data come YYYY-MM-DD (es. 2026-06-21) per le colonne Excel."""
+    if valore is None or valore == "":
+        return ""
+    parsed = parse_data(valore)
+    if parsed is not None:
+        return parsed.isoformat()
+    return normalizza_testo(valore)
 
 
 def estrai_date_da_tag(tag):
