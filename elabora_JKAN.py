@@ -18,14 +18,15 @@ Output:
     Fogli: data-all (tutte le card), data-export (export ridotto), stat.
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
     <input>.html — report Scrum/Kanban (stesso percorso del .xlsx prodotto).
-    Le righe Description con prefisso "#" generano sotto-righe da colonna P (TAG Temporali);
+    Le righe Description con prefisso "#" generano sotto-righe da colonna Q (TAG Temporali);
     A–N sono merge verticali per Title, con bordo rosso pastello per card.
     J (InizioLavorazione(GG)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
-    K (Totale Waiting): somma giornate tag "# Waiting -" in col. P.
+    K (Totale Waiting): somma giornate tag "# Waiting -" in col. Q.
     L (Totale Lavorazione): somma tag "# Working -"; sfondo per % su Estimate (col. G).
-    M (Rework time): somma col. O (Giorni) per tag "# Rework" in col. P.
-    N (Fix time): somma giornate tag "# Fix" in col. P.
-    O (Giorni): giornate per riga tag. P (TAG Temporali): testo del tag per riga.
+    M (Rework time): somma col. O (Giorni) per tag "# Rework" in col. Q.
+    N (Fix time): somma giornate tag "# Fix" in col. Q.
+    O (Giorni): giornate per riga tag. P (Timeout (GG)): giornate lavorative da oggi al tag "# Timeout -".
+    Q (TAG Temporali): testo del tag per riga.
     Colonna G (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
     Giornate lavorative (lun-ven); nei tag a due date inizio incluso, fine esclusa;
     se manca la 2ª data si usa oggi (incluso), eccetto tag Done.
@@ -104,6 +105,7 @@ KANBAN_COLUMNS = [
     "Tags",
 ]
 FIX_TIME_COL = "Fix time"
+TIMEOUT_COL = "Timeout (GG)"
 GIORNI_COL = "Giorni"
 TAG_TEMPORALI_COL = "TAG Temporali"
 INIZIO_LAVORAZIONE_COL = "InizioLavorazione(GG)"
@@ -124,7 +126,7 @@ STATUS_ESCLUSI_EXPORT = frozenset(
     }
 )
 STAT_SHEET = "stat"
-CENTER_COLS = {3, 4, 7, 10, 11, 12, 13, 14, 15, 16}  # C, D, G, J–O
+CENTER_COLS = {3, 4, 7, 10, 11, 12, 13, 14, 15, 16, 17}  # C, D, G, J–Q
 COL_ESTIMATE = 7  # G — Estimate (confronto % con col. L)
 COL_TAGS_ORIG = 9  # I
 COL_INIZIO_LAVORAZIONE = 10  # J
@@ -134,8 +136,9 @@ COL_REWORK_TIME = 13  # M
 COL_FIX_TIME = 14  # N
 COL_CARD_END = 14  # A–N: dati card (merge verticali per Title)
 COL_GIORNI = 15  # O
-COL_TAG = 16  # P
-COL_LAST = 16
+COL_TIMEOUT = 16  # P
+COL_TAG = 17  # Q
+COL_LAST = 17
 LEGENDA_COLONNE = [
     ("A–I", "", "dati card"),
     (
@@ -146,30 +149,35 @@ LEGENDA_COLONNE = [
     (
         "K",
         TOTALE_WAITING_COL,
-        "somma giornate lavorative (lun-ven) dei tag '# Waiting -' in colonna P",
+        "somma giornate lavorative (lun-ven) dei tag '# Waiting -' in colonna Q",
     ),
     (
         "L",
         TOTALE_LAVORAZIONE_COL,
-        "somma giornate lavorative (lun-ven) tag '# Working -' in colonna P; "
+        "somma giornate lavorative (lun-ven) tag '# Working -' in colonna Q; "
         "sfondo L: (L/Estimate)×100 — ≤50% verde, 51–80% giallo, 81–100% rosso pastello, >100% rosso acceso",
     ),
     (
         "M",
         REWORK_TIME_COL,
-        "somma colonna O (Giorni) per righe con tag '# Rework' in colonna P",
+        "somma colonna O (Giorni) per righe con tag '# Rework' in colonna Q",
     ),
     (
         "N",
         FIX_TIME_COL,
-        "somma giornate lavorative (lun-ven) dei tag '# Fix' in colonna P",
+        "somma giornate lavorative (lun-ven) dei tag '# Fix' in colonna Q",
     ),
     (
         "O",
         GIORNI_COL,
         "giornate lavorative (lun-ven) per riga tag; due date: inizio incluso, fine esclusa",
     ),
-    ("P", TAG_TEMPORALI_COL, "per riga tag"),
+    (
+        "P",
+        TIMEOUT_COL,
+        "giornate lavorative (lun-ven) da oggi al tag '# Timeout - <data>'",
+    ),
+    ("Q", TAG_TEMPORALI_COL, "per riga tag"),
 ]
 LEGENDA_COMMENTO_COL = 3
 LEGENDA_COMMENTO_COL_FIN = 4
@@ -214,6 +222,10 @@ FIX_TAG_RE = re.compile(
 )
 REWORK_TAG_RE = re.compile(
     r"^#\s*Rework\b",
+    re.IGNORECASE,
+)
+TIMEOUT_TAG_RE = re.compile(
+    r"^#\s*Timeout\s*-\s*",
     re.IGNORECASE,
 )
 TAG_DUE_DATE_PREFIXES = ("Working", "Waiting", "Assignee")
@@ -336,6 +348,29 @@ def giorni_da_inizio_attivita(description, data_oggi=None):
         date = estrai_date_da_tag(tag)
         if date:
             return giorni_lavorativi_tra(date[0], data_oggi)
+    return None
+
+
+def is_tag_timeout(tag):
+    if not tag:
+        return False
+    return bool(TIMEOUT_TAG_RE.match(str(tag).strip()))
+
+
+def giorni_a_timeout(description, data_oggi=None):
+    """Giornate lavorative da oggi alla data nel tag '# Timeout - <data>'."""
+    if data_oggi is None:
+        data_oggi = datetime.now().date()
+    for tag in estrai_tag_temporali(description):
+        if not is_tag_timeout(tag):
+            continue
+        date = estrai_date_da_tag(tag)
+        if not date:
+            continue
+        data_timeout = date[0]
+        if data_timeout <= data_oggi:
+            return 0
+        return giorni_lavorativi_tra(data_oggi, data_timeout, fine_inclusa=False)
     return None
 
 
@@ -594,11 +629,12 @@ def espandi_card_con_tag(card):
         nuova_base[INIZIO_LAVORAZIONE_COL] = giorni_da_inizio_attivita(
             record.get("Description", "")
         )
+        nuova_base[TIMEOUT_COL] = giorni_a_timeout(record.get("Description", ""))
 
         tag_list = [
             tag
             for tag in estrai_tag_temporali(record.get("Description", ""))
-            if not is_tag_estimate(tag)
+            if not is_tag_estimate(tag) and not is_tag_timeout(tag)
         ]
         if not tag_list:
             nuova = dict(nuova_base)
@@ -632,12 +668,13 @@ def colonne_output():
         REWORK_TIME_COL,
         FIX_TIME_COL,
         GIORNI_COL,
+        TIMEOUT_COL,
         TAG_TEMPORALI_COL,
     ]
 
 
 def somma_giorni_tag_gruppo(ws, start, end, matcher, data_oggi=None):
-    """Somma giornate lavorative per righe tag (col. P) che passano matcher."""
+    """Somma giornate lavorative per righe tag (col. Q) che passano matcher."""
     if data_oggi is None:
         data_oggi = datetime.now().date()
     totale = 0.0
@@ -657,7 +694,7 @@ def somma_giorni_tag_gruppo(ws, start, end, matcher, data_oggi=None):
 
 
 def somma_colonna_giorni_filtrata(ws, start, end, matcher):
-    """Somma colonna O (Giorni) per righe il cui tag (col. P) passa matcher."""
+    """Somma colonna O (Giorni) per righe il cui tag (col. Q) passa matcher."""
     totale = 0.0
     ha_valori = False
     for row in range(start, end + 1):
@@ -725,6 +762,9 @@ def applica_totali_gruppo(ws, start, end):
     cella_inizio = ws.cell(row=start, column=COL_INIZIO_LAVORAZIONE)
     cella_inizio.alignment = center
 
+    cella_timeout = ws.cell(row=start, column=COL_TIMEOUT)
+    cella_timeout.alignment = center
+
 
 def gruppi_righe_per_title(ws):
     """Raggruppa righe dati (dalla 2) consecutivi con stesso Title in colonna A."""
@@ -789,6 +829,14 @@ def formatta_foglio_card(ws):
                     merged.alignment = center
                 else:
                     merged.alignment = middle
+            ws.merge_cells(
+                start_row=start,
+                start_column=COL_TIMEOUT,
+                end_row=end,
+                end_column=COL_TIMEOUT,
+            )
+            merged_timeout = ws.cell(row=start, column=COL_TIMEOUT)
+            merged_timeout.alignment = center
         applica_totali_gruppo(ws, start, end)
         applica_bordo_gruppo(ws, start, end, 1, COL_LAST, PASTEL_RED_BORDER)
 
