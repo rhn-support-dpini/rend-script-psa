@@ -1300,6 +1300,8 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
       tra le righe che collassano nella cella (stesse chiavi pivot + settimana);
       viola solo per coppie davvero sconosciute o valori mancanti dopo normalizzazione.
     - Bordo blu spesso sulla settimana corrente
+    - Colonna "Somma precedente" (azzurro pastello) prima della settimana corrente:
+      somma delle settimane dalla prima (col. G) fino a quella precedente la corrente
     - Colonna "Commento" tra Milestone e Resource: Full Name
     - Colonna "Resource: Full Name" tra Commento e Riferimento Interno
     - Colonna extra "Actual Hours (Giornate)" a destra della tabella
@@ -1510,6 +1512,55 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
     data_start_row = 5
     ultima_riga_ws = ultima_riga_dr + 2
     col_rif_src    = 'Riferimento tabella 1'
+
+    first_week_col = num_idx + 1
+    fill_azzurro_pastello = PatternFill(fill_type='solid', fgColor='D6EAF8')
+
+    # Colonna somma settimane precedenti (subito prima della settimana corrente)
+    if current_week_col_dr is not None and current_week_col_dr >= first_week_col:
+        somma_col = current_week_col_dr
+        ws_dr.insert_cols(somma_col)
+
+        ws_dr.merge_cells(
+            start_row=2, start_column=somma_col,
+            end_row=4, end_column=somma_col,
+        )
+        hdr_somma = ws_dr.cell(row=2, column=somma_col)
+        hdr_somma.value = "Somma precedente"
+        hdr_somma.font = bold
+        hdr_somma.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        hdr_somma.fill = fill_azzurro_pastello
+
+        for r in range(data_start_row, ultima_riga_ws + 1):
+            totale_riga = 0.0
+            ha_valori = False
+            for c in range(first_week_col, somma_col):
+                val = ws_dr.cell(row=r, column=c).value
+                if isinstance(val, (int, float)):
+                    totale_riga += val
+                    ha_valori = True
+            cella = ws_dr.cell(row=r, column=somma_col)
+            if ha_valori:
+                cella.value = totale_riga
+            cella.fill = fill_azzurro_pastello
+            cella.alignment = center
+
+        tot_somma = 0.0
+        ha_tot_somma = False
+        for r in range(data_start_row, ultima_riga_ws + 1):
+            val = ws_dr.cell(row=r, column=somma_col).value
+            if isinstance(val, (int, float)):
+                tot_somma += val
+                ha_tot_somma = True
+        tot_somma_cell = ws_dr.cell(row=ultima_riga_ws + 1, column=somma_col)
+        if ha_tot_somma:
+            tot_somma_cell.value = tot_somma
+        tot_somma_cell.fill = fill_azzurro_pastello
+        tot_somma_cell.font = bold
+        tot_somma_cell.alignment = center
+
+        current_week_col_dr += 1
+        ultima_col += 1
 
     # Rimuove green_fill dalla colonna settimana corrente e aggiunge bordi blu spessi
     if current_week_col_dr is not None:
