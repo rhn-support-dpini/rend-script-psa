@@ -1280,6 +1280,84 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
 
 # --- FORMATTAZIONE TAB RIEPILOGO SETTIMANALE ---
 
+FILL_AZZURRO_PASTELLO_DR = PatternFill(fill_type='solid', fgColor='D6EAF8')
+GRID_SIDE_DR = Side(style='thin', color='B0BEC5')
+
+
+def _somma_celle_settimane(ws_dr, row, start_col, end_col_inclusive):
+    """Somma valori numerici nelle colonne settimana [start_col, end_col_inclusive]."""
+    if end_col_inclusive < start_col:
+        return None
+    totale = 0.0
+    ha_valori = False
+    for c in range(start_col, end_col_inclusive + 1):
+        val = ws_dr.cell(row=row, column=c).value
+        if isinstance(val, (int, float)):
+            totale += val
+            ha_valori = True
+    return totale if ha_valori else None
+
+
+def _applica_azzurro_con_griglia(cella, fill=None, alignment=None):
+    """Sfondo azzurro pastello con bordi sottili per mostrare griglia righe/colonne."""
+    if fill is None:
+        fill = FILL_AZZURRO_PASTELLO_DR
+    cella.fill = fill
+    cella.border = Border(
+        left=GRID_SIDE_DR,
+        right=GRID_SIDE_DR,
+        top=GRID_SIDE_DR,
+        bottom=GRID_SIDE_DR,
+    )
+    if alignment is not None:
+        cella.alignment = alignment
+
+
+def _inserisci_colonna_somma_settimane_dr(
+    ws_dr,
+    insert_col,
+    titolo,
+    sum_start_col,
+    sum_end_col_inclusive,
+    data_start_row,
+    ultima_riga_ws,
+    bold,
+    center,
+):
+    """Inserisce colonna somma (azzurro + griglia) prima di insert_col."""
+    ws_dr.insert_cols(insert_col)
+
+    ws_dr.merge_cells(
+        start_row=2, start_column=insert_col,
+        end_row=4, end_column=insert_col,
+    )
+    hdr = ws_dr.cell(row=2, column=insert_col)
+    hdr.value = titolo
+    hdr.font = bold
+    hdr.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    _applica_azzurro_con_griglia(hdr, alignment=hdr.alignment)
+
+    for r in range(data_start_row, ultima_riga_ws + 1):
+        cella = ws_dr.cell(row=r, column=insert_col)
+        totale = _somma_celle_settimane(ws_dr, r, sum_start_col, sum_end_col_inclusive)
+        if totale is not None:
+            cella.value = totale
+        _applica_azzurro_con_griglia(cella, alignment=center)
+
+    tot_col = 0.0
+    ha_tot = False
+    for r in range(data_start_row, ultima_riga_ws + 1):
+        val = ws_dr.cell(row=r, column=insert_col).value
+        if isinstance(val, (int, float)):
+            tot_col += val
+            ha_tot = True
+    tot_cell = ws_dr.cell(row=ultima_riga_ws + 1, column=insert_col)
+    if ha_tot:
+        tot_cell.value = tot_col
+    tot_cell.font = bold
+    _applica_azzurro_con_griglia(tot_cell, alignment=center)
+
+
 def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_est,
                        current_week_str, bold, center, green_fill, red_thick,
                        fill_verde, fill_nero, font_bianco_bold,
@@ -1302,6 +1380,8 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
     - Bordo blu spesso sulla settimana corrente
     - Colonna "Somma precedente" (azzurro pastello) prima della settimana corrente:
       somma delle settimane dalla prima (col. G) fino a quella precedente la corrente
+    - Colonna "Somma da corrente" (azzurro pastello) dopo l'ultima settimana:
+      somma dalla settimana corrente all'ultima settimana (prima di TOTALE RIGA)
     - Colonna "Commento" tra Milestone e Resource: Full Name
     - Colonna "Resource: Full Name" tra Commento e Riferimento Interno
     - Colonna extra "Actual Hours (Giornate)" a destra della tabella
@@ -1514,52 +1594,39 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
     col_rif_src    = 'Riferimento tabella 1'
 
     first_week_col = num_idx + 1
-    fill_azzurro_pastello = PatternFill(fill_type='solid', fgColor='D6EAF8')
 
     # Colonna somma settimane precedenti (subito prima della settimana corrente)
     if current_week_col_dr is not None and current_week_col_dr >= first_week_col:
-        somma_col = current_week_col_dr
-        ws_dr.insert_cols(somma_col)
-
-        ws_dr.merge_cells(
-            start_row=2, start_column=somma_col,
-            end_row=4, end_column=somma_col,
+        somma_prec_col = current_week_col_dr
+        _inserisci_colonna_somma_settimane_dr(
+            ws_dr,
+            somma_prec_col,
+            "Somma precedente",
+            first_week_col,
+            somma_prec_col - 1,
+            data_start_row,
+            ultima_riga_ws,
+            bold,
+            center,
         )
-        hdr_somma = ws_dr.cell(row=2, column=somma_col)
-        hdr_somma.value = "Somma precedente"
-        hdr_somma.font = bold
-        hdr_somma.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-        hdr_somma.fill = fill_azzurro_pastello
-
-        for r in range(data_start_row, ultima_riga_ws + 1):
-            totale_riga = 0.0
-            ha_valori = False
-            for c in range(first_week_col, somma_col):
-                val = ws_dr.cell(row=r, column=c).value
-                if isinstance(val, (int, float)):
-                    totale_riga += val
-                    ha_valori = True
-            cella = ws_dr.cell(row=r, column=somma_col)
-            if ha_valori:
-                cella.value = totale_riga
-            cella.fill = fill_azzurro_pastello
-            cella.alignment = center
-
-        tot_somma = 0.0
-        ha_tot_somma = False
-        for r in range(data_start_row, ultima_riga_ws + 1):
-            val = ws_dr.cell(row=r, column=somma_col).value
-            if isinstance(val, (int, float)):
-                tot_somma += val
-                ha_tot_somma = True
-        tot_somma_cell = ws_dr.cell(row=ultima_riga_ws + 1, column=somma_col)
-        if ha_tot_somma:
-            tot_somma_cell.value = tot_somma
-        tot_somma_cell.fill = fill_azzurro_pastello
-        tot_somma_cell.font = bold
-        tot_somma_cell.alignment = center
-
         current_week_col_dr += 1
+        ultima_col += 1
+
+    # Colonna somma da settimana corrente a ultima settimana (prima di TOTALE RIGA)
+    if current_week_col_dr is not None and ultima_col > current_week_col_dr:
+        last_week_col = ultima_col - 1
+        somma_da_corr_col = ultima_col
+        _inserisci_colonna_somma_settimane_dr(
+            ws_dr,
+            somma_da_corr_col,
+            "Somma da corrente",
+            current_week_col_dr,
+            last_week_col,
+            data_start_row,
+            ultima_riga_ws,
+            bold,
+            center,
+        )
         ultima_col += 1
 
     # Rimuove green_fill dalla colonna settimana corrente e aggiunge bordi blu spessi
