@@ -1334,8 +1334,8 @@ def _inserisci_colonna_somma_settimane_dr(
     hdr = ws_dr.cell(row=2, column=insert_col)
     hdr.value = titolo
     hdr.font = bold
-    hdr.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    _applica_azzurro_con_griglia(hdr, alignment=hdr.alignment)
+    hdr_center_wrap = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    _applica_azzurro_con_griglia(hdr, alignment=hdr_center_wrap)
 
     for r in range(data_start_row, ultima_riga_ws + 1):
         cella = ws_dr.cell(row=r, column=insert_col)
