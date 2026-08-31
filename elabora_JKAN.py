@@ -36,6 +36,7 @@ import argparse
 import csv
 import html
 import json
+import math
 import os
 import re
 import sys
@@ -548,6 +549,19 @@ def giorni_lavorativi_tra(inizio, fine, fine_inclusa=True):
             giorni += 1
         corrente += timedelta(days=1)
     return giorni
+
+
+def aggiungi_giorni_lavorativi(data, giorni):
+    """Aggiunge N giornate lavorative (lun-ven) a una data."""
+    if giorni <= 0:
+        return data
+    corrente = data
+    aggiunti = 0
+    while aggiunti < giorni:
+        corrente += timedelta(days=1)
+        if corrente.weekday() < 5:
+            aggiunti += 1
+    return corrente
 
 
 def giorni_da_tag_working(tag, data_oggi=None):
@@ -1267,6 +1281,115 @@ def _serie_burndown_ideal(n, target=SCOPE_TOTALE_CARD):
     return [round(target * (n - 1 - i) / (n - 1)) for i in range(n)]
 
 
+def _regressione_lineare(xs, ys):
+    """Regressione y = intercept + slope * x; restituisce (slope, intercept) o (None, None)."""
+    n = len(xs)
+    if n < 2 or len(ys) != n:
+        return None, None
+    x_mean = sum(xs) / n
+    y_mean = sum(ys) / n
+    num = sum((xs[i] - x_mean) * (ys[i] - y_mean) for i in range(n))
+    den = sum((xs[i] - x_mean) ** 2 for i in range(n))
+    if den == 0:
+        return None, None
+    slope = num / den
+    intercept = y_mean - slope * x_mean
+    return slope, intercept
+
+
+def _formatta_velocita_card(velocity):
+    """Formatta card/giorno lavorativo per messaggi in italiano."""
+    if velocity >= 1:
+        return f"{velocity:.1f}".replace(".", ",")
+    if velocity >= 0.1:
+        return f"{velocity:.2f}".replace(".", ",")
+    return f"{velocity:.3f}".replace(".", ",")
+
+
+def _stima_fine_lavori_burndown(df, target=SCOPE_TOTALE_CARD):
+    """
+    Stima la data di completamento estraendo la velocità (card/giorno lavorativo)
+    dal trend storico di Acronimi Done sugli snapshot.
+    """
+    if df.empty or len(df) < 2:
+        return {"available": False}
+
+    done = df["Acronimi done"].astype(int).tolist()
+    date_snapshot = [
+        ts.date() if hasattr(ts, "date") else ts for ts in df["data"]
+    ]
+    first = date_snapshot[0]
+    xs = [giorni_lavorativi_tra(first, d) for d in date_snapshot]
+    slope, _intercept = _regressione_lineare(xs, done)
+    if slope is None or slope <= 0:
+        return {"available": False}
+
+    done_last = done[-1]
+    remaining = target - done_last
+    last_date = date_snapshot[-1]
+    if remaining <= 0:
+        date_label = last_date.strftime("%d/%m/%Y")
+        return {
+            "available": True,
+            "completed": True,
+            "date": last_date.strftime("%Y-%m-%d"),
+            "date_label": date_label,
+            "message": f"Target già raggiunto (Done = {done_last}, {date_label}).",
+        }
+
+    workdays_needed = math.ceil(remaining / slope)
+    forecast_date = aggiungi_giorni_lavorativi(last_date, workdays_needed)
+    date_label = forecast_date.strftime("%d/%m/%Y")
+    velocity_label = _formatta_velocita_card(slope)
+    return {
+        "available": True,
+        "completed": False,
+        "date": forecast_date.strftime("%Y-%m-%d"),
+        "date_label": date_label,
+        "week_label": f"W{forecast_date.isocalendar()[1]:02d}",
+        "velocity_per_workday": round(slope, 4),
+        "workdays_needed": workdays_needed,
+        "message": (
+            f"A questa velocità ({velocity_label} card/giorno lavorativo), "
+            f"fine stimata: {date_label}"
+        ),
+    }
+
+
+def _dati_burndown_jkan(df, dates, weeks, done):
+    """Serie burndown, linea ideale e proiezione verso la stima di completamento."""
+    n = len(done)
+    remaining = [SCOPE_TOTALE_CARD - d for d in done]
+    ideal = _serie_burndown_ideal(n)
+    forecast = _stima_fine_lavori_burndown(df)
+    burndown = {
+        "remaining": remaining,
+        "ideal": ideal,
+        "forecast": forecast,
+        "dates": dates,
+        "weeks": weeks,
+        "remaining_extended": remaining,
+        "ideal_extended": ideal,
+        "forecast_projection": [None] * n,
+    }
+    if forecast.get("available") and not forecast.get("completed") and n >= 1:
+        burndown["dates"] = dates + [forecast["date_label"]]
+        burndown["weeks"] = weeks + [forecast["week_label"]]
+        burndown["remaining_extended"] = remaining + [None]
+        burndown["ideal_extended"] = ideal + [None]
+        burndown["forecast_projection"] = [None] * (n - 1) + [remaining[-1], 0]
+    return burndown
+
+
+def _html_burndown_forecast(forecast):
+    if forecast.get("available"):
+        return f'<p class="sub forecast"><b>{html.escape(forecast["message"])}</b></p>'
+    return (
+        '<p class="sub forecast"><em>Stima non disponibile: servono almeno 2 snapshot '
+        "e velocità positiva sulle card completate.</em></p>"
+    )
+
+
 def _dati_grafici_jkan(df):
     dates, weeks = _etichette_asse_tempo(df)
     n = len(df)
@@ -1285,10 +1408,7 @@ def _dati_grafici_jkan(df):
             "scope": _serie_totali(df),
             "target": [SCOPE_TOTALE_CARD] * n,
         },
-        "burndown": {
-            "remaining": [SCOPE_TOTALE_CARD - d for d in done],
-            "ideal": _serie_burndown_ideal(n),
-        },
+        "burndown": _dati_burndown_jkan(df, dates, weeks, done),
         "wip": in_delivery,
         "velocity": _serie_velocita(df),
         "stacked": {
@@ -1541,6 +1661,7 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronim
 
     dati = _dati_grafici_jkan(df)
     chart_json = json.dumps(dati, ensure_ascii=False)
+    burndown_forecast_html = _html_burndown_forecast(dati["burndown"]["forecast"])
     griglia_html = _html_griglia_colonne_kanban()
     js_colonne = _js_griglia_colonne_kanban()
     kpi_acronimi_html = _html_kpi_acronimi(riepilogo_acronimi)
@@ -1597,6 +1718,8 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronim
     main {{ max-width: 1200px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }}
     h1 {{ margin: 0 0 .25rem; font-size: 1.6rem; }}
     .sub {{ color: var(--muted); margin: 0 0 1rem; font-size: .92rem; }}
+    .sub.forecast {{ margin-top: -.35rem; }}
+    .sub.forecast b {{ color: #0f766e; }}
     .kpis {{
       display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
       gap: .75rem; margin-bottom: 1.5rem;
@@ -1698,6 +1821,7 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronim
   <section id="burndown">
     <h2>Burndown — card rimanenti vs target</h2>
     <p class="sub">Rimanente = target {SCOPE_TOTALE_CARD} − Acronimi Done. Linea tratteggiata: andamento ideale lineare dal primo all'ultimo snapshot.</p>
+{burndown_forecast_html}
     <div class="chart-wrap"><canvas id="chart-burndown"></canvas></div>
   </section>
 
@@ -1869,22 +1993,32 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronim
   new Chart(document.getElementById("chart-burndown"), {{
     type: "line",
     data: {{
-      labels: axisLabels,
+      labels: D.burndown.dates.map(function(d, i) {{
+        return [d, D.burndown.weeks[i]];
+      }}),
       datasets: [
         {{
           label: "Rimanente (target − Done)",
-          data: D.burndown.remaining,
+          data: D.burndown.remaining_extended,
           borderColor: "#ef4444",
           backgroundColor: "rgba(239,68,68,0.12)",
           fill: true, tension: 0.25, pointRadius: 4
         }},
         {{
           label: "Ideale lineare",
-          data: D.burndown.ideal,
+          data: D.burndown.ideal_extended,
           borderColor: "#94a3b8",
           borderDash: [6, 4],
           backgroundColor: "transparent",
           fill: false, tension: 0, pointRadius: 0
+        }},
+        {{
+          label: "Stima completamento",
+          data: D.burndown.forecast_projection,
+          borderColor: "#0f766e",
+          borderDash: [4, 4],
+          backgroundColor: "transparent",
+          fill: false, tension: 0, pointRadius: 3, spanGaps: true
         }}
       ]
     }},
