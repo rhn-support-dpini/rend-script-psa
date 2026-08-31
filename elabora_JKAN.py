@@ -1258,6 +1258,15 @@ def _serie_velocita(df):
     return [0] + [done[i] - done[i - 1] for i in range(1, len(done))]
 
 
+def _serie_burndown_ideal(n, target=SCOPE_TOTALE_CARD):
+    """Linea ideale: da target al primo snapshot a 0 all'ultimo."""
+    if n <= 0:
+        return []
+    if n == 1:
+        return [target]
+    return [round(target * (n - 1 - i) / (n - 1)) for i in range(n)]
+
+
 def _dati_grafici_jkan(df):
     dates, weeks = _etichette_asse_tempo(df)
     n = len(df)
@@ -1275,6 +1284,10 @@ def _dati_grafici_jkan(df):
             "done": done,
             "scope": _serie_totali(df),
             "target": [SCOPE_TOTALE_CARD] * n,
+        },
+        "burndown": {
+            "remaining": [SCOPE_TOTALE_CARD - d for d in done],
+            "ideal": _serie_burndown_ideal(n),
         },
         "wip": in_delivery,
         "velocity": _serie_velocita(df),
@@ -1522,7 +1535,7 @@ def _js_griglia_colonne_kanban():
 
 
 def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronimi=None):
-    """Genera report HTML Scrum/Kanban con burnup, CFD ed evoluzione colonne."""
+    """Genera report HTML Scrum/Kanban con burnup, burndown, CFD ed evoluzione colonne."""
     if df.empty:
         return
 
@@ -1682,6 +1695,12 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronim
     <div class="chart-wrap"><canvas id="chart-burnup"></canvas></div>
   </section>
 
+  <section id="burndown">
+    <h2>Burndown — card rimanenti vs target</h2>
+    <p class="sub">Rimanente = target {SCOPE_TOTALE_CARD} − Acronimi Done. Linea tratteggiata: andamento ideale lineare dal primo all'ultimo snapshot.</p>
+    <div class="chart-wrap"><canvas id="chart-burndown"></canvas></div>
+  </section>
+
   <section id="stacked">
     <h2>Distribuzione card per colonna (barre impilate)</h2>
     <div class="chart-wrap"><canvas id="chart-stacked"></canvas></div>
@@ -1839,6 +1858,31 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronim
           data: D.burnup.target,
           borderColor: "#cbd5e1",
           borderDash: [2, 4],
+          backgroundColor: "transparent",
+          fill: false, tension: 0, pointRadius: 0
+        }}
+      ]
+    }},
+    options: baseOpts
+  }});
+
+  new Chart(document.getElementById("chart-burndown"), {{
+    type: "line",
+    data: {{
+      labels: axisLabels,
+      datasets: [
+        {{
+          label: "Rimanente (target − Done)",
+          data: D.burndown.remaining,
+          borderColor: "#ef4444",
+          backgroundColor: "rgba(239,68,68,0.12)",
+          fill: true, tension: 0.25, pointRadius: 4
+        }},
+        {{
+          label: "Ideale lineare",
+          data: D.burndown.ideal,
+          borderColor: "#94a3b8",
+          borderDash: [6, 4],
           backgroundColor: "transparent",
           fill: false, tension: 0, pointRadius: 0
         }}
