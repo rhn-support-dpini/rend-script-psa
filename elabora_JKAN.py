@@ -25,7 +25,7 @@ Output:
     L (Totale Lavorazione): somma tag "# Working -"; sfondo per % su Estimate (col. G).
     M (Rework time): somma col. O (Giorni) per tag "# Rework" in col. S.
     N (Fix time): somma giornate tag "# Fix" in col. S.
-    O (Giorni): giornate per riga tag. P (Totale Ore): somma col. Q Ore sulla card.
+    O (Giorni): giornate per riga tag. P (Totale Ore): somma ore lavorate col. Q (no Waiting).
     Q (Ore): ore per riga tag (# Waiting/Working/Fix/Rework).
     R (Timeout (GG)): giornate lavorative da oggi al tag "# Timeout - <data>".
     S (TAG Temporali): testo del tag per riga.
@@ -50,6 +50,8 @@ from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Border, PatternFill, Side
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+VENV_DIR = os.path.join(SCRIPT_DIR, "venv")
+DATA_DIR = os.path.join(VENV_DIR, "Data")
 DB_JKAN_CSV = os.path.join(SCRIPT_DIR, "dbJKAN.csv")
 DATA_IN_FILENAME_RE = re.compile(r"(\d{4})[-/](\d{2})[-/](\d{2})")
 SCOPE_TOTALE_CARD = 30
@@ -182,7 +184,7 @@ LEGENDA_COLONNE = [
     (
         "P",
         TOTALE_ORE_COL,
-        "somma colonna Q (Ore) per tutte le righe tag della card",
+        "somma colonna Q (Ore) per righe tag lavorate (# Working, # Fix, # Rework; escluso Waiting)",
     ),
     (
         "Q",
@@ -271,7 +273,18 @@ TAG_ORE_STRUCTURE_RE = re.compile(
 
 def risolvi_percorso(nome_o_path):
     if os.path.isabs(nome_o_path):
-        return nome_o_path
+        return os.path.normpath(nome_o_path)
+    return os.path.normpath(os.path.join(SCRIPT_DIR, nome_o_path))
+
+
+def risolvi_percorso_input(nome_o_path):
+    """Input CSV: assoluto, poi cwd (es. venv/Data), poi script/, poi venv/Data/."""
+    if os.path.isabs(nome_o_path):
+        return os.path.normpath(nome_o_path)
+    for base in (os.getcwd(), SCRIPT_DIR, DATA_DIR):
+        path = os.path.normpath(os.path.join(base, nome_o_path))
+        if os.path.exists(path):
+            return path
     return os.path.normpath(os.path.join(SCRIPT_DIR, nome_o_path))
 
 
@@ -432,6 +445,11 @@ def is_tag_ore_contrib(tag):
         or is_tag_fix(tag)
         or is_tag_rework(tag)
     )
+
+
+def is_tag_ore_lavorate(tag):
+    """True per tag le cui ore contano in Totale Ore (escluso # Waiting)."""
+    return is_tag_working(tag) or is_tag_fix(tag) or is_tag_rework(tag)
 
 
 def parse_tag_ore(tag):
@@ -837,10 +855,13 @@ def somma_colonna_giorni_filtrata(ws, start, end, matcher):
 
 
 def somma_colonna_ore_gruppo(ws, start, end):
-    """Somma colonna Q (Ore) su tutte le righe tag del gruppo card."""
+    """Somma colonna Q (Ore) sulle righe lavorate del gruppo card (no # Waiting)."""
     totale = 0.0
     ha_valori = False
     for row in range(start, end + 1):
+        tag = ws.cell(row=row, column=COL_TAG).value
+        if not is_tag_ore_lavorate(tag):
+            continue
         val = parse_numero(ws.cell(row=row, column=COL_ORE).value)
         if val is not None:
             totale += val
@@ -2226,8 +2247,9 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronim
 
 
 def elabora(input_csv):
-    input_path = risolvi_percorso(input_csv)
+    input_path = os.path.abspath(risolvi_percorso_input(input_csv))
     output_path = percorso_output_da_csv(input_path)
+    html_path = percorso_html_da_xlsx(output_path)
 
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"File di input non trovato: {input_path}")
@@ -2245,7 +2267,6 @@ def elabora(input_csv):
     data_snapshot = estrai_data_da_nome_file(input_path)
     conteggi, non_mappate = conteggio_per_colonna_kanban(card)
     df_storico = aggiorna_db_jkan(data_snapshot, conteggi)
-    html_path = percorso_html_da_xlsx(output_path)
     riepilogo_acronimi = riepilogo_acronimi_scope(card)
     genera_html_jkan(
         df_storico,
@@ -2258,12 +2279,13 @@ def elabora(input_csv):
     print(f"Sezioni kanban: {sezioni}")
     print(f"Card estratte: {len(card)}")
     print(f"Righe output: {righe_output}")
-    print(f"Output: {output_path}")
+    print(f"Input: {input_path}")
+    print(f"Output Excel: {output_path}")
+    print(f"Output HTML: {html_path}")
     print(f"Snapshot {data_snapshot.isoformat()}: {dict(conteggi)}")
     if non_mappate:
         print(f"Card con Status non mappato: {non_mappate}")
     print(f"Database: {DB_JKAN_CSV}")
-    print(f"Grafici: {html_path}")
 
 
 def crea_parser():
@@ -2278,8 +2300,7 @@ Parametri:
               Default: 2026-06-06-WIP.csv nella cartella dello script.
 
 Output:
-  <input>.xlsx — stesso percorso del CSV, estensione .xlsx.
-  <input>.html — report Scrum/Kanban omonimo del file Excel prodotto.
+  <input>.xlsx e <input>.html — stessa cartella del CSV di input (es. venv/Data/).
   dbJKAN.csv   — storico snapshot (cartella dello script).
 """
     parser = argparse.ArgumentParser(

@@ -194,10 +194,14 @@ for FILEPATH in "$TARGET_DIR"/$PATTERN_JKAN; do
     echo "--------------------------------------------------"
     echo "Elaborazione JKAN (nuovo): $FILENAME"
 
+    BASE_NOEXT="${FILENAME%.csv}"
+
     if (
-        cd "$SCRIPT_DIR"
-        "$PYTHON" elabora_JKAN.py "$FILEPATH"
+        cd "$TARGET_DIR"
+        "$PYTHON" "$SCRIPT_DIR/elabora_JKAN.py" "$FILENAME"
     ); then
+        echo "Output Excel: $TARGET_DIR/${BASE_NOEXT}.xlsx"
+        echo "Output HTML: $TARGET_DIR/${BASE_NOEXT}.html"
         NUOVO_NOME=$(nome_trattato_jkan "$FILENAME")
         echo "Rinomino il file in: $NUOVO_NOME"
         mv "$FILEPATH" "$TARGET_DIR/$NUOVO_NOME"
