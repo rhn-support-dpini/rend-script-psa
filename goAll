@@ -13,8 +13,10 @@
 # 4. Elabora i file JKAN appena copiati con elabora_JKAN.py (rinomina con prefisso x-)
 #
 # Variabili opzionali:
-#   TARGET_DIR  cartella dati (default: <script>/venv/Data)
-#   CLIENTE     filtro cliente per elabora_progetti.py (default: Intesa)
+#   TARGET_DIR       cartella dati (default: <script>/venv/Data)
+#   CLIENTE          filtro cliente per elabora_progetti.py (default: Intesa)
+#   DRIVE_DIR_PSA    cartella Drive export PSA (default: come copia_drive-PSA.sh)
+#   DRIVE_DIR_MIRO   cartella Drive export MIRO (default: come copia_drive-Miro.sh)
 
 set -euo pipefail
 
@@ -24,6 +26,8 @@ TARGET_DIR="${TARGET_DIR:-$VENV_DIR/Data}"
 CLIENTE="${CLIENTE:-Intesa}"
 PATTERN_PSA='DvPFilter-RHCC-All-Assignments-Full*'
 PATTERN_JKAN='*-Intesa-JBOSS.csv'
+DRIVE_DIR_PSA="${DRIVE_DIR_PSA:-$HOME/Library/CloudStorage/GoogleDrive-dpini@redhat.com/Il mio Drive/Customers/DvPFilter-RHCC-All-Assignments-Full}"
+DRIVE_DIR_MIRO="${DRIVE_DIR_MIRO:-$HOME/Library/CloudStorage/GoogleDrive-dpini@redhat.com/Il mio Drive/Customers/Miro}"
 
 mkdir -p "$VENV_DIR" "$TARGET_DIR"
 TARGET_DIR="$(cd "$TARGET_DIR" && pwd)"
@@ -33,6 +37,24 @@ if [ -x "$VENV_DIR/bin/python3" ]; then
 else
     PYTHON=python3
 fi
+
+copia_risultato_su_drive() {
+    local src="$1"
+    local drive_dir="$2"
+    local label="$3"
+
+    if [ ! -f "$src" ]; then
+        echo "Attenzione: risultato assente, copia Drive saltata ($label): $src"
+        return 1
+    fi
+    if [ ! -d "$drive_dir" ]; then
+        echo "Attenzione: cartella Drive non disponibile ($label), copia saltata: $drive_dir"
+        return 1
+    fi
+
+    rsync -a "$src" "$drive_dir/"
+    echo "Copiato su Drive ($label): $drive_dir/$(basename "$src")"
+}
 
 # --- PSA: DvPFilter- → RHCC- (elaborato) ---
 
@@ -89,7 +111,7 @@ file_gia_presente_jkan() {
 # --- 1/4 Copia PSA ---
 
 echo "=== 1/4 Copia PSA (copia_drive-PSA.sh) → $TARGET_DIR ==="
-LOCAL_DIR="$TARGET_DIR" "$SCRIPT_DIR/copia_drive-PSA.sh"
+DRIVE_DIR="$DRIVE_DIR_PSA" LOCAL_DIR="$TARGET_DIR" "$SCRIPT_DIR/copia_drive-PSA.sh"
 
 if [ ! -d "$TARGET_DIR" ]; then
     echo "Errore: la cartella '$TARGET_DIR' non esiste."
@@ -141,7 +163,9 @@ for FILEPATH in "$TARGET_DIR"/$PATTERN_PSA; do
         cd "$SCRIPT_DIR"
         "$PYTHON" elabora_progetti.py "$CLIENTE" "$FILEPATH" "$TARGET_DIR/${DATA_FILE}-Result-PSA.xlsx"
     ); then
-        echo "Output report: $TARGET_DIR/${DATA_FILE}-Result-PSA.xlsx"
+        RESULT_PSA="$TARGET_DIR/${DATA_FILE}-Result-PSA.xlsx"
+        echo "Output report: $RESULT_PSA"
+        copia_risultato_su_drive "$RESULT_PSA" "$DRIVE_DIR_PSA" "PSA" || true
         NUOVO_NOME=$(nome_elaborato_psa "$FILENAME")
         echo "Rinomino il file in: $NUOVO_NOME"
         mv "$FILEPATH" "$TARGET_DIR/$NUOVO_NOME"
@@ -165,7 +189,7 @@ fi
 
 echo ""
 echo "=== 3/4 Copia MIRO (copia_drive-Miro.sh) → $TARGET_DIR ==="
-LOCAL_DIR="$TARGET_DIR" "$SCRIPT_DIR/copia_drive-Miro.sh"
+DRIVE_DIR="$DRIVE_DIR_MIRO" LOCAL_DIR="$TARGET_DIR" "$SCRIPT_DIR/copia_drive-Miro.sh"
 
 # --- 4/4 Elaborazione JKAN ---
 
@@ -200,8 +224,12 @@ for FILEPATH in "$TARGET_DIR"/$PATTERN_JKAN; do
         cd "$TARGET_DIR"
         "$PYTHON" "$SCRIPT_DIR/elabora_JKAN.py" "$FILENAME"
     ); then
-        echo "Output Excel: $TARGET_DIR/${BASE_NOEXT}.xlsx"
-        echo "Output HTML: $TARGET_DIR/${BASE_NOEXT}.html"
+        RESULT_XLSX="$TARGET_DIR/${BASE_NOEXT}.xlsx"
+        RESULT_HTML="$TARGET_DIR/${BASE_NOEXT}.html"
+        echo "Output Excel: $RESULT_XLSX"
+        echo "Output HTML: $RESULT_HTML"
+        copia_risultato_su_drive "$RESULT_XLSX" "$DRIVE_DIR_MIRO" "MIRO" || true
+        copia_risultato_su_drive "$RESULT_HTML" "$DRIVE_DIR_MIRO" "MIRO" || true
         NUOVO_NOME=$(nome_trattato_jkan "$FILENAME")
         echo "Rinomino il file in: $NUOVO_NOME"
         mv "$FILEPATH" "$TARGET_DIR/$NUOVO_NOME"
