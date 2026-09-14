@@ -522,14 +522,22 @@ def parsed_tag_ore_validato(tag, title=None, log_error=True, is_ultimo_tag=False
     return parsed
 
 
+def log_warning_tag_errato(messaggio, tag, title=None):
+    """Stampa una riga Warning e sotto la riga del tag errato."""
+    suffisso = f" [card: {title}]" if title else ""
+    print(f"Warning: {messaggio}{suffisso}")
+    print(str(tag).strip())
+
+
 def log_tag_ore_non_conforme(tag, title=None, motivo=""):
-    """Segnala su una riga di log un tag Ore non conforme allo standard."""
-    contesto_title = f" | card: {title}" if title else ""
-    print(
-        "Warning tag Ore non conforme"
-        f"{contesto_title} | tag: {tag!r} | "
-        "atteso: # {Waiting|Working|Fix|Rework} - <data1> - <data2> - [+Nh -] <commento> | "
-        f"dettaglio: {motivo}"
+    """Segnala su log un tag Ore non conforme: riga Warning e sotto il tag."""
+    dettaglio = f" — {motivo}" if motivo else ""
+    log_warning_tag_errato(
+        "tag Ore non conforme"
+        f"{dettaglio} (atteso: # {{Waiting|Working|Fix|Rework}} - "
+        "<data1> - <data2> - [+Nh -] <commento>)",
+        tag,
+        title=title,
     )
 
 
@@ -666,14 +674,14 @@ def valida_struttura_tag_due_date(tag, title=None):
     if not richiede_struttura_due_date(tag):
         return True
 
-    contesto = f" [card: {title}]" if title else ""
-    testo = str(tag).strip()
     parsed = parse_tag_due_date(tag)
 
     if parsed is None:
-        print(
-            "Warning: struttura tag non conforme "
-            f"(atteso '# <tag> - <data> - <data> -'): {testo!r}{contesto}"
+        log_warning_tag_errato(
+            "struttura tag non conforme "
+            "(atteso '# <tag> - <data> - <data> -')",
+            tag,
+            title=title,
         )
         return False
 
