@@ -18,18 +18,20 @@ Output:
     Fogli: data-all (tutte le card), data-export (export ridotto), stat.
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
     <input>.html — report Scrum/Kanban (stesso percorso del .xlsx prodotto).
-    Le righe Description con prefisso "#" generano sotto-righe da colonna S (TAG Temporali);
-    A–N sono merge verticali per Title, con bordo rosso pastello per card.
-    J (InizioLavorazione(GG)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
-    K (Totale Waiting): somma giornate tag "# Waiting -" in col. S.
-    L (Totale Lavorazione): somma tag "# Working -"; sfondo per % su Estimate (col. G).
-    M (Rework time): somma col. O (Giorni) per tag "# Rework" in col. S.
-    N (Fix time): somma giornate tag "# Fix" in col. S.
-    O (Giorni): giornate per riga tag. P (Totale Ore Lavorate): somma ore lavorate col. Q (no Waiting).
-    Q (Ore): ore per riga tag (# Waiting/Working/Fix/Rework).
-    R (Timeout (GG)): giornate lavorative da oggi al tag "# Timeout - <data>".
-    S (TAG Temporali): testo del tag per riga.
-    Colonna G (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
+    Le righe Description con prefisso "#" generano sotto-righe da colonna U (TAG Temporali);
+    A–O sono merge verticali per Title, con bordo rosso pastello per card.
+    K (InizioLavorazione(GG)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
+    L (Totale Waiting): somma giornate tag "# Waiting -" in col. U.
+    M (Totale Lavorazione): somma tag "# Working -"; sfondo per % su Estimate (col. H).
+    N (Rework time): somma col. Q (Giorni) per tag "# Rework" in col. U.
+    O (Fix time): somma giornate tag "# Fix" in col. U.
+    P (% Stimato/Lavorato): (Totale Ore Lavorate / Ore Stimate) × 100.
+    Q (Giorni): giornate per riga tag. R (Totale Ore Lavorate): somma ore lavorate col. S (no Waiting).
+    S (Ore): ore per riga tag (# Waiting/Working/Fix/Rework).
+    T (Timeout (GG)): giornate lavorative da oggi al tag "# Timeout - <data>".
+    U (TAG Temporali): testo del tag per riga.
+    G (Ore Stimate): giorni Estimate (col. H) × 8.
+    Colonna H (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
     Giornate lavorative (lun-ven); nei tag a due date inizio incluso, fine esclusa;
     se manca la 2ª data si usa oggi (incluso), eccetto tag Done.
 """
@@ -110,6 +112,8 @@ KANBAN_COLUMNS = [
     "Tags",
 ]
 FIX_TIME_COL = "Fix time"
+ORE_STIMATE_COL = "Ore Stimate"
+PERCENT_STIMATO_LAVORATO_COL = "% Stimato/Lavorato"
 TIMEOUT_COL = "Timeout (GG)"
 GIORNI_COL = "Giorni"
 TOTALE_ORE_COL = "Totale Ore Lavorate"
@@ -133,70 +137,87 @@ STATUS_ESCLUSI_EXPORT = frozenset(
     }
 )
 STAT_SHEET = "stat"
-CENTER_COLS = {3, 4, 7, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19}  # C, D, G, J–S
-COL_ESTIMATE = 7  # G — Estimate (confronto % con col. L)
-COL_TAGS_ORIG = 9  # I
-COL_INIZIO_LAVORAZIONE = 10  # J
-COL_TOTALE_WAITING = 11  # K
-COL_TOTALE_LAVORAZIONE = 12  # L
-COL_REWORK_TIME = 13  # M
-COL_FIX_TIME = 14  # N
-COL_CARD_END = 14  # A–N: dati card (merge verticali per Title)
-COL_GIORNI = 15  # O
-COL_TOTALE_ORE = 16  # P
-COL_ORE = 17  # Q
-COL_TIMEOUT = 18  # R
-COL_TAG = 19  # S
-COL_LAST = 19
+CENTER_COLS = {3, 4, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21}
+COL_ORE_STIMATE = 7  # G — Estimate (giorni) × 8
+COL_ESTIMATE = 8  # H — Estimate (confronto % con col. M)
+COL_TAGS_ORIG = 10  # J
+COL_INIZIO_LAVORAZIONE = 11  # K
+COL_TOTALE_WAITING = 12  # L
+COL_TOTALE_LAVORAZIONE = 13  # M
+COL_REWORK_TIME = 14  # N
+COL_FIX_TIME = 15  # O
+COL_PERCENT_STIMATO_LAVORATO = 16  # P
+COL_CARD_END = 15  # A–O: dati card (merge verticali per Title)
+COL_GIORNI = 17  # Q
+COL_TOTALE_ORE = 18  # R
+COL_ORE = 19  # S
+COL_TIMEOUT = 20  # T
+COL_TAG = 21  # U
+COL_LAST = 21
 LEGENDA_COLONNE = [
-    ("A–I", "", "dati card"),
+    ("A–J", "", "dati card"),
     (
-        "J",
+        "G",
+        ORE_STIMATE_COL,
+        "conversione in ore dei giorni Estimate (col. H): giorni × 8",
+    ),
+    (
+        "H",
+        "Estimate",
+        "valore numerico dal tag '# Estimate' in Description, non dal CSV",
+    ),
+    (
+        "K",
         INIZIO_LAVORAZIONE_COL,
         "giornate lavorative (lun-ven) dal tag '# Inizio Attivita' - <data>' a oggi",
     ),
     (
-        "K",
-        TOTALE_WAITING_COL,
-        "somma giornate lavorative (lun-ven) dei tag '# Waiting -' in colonna S",
-    ),
-    (
         "L",
-        TOTALE_LAVORAZIONE_COL,
-        "somma giornate lavorative (lun-ven) tag '# Working -' in colonna S; "
-        "sfondo L: (L/Estimate)×100 — ≤50% verde, 51–80% giallo, 81–100% rosso pastello, >100% rosso acceso",
+        TOTALE_WAITING_COL,
+        "somma giornate lavorative (lun-ven) dei tag '# Waiting -' in colonna U",
     ),
     (
         "M",
-        REWORK_TIME_COL,
-        "somma colonna O (Giorni) per righe con tag '# Rework' in colonna S",
+        TOTALE_LAVORAZIONE_COL,
+        "somma giornate lavorative (lun-ven) tag '# Working -' in colonna U; "
+        "sfondo M: (M/Estimate)×100 — ≤50% verde, 51–80% giallo, 81–100% rosso pastello, >100% rosso acceso",
     ),
     (
         "N",
-        FIX_TIME_COL,
-        "somma giornate lavorative (lun-ven) dei tag '# Fix' in colonna S",
+        REWORK_TIME_COL,
+        "somma colonna Q (Giorni) per righe con tag '# Rework' in colonna U",
     ),
     (
         "O",
+        FIX_TIME_COL,
+        "somma giornate lavorative (lun-ven) dei tag '# Fix' in colonna U",
+    ),
+    (
+        "P",
+        PERCENT_STIMATO_LAVORATO_COL,
+        "percentuale (Totale Ore Lavorate col. R / Ore Stimate col. G) × 100",
+    ),
+    (
+        "Q",
         GIORNI_COL,
         "giornate lavorative (lun-ven) per riga tag; due date: inizio incluso, fine esclusa",
     ),
     (
-        "P",
+        "R",
         TOTALE_ORE_COL,
-        "somma colonna Q (Ore) per righe tag lavorate (# Working, # Fix, # Rework; escluso Waiting)",
+        "somma colonna S (Ore) per righe tag lavorate (# Working, # Fix, # Rework; escluso Waiting)",
     ),
     (
-        "Q",
+        "S",
         ORE_COL,
         "ore per riga tag (# Waiting, # Working, # Fix, # Rework): giorni×8 + ore extra (+Nh)",
     ),
     (
-        "R",
+        "T",
         TIMEOUT_COL,
         "giornate lavorative (lun-ven) da oggi al tag '# Timeout - <data>'",
     ),
-    ("S", TAG_TEMPORALI_COL, "per riga tag"),
+    ("U", TAG_TEMPORALI_COL, "per riga tag"),
 ]
 LEGENDA_COMMENTO_COL = 3
 LEGENDA_COMMENTO_COL_FIN = 4
@@ -829,6 +850,14 @@ def parse_numero(valore):
         return None
 
 
+def ore_stimate_da_estimate(estimate_giorni):
+    """Converte i giorni Estimate in ore (giorni lavorativi × 8)."""
+    estimate = parse_numero(estimate_giorni)
+    if estimate is None or estimate <= 0:
+        return None
+    return estimate * 8
+
+
 def espandi_card_con_tag(card):
     """Replica ogni card per tag temporale; aggiunge colonne Giorni e TAG Temporali."""
     righe = []
@@ -842,6 +871,7 @@ def espandi_card_con_tag(card):
             nuova_base["Estimate"] = estimate_csv
         else:
             nuova_base["Estimate"] = ""
+        nuova_base[ORE_STIMATE_COL] = ore_stimate_da_estimate(nuova_base.get("Estimate"))
         nuova_base[INIZIO_LAVORAZIONE_COL] = giorni_da_inizio_attivita(
             record.get("Description", "")
         )
@@ -858,6 +888,7 @@ def espandi_card_con_tag(card):
             nuova[TOTALE_LAVORAZIONE_COL] = None
             nuova[REWORK_TIME_COL] = None
             nuova[FIX_TIME_COL] = None
+            nuova[PERCENT_STIMATO_LAVORATO_COL] = None
             nuova[GIORNI_COL] = None
             nuova[TOTALE_ORE_COL] = None
             nuova[ORE_COL] = None
@@ -873,6 +904,7 @@ def espandi_card_con_tag(card):
             nuova[TOTALE_LAVORAZIONE_COL] = None
             nuova[REWORK_TIME_COL] = None
             nuova[FIX_TIME_COL] = None
+            nuova[PERCENT_STIMATO_LAVORATO_COL] = None
             nuova[GIORNI_COL] = giorni_da_tag_temporale(
                 tag,
                 tag_next,
@@ -892,12 +924,18 @@ def espandi_card_con_tag(card):
 
 
 def colonne_output():
-    return KANBAN_COLUMNS + [
+    base = []
+    for col in KANBAN_COLUMNS:
+        if col == "Estimate":
+            base.append(ORE_STIMATE_COL)
+        base.append(col)
+    return base + [
         INIZIO_LAVORAZIONE_COL,
         TOTALE_WAITING_COL,
         TOTALE_LAVORAZIONE_COL,
         REWORK_TIME_COL,
         FIX_TIME_COL,
+        PERCENT_STIMATO_LAVORATO_COL,
         GIORNI_COL,
         TOTALE_ORE_COL,
         ORE_COL,
@@ -907,7 +945,7 @@ def colonne_output():
 
 
 def somma_giorni_tag_gruppo(ws, start, end, matcher, data_oggi=None):
-    """Somma giornate lavorative per righe tag (col. S) che passano matcher."""
+    """Somma giornate lavorative per righe tag (col. U) che passano matcher."""
     if data_oggi is None:
         data_oggi = datetime.now().date()
     totale = 0.0
@@ -934,7 +972,7 @@ def somma_giorni_tag_gruppo(ws, start, end, matcher, data_oggi=None):
 
 
 def somma_colonna_giorni_filtrata(ws, start, end, matcher):
-    """Somma colonna O (Giorni) per righe il cui tag (col. S) passa matcher."""
+    """Somma colonna Q (Giorni) per righe il cui tag (col. U) passa matcher."""
     totale = 0.0
     ha_valori = False
     for row in range(start, end + 1):
@@ -964,7 +1002,7 @@ def somma_colonna_ore_gruppo(ws, start, end):
 
 
 def percentuale_su_estimate(estimate, totale):
-    """Percentuale (totale / estimate) × 100 per confronto col. M vs Estimate (G)."""
+    """Percentuale (totale / base) × 100."""
     if estimate is None or totale is None or estimate <= 0:
         return None
     return (totale / estimate) * 100
@@ -973,7 +1011,7 @@ def percentuale_su_estimate(estimate, totale):
 def applica_colore_colonna_m(cella, estimate, totale_lavorazione):
     """
     Sfondo col. M (Totale Lavorazione) in base a (M / Estimate) × 100.
-    Estimate in col. G. Fasce: ≤50% verde; 51–80% giallo; 81–100% rosso pastello; >100% rosso acceso.
+    Estimate in col. H. Fasce: ≤50% verde; 51–80% giallo; 81–100% rosso pastello; >100% rosso acceso.
     """
     percentuale = percentuale_su_estimate(estimate, totale_lavorazione)
     if percentuale is None:
@@ -1017,6 +1055,18 @@ def applica_totali_gruppo(ws, start, end):
     cella_tot_ore.alignment = center
 
     estimate = parse_numero(ws.cell(row=start, column=COL_ESTIMATE).value)
+    ore_stimate = ore_stimate_da_estimate(estimate)
+    cella_ore_stimate = ws.cell(row=start, column=COL_ORE_STIMATE)
+    cella_ore_stimate.value = ore_stimate
+    cella_ore_stimate.alignment = center
+
+    percentuale_ore = percentuale_su_estimate(ore_stimate, tot_ore)
+    cella_percent = ws.cell(row=start, column=COL_PERCENT_STIMATO_LAVORATO)
+    cella_percent.value = (
+        round(percentuale_ore, 1) if percentuale_ore is not None else None
+    )
+    cella_percent.alignment = center
+
     applica_colore_colonna_m(cella_lav, estimate, tot_lavorazione)
 
     cella_inizio = ws.cell(row=start, column=COL_INIZIO_LAVORAZIONE)
@@ -1097,6 +1147,14 @@ def formatta_foglio_card(ws):
             )
             merged_tot_ore = ws.cell(row=start, column=COL_TOTALE_ORE)
             merged_tot_ore.alignment = center
+            ws.merge_cells(
+                start_row=start,
+                start_column=COL_PERCENT_STIMATO_LAVORATO,
+                end_row=end,
+                end_column=COL_PERCENT_STIMATO_LAVORATO,
+            )
+            merged_percent = ws.cell(row=start, column=COL_PERCENT_STIMATO_LAVORATO)
+            merged_percent.alignment = center
             ws.merge_cells(
                 start_row=start,
                 start_column=COL_TIMEOUT,
@@ -1280,11 +1338,13 @@ def crea_foglio_stat(wb, riepilogo):
 
 
 def formatta_foglio_dati(ws):
+    ws.cell(row=1, column=COL_ORE_STIMATE).value = ORE_STIMATE_COL
     ws.cell(row=1, column=COL_INIZIO_LAVORAZIONE).value = INIZIO_LAVORAZIONE_COL
     ws.cell(row=1, column=COL_TOTALE_WAITING).value = TOTALE_WAITING_COL
     ws.cell(row=1, column=COL_TOTALE_LAVORAZIONE).value = TOTALE_LAVORAZIONE_COL
     ws.cell(row=1, column=COL_REWORK_TIME).value = REWORK_TIME_COL
     ws.cell(row=1, column=COL_FIX_TIME).value = FIX_TIME_COL
+    ws.cell(row=1, column=COL_PERCENT_STIMATO_LAVORATO).value = PERCENT_STIMATO_LAVORATO_COL
     ws.cell(row=1, column=COL_TOTALE_ORE).value = TOTALE_ORE_COL
     ws.cell(row=1, column=COL_ORE).value = ORE_COL
     gruppi = formatta_foglio_card(ws)
