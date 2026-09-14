@@ -22,14 +22,14 @@ Output:
     A–O sono merge verticali per Title, con bordo rosso pastello per card.
     K (InizioLavorazione(GG)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
     L (Totale Waiting): somma giornate tag "# Waiting -" in col. U.
-    M (Totale Lavorazione): somma tag "# Working -"; sfondo per % su Giornate Stimate (col. G).
-    N (Rework time): somma col. Q (Giorni) per tag "# Rework" in col. U.
+    M (Totale Lavorazione (GG)): somma tag "# Working -" in giornate.
+    N (Rework Time (h)): somma ore (col. S) per tag "# Rework" in col. U.
     O (Fix time): somma ore (col. S) per tag "# Fix" in col. U.
-    P (% Stimato/Lavorato): (Totale Ore Lavorate / Ore Stimate) × 100; stesse fasce colore di col. M.
+    P (% Stimato/Lavorato): (Totale Ore Lavorate / Ore Stimate) × 100 con suffisso " %"; fasce colore.
     Q (Giorni): giornate per riga tag. R (Totale Ore Lavorate): somma ore lavorate col. S (no Waiting).
     S (Ore): ore per riga tag (# Waiting/Working/Fix/Rework).
     T (Timeout (GG)): giornate lavorative da oggi al tag "# Timeout - <data>".
-    U (TAG Temporali): testo del tag per riga.
+    U (TAG Temporali): testo del tag per riga; sfondo rosso pastello se segnalato nel log.
     G (Giornate Stimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
     H (Ore Stimate): Giornate Stimate (col. G) × 8; sfondo acqua marina pastello.
     Colonne R (Totale Ore Lavorate): sfondo acqua marina pastello.
@@ -123,8 +123,8 @@ ORE_COL = "Ore"
 TAG_TEMPORALI_COL = "TAG Temporali"
 INIZIO_LAVORAZIONE_COL = "InizioLavorazione(GG)"
 TOTALE_WAITING_COL = "Totale Waiting"
-TOTALE_LAVORAZIONE_COL = "Totale Lavorazione"
-REWORK_TIME_COL = "Rework time"
+TOTALE_LAVORAZIONE_COL = "Totale Lavorazione (GG)"
+REWORK_TIME_COL = "Rework Time (h)"
 OUTPUT_SHEET = "data-all"
 DATA_EXPORT_SHEET = "data-export"
 COLONNE_EXPORT = ["Title", "Status", "Start Date", "End Date", "Tags"]
@@ -181,13 +181,12 @@ LEGENDA_COLONNE = [
     (
         "M",
         TOTALE_LAVORAZIONE_COL,
-        "somma giornate lavorative (lun-ven) tag '# Working -' in colonna U; "
-        "sfondo M: (M/Giornate Stimate)×100 — ≤50% verde, 51–80% giallo, 81–100% rosso pastello, >100% rosso acceso",
+        "somma giornate lavorative (lun-ven) tag '# Working -' in colonna U",
     ),
     (
         "N",
         REWORK_TIME_COL,
-        "somma colonna Q (Giorni) per righe con tag '# Rework' in colonna U",
+        "somma colonna S (Ore) per righe con tag '# Rework' in colonna U",
     ),
     (
         "O",
@@ -197,8 +196,9 @@ LEGENDA_COLONNE = [
     (
         "P",
         PERCENT_STIMATO_LAVORATO_COL,
-        "percentuale (Totale Ore Lavorate col. R / Ore Stimate col. H) × 100; "
-        "stesse fasce colore di col. M",
+        "percentuale (Totale Ore Lavorate col. R / Ore Stimate col. H) × 100, "
+        'con suffisso " %"; fasce colore ≤50% verde, 51–80% giallo, '
+        "81–100% rosso pastello, >100% rosso acceso",
     ),
     (
         "Q",
@@ -299,6 +299,23 @@ TAG_ORE_COMMENTO_NUMERO_SENZA_PLUS_RE = re.compile(
     r"^\d+(?:[.,]\d+)?(?:\s*h\b)?(?:\s|$)",
     re.IGNORECASE,
 )
+
+_TAG_SINTASSI_ERRATA = set()
+
+
+def reset_tag_sintassi_errata():
+    """Azzera l'elenco tag segnalati come non conformi nel log della run corrente."""
+    _TAG_SINTASSI_ERRATA.clear()
+
+
+def registra_tag_sintassi_errata(tag):
+    testo = str(tag).strip()
+    if testo:
+        _TAG_SINTASSI_ERRATA.add(testo)
+
+
+def is_tag_sintassi_errata(tag):
+    return str(tag).strip() in _TAG_SINTASSI_ERRATA
 
 
 def risolvi_percorso(nome_o_path):
@@ -558,6 +575,7 @@ def prima_riga_colonna(valore):
 
 def log_warning_tag_errato(messaggio, tag, title=None):
     """Stampa riga vuota, Warning e sotto la riga del tag errato."""
+    registra_tag_sintassi_errata(tag)
     ident = prima_riga_colonna(title)
     suffisso = f" [{ident}]" if ident else ""
     print()
@@ -1045,14 +1063,11 @@ def applica_colore_percentuale(cella, percentuale):
         cella.fill = BRIGHT_RED_FILL
 
 
-def applica_colore_colonna_m(cella, estimate, totale_lavorazione):
-    """
-    Sfondo col. M (Totale Lavorazione) in base a (M / Giornate Stimate) × 100.
-    Giornate Stimate in col. G.
-    """
-    applica_colore_percentuale(
-        cella, percentuale_su_estimate(estimate, totale_lavorazione)
-    )
+def formatta_percentuale_stimato_lavorato(percentuale):
+    """Valore colonna % Stimato/Lavorato: numero con suffisso ' %'."""
+    if percentuale is None:
+        return None
+    return f"{round(percentuale, 1)} %"
 
 
 def applica_sfondo_acqua_marina(cella):
@@ -1073,7 +1088,7 @@ def applica_totali_gruppo(ws, start, end):
     cella_lav.value = tot_lavorazione
     cella_lav.alignment = center
 
-    tot_rework = somma_colonna_giorni_filtrata(ws, start, end, is_tag_rework)
+    tot_rework = somma_colonna_ore_filtrata(ws, start, end, is_tag_rework)
     cella_rework = ws.cell(row=start, column=COL_REWORK_TIME)
     cella_rework.value = tot_rework
     cella_rework.alignment = center
@@ -1100,13 +1115,9 @@ def applica_totali_gruppo(ws, start, end):
 
     percentuale_ore = percentuale_su_estimate(ore_stimate, tot_ore)
     cella_percent = ws.cell(row=start, column=COL_PERCENT_STIMATO_LAVORATO)
-    cella_percent.value = (
-        round(percentuale_ore, 1) if percentuale_ore is not None else None
-    )
-    cella_percent.alignment = center
     applica_colore_percentuale(cella_percent, percentuale_ore)
-
-    applica_colore_colonna_m(cella_lav, giornate_stimate, tot_lavorazione)
+    cella_percent.value = formatta_percentuale_stimato_lavorato(percentuale_ore)
+    cella_percent.alignment = center
 
     cella_inizio = ws.cell(row=start, column=COL_INIZIO_LAVORAZIONE)
     cella_inizio.alignment = center
@@ -1145,6 +1156,14 @@ def applica_bordo_gruppo(ws, min_row, max_row, min_col, max_col, side):
                 bottom=side if row == max_row else None,
             )
             cell.border = border
+
+
+def applica_sfondo_tag_sintassi_errata(ws, max_row):
+    """Sfondo rosso pastello sulle celle TAG Temporali segnalate nel log."""
+    for row in range(2, max_row + 1):
+        tag = ws.cell(row=row, column=COL_TAG).value
+        if tag and is_tag_sintassi_errata(tag):
+            ws.cell(row=row, column=COL_TAG).fill = PASTEL_RED_FILL
 
 
 def formatta_foglio_card(ws):
@@ -1204,6 +1223,8 @@ def formatta_foglio_card(ws):
             merged_timeout.alignment = center
         applica_totali_gruppo(ws, start, end)
         applica_bordo_gruppo(ws, start, end, 1, COL_LAST, PASTEL_RED_BORDER)
+
+    applica_sfondo_tag_sintassi_errata(ws, ws.max_row)
 
     return gruppi
 
@@ -1397,6 +1418,7 @@ def formatta_foglio_dati(ws):
 
 
 def scrivi_excel(card, output_path):
+    reset_tag_sintassi_errata()
     righe_all = espandi_card_con_tag(card)
     df_all = pd.DataFrame(righe_all, columns=colonne_output())
     df_export = pd.DataFrame(righe_export(card), columns=COLONNE_EXPORT)
