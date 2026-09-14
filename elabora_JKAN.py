@@ -18,16 +18,17 @@ Output:
     Fogli: data-all (tutte le card), data-export (export ridotto), stat.
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
     <input>.html — report Scrum/Kanban (stesso percorso del .xlsx prodotto).
-    Le righe Description con prefisso "#" generano sotto-righe da colonna R (TAG Temporali);
+    Le righe Description con prefisso "#" generano sotto-righe da colonna S (TAG Temporali);
     A–N sono merge verticali per Title, con bordo rosso pastello per card.
     J (InizioLavorazione(GG)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
-    K (Totale Waiting): somma giornate tag "# Waiting -" in col. R.
+    K (Totale Waiting): somma giornate tag "# Waiting -" in col. S.
     L (Totale Lavorazione): somma tag "# Working -"; sfondo per % su Estimate (col. G).
-    M (Rework time): somma col. O (Giorni) per tag "# Rework" in col. R.
-    N (Fix time): somma giornate tag "# Fix" in col. R.
-    O (Giorni): giornate per riga tag. P (Ore): ore per riga tag (# Waiting/Working/Fix/Rework).
-    Q (Timeout (GG)): giornate lavorative da oggi al tag "# Timeout - <data>".
-    R (TAG Temporali): testo del tag per riga.
+    M (Rework time): somma col. O (Giorni) per tag "# Rework" in col. S.
+    N (Fix time): somma giornate tag "# Fix" in col. S.
+    O (Giorni): giornate per riga tag. P (Totale Ore): somma col. Q Ore sulla card.
+    Q (Ore): ore per riga tag (# Waiting/Working/Fix/Rework).
+    R (Timeout (GG)): giornate lavorative da oggi al tag "# Timeout - <data>".
+    S (TAG Temporali): testo del tag per riga.
     Colonna G (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
     Giornate lavorative (lun-ven); nei tag a due date inizio incluso, fine esclusa;
     se manca la 2ª data si usa oggi (incluso), eccetto tag Done.
@@ -109,6 +110,7 @@ KANBAN_COLUMNS = [
 FIX_TIME_COL = "Fix time"
 TIMEOUT_COL = "Timeout (GG)"
 GIORNI_COL = "Giorni"
+TOTALE_ORE_COL = "Totale Ore"
 ORE_COL = "Ore"
 TAG_TEMPORALI_COL = "TAG Temporali"
 INIZIO_LAVORAZIONE_COL = "InizioLavorazione(GG)"
@@ -129,7 +131,7 @@ STATUS_ESCLUSI_EXPORT = frozenset(
     }
 )
 STAT_SHEET = "stat"
-CENTER_COLS = {3, 4, 7, 10, 11, 12, 13, 14, 15, 16, 17, 18}  # C, D, G, J–R
+CENTER_COLS = {3, 4, 7, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19}  # C, D, G, J–S
 COL_ESTIMATE = 7  # G — Estimate (confronto % con col. L)
 COL_TAGS_ORIG = 9  # I
 COL_INIZIO_LAVORAZIONE = 10  # J
@@ -139,10 +141,11 @@ COL_REWORK_TIME = 13  # M
 COL_FIX_TIME = 14  # N
 COL_CARD_END = 14  # A–N: dati card (merge verticali per Title)
 COL_GIORNI = 15  # O
-COL_ORE = 16  # P
-COL_TIMEOUT = 17  # Q
-COL_TAG = 18  # R
-COL_LAST = 18
+COL_TOTALE_ORE = 16  # P
+COL_ORE = 17  # Q
+COL_TIMEOUT = 18  # R
+COL_TAG = 19  # S
+COL_LAST = 19
 LEGENDA_COLONNE = [
     ("A–I", "", "dati card"),
     (
@@ -153,23 +156,23 @@ LEGENDA_COLONNE = [
     (
         "K",
         TOTALE_WAITING_COL,
-        "somma giornate lavorative (lun-ven) dei tag '# Waiting -' in colonna R",
+        "somma giornate lavorative (lun-ven) dei tag '# Waiting -' in colonna S",
     ),
     (
         "L",
         TOTALE_LAVORAZIONE_COL,
-        "somma giornate lavorative (lun-ven) tag '# Working -' in colonna R; "
+        "somma giornate lavorative (lun-ven) tag '# Working -' in colonna S; "
         "sfondo L: (L/Estimate)×100 — ≤50% verde, 51–80% giallo, 81–100% rosso pastello, >100% rosso acceso",
     ),
     (
         "M",
         REWORK_TIME_COL,
-        "somma colonna O (Giorni) per righe con tag '# Rework' in colonna R",
+        "somma colonna O (Giorni) per righe con tag '# Rework' in colonna S",
     ),
     (
         "N",
         FIX_TIME_COL,
-        "somma giornate lavorative (lun-ven) dei tag '# Fix' in colonna R",
+        "somma giornate lavorative (lun-ven) dei tag '# Fix' in colonna S",
     ),
     (
         "O",
@@ -178,15 +181,20 @@ LEGENDA_COLONNE = [
     ),
     (
         "P",
+        TOTALE_ORE_COL,
+        "somma colonna Q (Ore) per tutte le righe tag della card",
+    ),
+    (
+        "Q",
         ORE_COL,
         "ore per riga tag (# Waiting, # Working, # Fix, # Rework): giorni×8 + ore extra (+Nh)",
     ),
     (
-        "Q",
+        "R",
         TIMEOUT_COL,
         "giornate lavorative (lun-ven) da oggi al tag '# Timeout - <data>'",
     ),
-    ("R", TAG_TEMPORALI_COL, "per riga tag"),
+    ("S", TAG_TEMPORALI_COL, "per riga tag"),
 ]
 LEGENDA_COMMENTO_COL = 3
 LEGENDA_COMMENTO_COL_FIN = 4
@@ -755,6 +763,7 @@ def espandi_card_con_tag(card):
             nuova[REWORK_TIME_COL] = None
             nuova[FIX_TIME_COL] = None
             nuova[GIORNI_COL] = None
+            nuova[TOTALE_ORE_COL] = None
             nuova[ORE_COL] = None
             nuova[TAG_TEMPORALI_COL] = ""
             righe.append(nuova)
@@ -768,6 +777,7 @@ def espandi_card_con_tag(card):
             nuova[REWORK_TIME_COL] = None
             nuova[FIX_TIME_COL] = None
             nuova[GIORNI_COL] = giorni_da_tag_temporale(tag, tag_next)
+            nuova[TOTALE_ORE_COL] = None
             nuova[ORE_COL] = ore_da_tag_temporale(
                 tag, title=record.get("Title")
             )
@@ -784,6 +794,7 @@ def colonne_output():
         REWORK_TIME_COL,
         FIX_TIME_COL,
         GIORNI_COL,
+        TOTALE_ORE_COL,
         ORE_COL,
         TIMEOUT_COL,
         TAG_TEMPORALI_COL,
@@ -791,7 +802,7 @@ def colonne_output():
 
 
 def somma_giorni_tag_gruppo(ws, start, end, matcher, data_oggi=None):
-    """Somma giornate lavorative per righe tag (col. R) che passano matcher."""
+    """Somma giornate lavorative per righe tag (col. S) che passano matcher."""
     if data_oggi is None:
         data_oggi = datetime.now().date()
     totale = 0.0
@@ -811,7 +822,7 @@ def somma_giorni_tag_gruppo(ws, start, end, matcher, data_oggi=None):
 
 
 def somma_colonna_giorni_filtrata(ws, start, end, matcher):
-    """Somma colonna O (Giorni) per righe il cui tag (col. R) passa matcher."""
+    """Somma colonna O (Giorni) per righe il cui tag (col. S) passa matcher."""
     totale = 0.0
     ha_valori = False
     for row in range(start, end + 1):
@@ -819,6 +830,18 @@ def somma_colonna_giorni_filtrata(ws, start, end, matcher):
         if not matcher(tag):
             continue
         val = parse_numero(ws.cell(row=row, column=COL_GIORNI).value)
+        if val is not None:
+            totale += val
+            ha_valori = True
+    return totale if ha_valori else None
+
+
+def somma_colonna_ore_gruppo(ws, start, end):
+    """Somma colonna Q (Ore) su tutte le righe tag del gruppo card."""
+    totale = 0.0
+    ha_valori = False
+    for row in range(start, end + 1):
+        val = parse_numero(ws.cell(row=row, column=COL_ORE).value)
         if val is not None:
             totale += val
             ha_valori = True
@@ -872,6 +895,11 @@ def applica_totali_gruppo(ws, start, end):
     cella_fix = ws.cell(row=start, column=COL_FIX_TIME)
     cella_fix.value = tot_fix
     cella_fix.alignment = center
+
+    tot_ore = somma_colonna_ore_gruppo(ws, start, end)
+    cella_tot_ore = ws.cell(row=start, column=COL_TOTALE_ORE)
+    cella_tot_ore.value = tot_ore
+    cella_tot_ore.alignment = center
 
     estimate = parse_numero(ws.cell(row=start, column=COL_ESTIMATE).value)
     applica_colore_colonna_m(cella_lav, estimate, tot_lavorazione)
@@ -946,6 +974,14 @@ def formatta_foglio_card(ws):
                     merged.alignment = center
                 else:
                     merged.alignment = middle
+            ws.merge_cells(
+                start_row=start,
+                start_column=COL_TOTALE_ORE,
+                end_row=end,
+                end_column=COL_TOTALE_ORE,
+            )
+            merged_tot_ore = ws.cell(row=start, column=COL_TOTALE_ORE)
+            merged_tot_ore.alignment = center
             ws.merge_cells(
                 start_row=start,
                 start_column=COL_TIMEOUT,
@@ -1134,6 +1170,7 @@ def formatta_foglio_dati(ws):
     ws.cell(row=1, column=COL_TOTALE_LAVORAZIONE).value = TOTALE_LAVORAZIONE_COL
     ws.cell(row=1, column=COL_REWORK_TIME).value = REWORK_TIME_COL
     ws.cell(row=1, column=COL_FIX_TIME).value = FIX_TIME_COL
+    ws.cell(row=1, column=COL_TOTALE_ORE).value = TOTALE_ORE_COL
     ws.cell(row=1, column=COL_ORE).value = ORE_COL
     gruppi = formatta_foglio_card(ws)
     aggiungi_footer_data(ws, gruppi)
