@@ -522,9 +522,19 @@ def parsed_tag_ore_validato(tag, title=None, log_error=True, is_ultimo_tag=False
     return parsed
 
 
+def prima_riga_colonna(valore):
+    """Prima riga del valore colonna (es. Title), per identificare la card nel log."""
+    if valore is None:
+        return None
+    prima = str(valore).splitlines()[0].strip()
+    return prima or None
+
+
 def log_warning_tag_errato(messaggio, tag, title=None):
-    """Stampa una riga Warning e sotto la riga del tag errato."""
-    suffisso = f" [card: {title}]" if title else ""
+    """Stampa riga vuota, Warning e sotto la riga del tag errato."""
+    ident = prima_riga_colonna(title)
+    suffisso = f" [{ident}]" if ident else ""
+    print()
     print(f"Warning: {messaggio}{suffisso}")
     print(str(tag).strip())
 
