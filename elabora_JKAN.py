@@ -25,7 +25,7 @@ Output:
     L (Totale Lavorazione): somma tag "# Working -"; sfondo per % su Estimate (col. G).
     M (Rework time): somma col. O (Giorni) per tag "# Rework" in col. S.
     N (Fix time): somma giornate tag "# Fix" in col. S.
-    O (Giorni): giornate per riga tag. P (Totale Ore): somma ore lavorate col. Q (no Waiting).
+    O (Giorni): giornate per riga tag. P (Totale Ore Lavorate): somma ore lavorate col. Q (no Waiting).
     Q (Ore): ore per riga tag (# Waiting/Working/Fix/Rework).
     R (Timeout (GG)): giornate lavorative da oggi al tag "# Timeout - <data>".
     S (TAG Temporali): testo del tag per riga.
@@ -112,7 +112,7 @@ KANBAN_COLUMNS = [
 FIX_TIME_COL = "Fix time"
 TIMEOUT_COL = "Timeout (GG)"
 GIORNI_COL = "Giorni"
-TOTALE_ORE_COL = "Totale Ore"
+TOTALE_ORE_COL = "Totale Ore Lavorate"
 ORE_COL = "Ore"
 TAG_TEMPORALI_COL = "TAG Temporali"
 INIZIO_LAVORAZIONE_COL = "InizioLavorazione(GG)"
@@ -267,6 +267,10 @@ TAG_ORE_STRUCTURE_RE = re.compile(
     rf"(?:(?P<data2>{TAG_ORE_DATE})\s*-\s*|-\s*)"
     r"(?:\+\s*(?P<ore_extra>\d+(?:[.,]\d+)?)\s*h?\s*-\s*)?"
     r"(?P<commento>.*)$",
+    re.IGNORECASE,
+)
+TAG_ORE_COMMENTO_NUMERO_SENZA_PLUS_RE = re.compile(
+    r"^\d+(?:[.,]\d+)?(?:\s*h\b)?(?:\s|$)",
     re.IGNORECASE,
 )
 
@@ -448,7 +452,7 @@ def is_tag_ore_contrib(tag):
 
 
 def is_tag_ore_lavorate(tag):
-    """True per tag le cui ore contano in Totale Ore (escluso # Waiting)."""
+    """True per tag le cui ore contano in Totale Ore Lavorate (escluso # Waiting)."""
     return is_tag_working(tag) or is_tag_fix(tag) or is_tag_rework(tag)
 
 
@@ -473,11 +477,49 @@ def parse_tag_ore(tag):
     if ore_extra is None:
         ore_extra = 0.0
     return {
+        "tag": match.group("tag").strip().lower(),
         "data1": data1,
         "data2": data2,
         "ore_extra": ore_extra,
         "commento": (match.group("commento") or "").strip(),
     }
+
+
+def valida_tag_ore_conforme(tag, parsed, is_ultimo_tag=False):
+    """Restituisce messaggio d'errore se il tag non rispetta lo standard ore, altrimenti None."""
+    if parsed is None:
+        return (
+            "formato non riconosciuto (atteso: # {Waiting|Working|Fix|Rework} - "
+            "<data1> - <data2> - [+Nh -] <commento>)"
+        )
+
+    if parsed["data2"] is None and not is_ultimo_tag:
+        return (
+            "data fine mancante (- -): ammessa solo sull'ultimo tag temporale "
+            "della card"
+        )
+
+    commento = parsed["commento"]
+    if commento and TAG_ORE_COMMENTO_NUMERO_SENZA_PLUS_RE.match(commento):
+        return (
+            "commento inizia con valore numerico senza prefisso '+' "
+            f"(es. '+3h -'): {commento!r}"
+        )
+
+    return None
+
+
+def parsed_tag_ore_validato(tag, title=None, log_error=True, is_ultimo_tag=False):
+    """Analizza e valida un tag ore; opzionalmente scrive una riga di log."""
+    if not is_tag_ore_contrib(tag):
+        return None
+    parsed = parse_tag_ore(tag)
+    motivo = valida_tag_ore_conforme(tag, parsed, is_ultimo_tag=is_ultimo_tag)
+    if motivo:
+        if log_error:
+            log_tag_ore_non_conforme(tag, title=title, motivo=motivo)
+        return None
+    return parsed
 
 
 def log_tag_ore_non_conforme(tag, title=None, motivo=""):
@@ -491,7 +533,9 @@ def log_tag_ore_non_conforme(tag, title=None, motivo=""):
     )
 
 
-def ore_da_tag_temporale(tag, title=None, data_oggi=None):
+def ore_da_tag_temporale(
+    tag, title=None, data_oggi=None, log_error=True, is_ultimo_tag=False
+):
     """
     Ore da tag # Waiting / # Working / # Fix / # Rework:
     giornate lavorative (inizio incluso, fine esclusa) × 8 + ore extra (+Nh).
@@ -501,16 +545,10 @@ def ore_da_tag_temporale(tag, title=None, data_oggi=None):
     if data_oggi is None:
         data_oggi = datetime.now().date()
 
-    parsed = parse_tag_ore(tag)
+    parsed = parsed_tag_ore_validato(
+        tag, title=title, log_error=log_error, is_ultimo_tag=is_ultimo_tag
+    )
     if parsed is None:
-        log_tag_ore_non_conforme(
-            tag,
-            title=title,
-            motivo=(
-                "formato non riconosciuto (due date obbligatorie nel formato standard, "
-                "opzionale +N o +Nh dopo la seconda data)"
-            ),
-        )
         return None
 
     data1 = parsed["data1"]
@@ -706,16 +744,38 @@ def giorni_da_tag_working(tag, data_oggi=None):
     return None
 
 
-def giorni_da_tag_temporale(tag, tag_successivo=None, data_oggi=None):
+def giorni_da_tag_temporale(
+    tag,
+    tag_successivo=None,
+    data_oggi=None,
+    title=None,
+    log_error=True,
+    is_ultimo_tag=None,
+):
     """
     Giornate lavorative (lun-ven) nel TAG Temporale.
-    Tag a due date (Working, Waiting, …): [inizio, fine) con fine esclusa;
-    senza fine esplicita usa oggi incluso.
-    Tag generici: stessa logica; con una data e tag successivo la data del
-    successivo e' fine esclusa. I tag Done hanno solo la data di chiusura.
+    Tag # Waiting / # Working / # Fix / # Rework con formato standard: parse con TAG_ORE_STRUCTURE_RE.
+    Senza data fine (- -) solo se is_ultimo_tag (ultimo tag temporale della card).
     """
     if data_oggi is None:
         data_oggi = datetime.now().date()
+    if is_ultimo_tag is None:
+        is_ultimo_tag = tag_successivo is None
+
+    if is_tag_ore_contrib(tag):
+        parsed = parsed_tag_ore_validato(
+            tag,
+            title=title,
+            log_error=log_error,
+            is_ultimo_tag=is_ultimo_tag,
+        )
+        if parsed is not None:
+            if parsed["data2"] is not None:
+                return giorni_lavorativi_tra(
+                    parsed["data1"], parsed["data2"], fine_inclusa=False
+                )
+            return giorni_lavorativi_tra(parsed["data1"], data_oggi)
+        return None
 
     if richiede_struttura_due_date(tag):
         date = estrai_date_campi_due_date(tag)
@@ -789,15 +849,24 @@ def espandi_card_con_tag(card):
         for i, tag in enumerate(tag_list):
             valida_struttura_tag_due_date(tag, title=record.get("Title"))
             tag_next = tag_list[i + 1] if i + 1 < len(tag_list) else None
+            is_ultimo_tag = tag_next is None
             nuova = dict(nuova_base)
             nuova[TOTALE_WAITING_COL] = None
             nuova[TOTALE_LAVORAZIONE_COL] = None
             nuova[REWORK_TIME_COL] = None
             nuova[FIX_TIME_COL] = None
-            nuova[GIORNI_COL] = giorni_da_tag_temporale(tag, tag_next)
+            nuova[GIORNI_COL] = giorni_da_tag_temporale(
+                tag,
+                tag_next,
+                title=record.get("Title"),
+                is_ultimo_tag=is_ultimo_tag,
+            )
             nuova[TOTALE_ORE_COL] = None
             nuova[ORE_COL] = ore_da_tag_temporale(
-                tag, title=record.get("Title")
+                tag,
+                title=record.get("Title"),
+                is_ultimo_tag=is_ultimo_tag,
+                log_error=False,
             )
             nuova[TAG_TEMPORALI_COL] = tag
             righe.append(nuova)
@@ -832,7 +901,14 @@ def somma_giorni_tag_gruppo(ws, start, end, matcher, data_oggi=None):
         tag_next = None
         if row + 1 <= end:
             tag_next = ws.cell(row=row + 1, column=COL_TAG).value
-        giorni = giorni_da_tag_temporale(tag, tag_next, data_oggi=data_oggi)
+        is_ultimo_tag = row == end
+        giorni = giorni_da_tag_temporale(
+            tag,
+            tag_next,
+            data_oggi=data_oggi,
+            log_error=False,
+            is_ultimo_tag=is_ultimo_tag,
+        )
         if giorni is not None:
             totale += giorni
             ha_valori = True

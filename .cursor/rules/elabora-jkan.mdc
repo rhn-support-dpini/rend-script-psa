@@ -29,7 +29,7 @@ Fogli: `data-all` (principale, tutte le card), `data-export` (export ridotto), `
 | M | Rework time | somma col. O (Giorni) per tag `# Rework` in col. S |
 | N | Fix time | somma giornate `# Fix` in col. S |
 | O | Giorni | giornate lavorative per riga tag |
-| P | Totale Ore | somma colonna Q (Ore) lavorate (# Working, # Fix, # Rework; escluso Waiting) |
+| P | Totale Ore Lavorate | somma colonna Q (Ore) lavorate (# Working, # Fix, # Rework; escluso Waiting) |
 | Q | Ore | ore per riga tag (# Waiting/Working/Fix/Rework): giorni×8 + +Nh |
 | R | Timeout (GG) | giornate da oggi al tag `# Timeout -` |
 | S | TAG Temporali | testo del tag `#` della riga |
@@ -56,7 +56,7 @@ Colonna G (Estimate): valore dal tag `# Estimate` in Description, non dal CSV.
 - `# Working -` — contribuisce a col. L (somma giornate in col. S)
 - `# Rework` — contribuisce a col. M Rework time (somma col. O Giorni)
 - `# Fix` — contribuisce a col. N Fix time (somma giornate in col. S)
-- `# Waiting/Working/Fix/Rework` con due date e opzionale `+Nh` — col. Q Ore; col. P Totale Ore = somma col. Q lavorate (no Waiting)
+- `# Waiting/Working/Fix/Rework` con due date e opzionale `+Nh` — col. Q Ore; col. P Totale Ore Lavorate = somma col. Q lavorate (no Waiting). Senza data fine (`- -`) solo sull'**ultimo** tag temporale della card. Tag non conformi → Warning nel log
 
 Date supportate: `dd/mm/yyyy`, `dd/mm/yy`, `yyyy-mm-dd`.
 
