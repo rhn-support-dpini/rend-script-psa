@@ -22,16 +22,17 @@ Output:
     A–O sono merge verticali per Title, con bordo rosso pastello per card.
     K (InizioLavorazione(GG)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
     L (Totale Waiting): somma giornate tag "# Waiting -" in col. U.
-    M (Totale Lavorazione): somma tag "# Working -"; sfondo per % su Estimate (col. H).
+    M (Totale Lavorazione): somma tag "# Working -"; sfondo per % su Giornate Stimate (col. G).
     N (Rework time): somma col. Q (Giorni) per tag "# Rework" in col. U.
-    O (Fix time): somma giornate tag "# Fix" in col. U.
-    P (% Stimato/Lavorato): (Totale Ore Lavorate / Ore Stimate) × 100.
+    O (Fix time): somma ore (col. S) per tag "# Fix" in col. U.
+    P (% Stimato/Lavorato): (Totale Ore Lavorate / Ore Stimate) × 100; stesse fasce colore di col. M.
     Q (Giorni): giornate per riga tag. R (Totale Ore Lavorate): somma ore lavorate col. S (no Waiting).
     S (Ore): ore per riga tag (# Waiting/Working/Fix/Rework).
     T (Timeout (GG)): giornate lavorative da oggi al tag "# Timeout - <data>".
     U (TAG Temporali): testo del tag per riga.
-    G (Ore Stimate): giorni Estimate (col. H) × 8.
-    Colonna H (Estimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
+    G (Giornate Stimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
+    H (Ore Stimate): Giornate Stimate (col. G) × 8; sfondo acqua marina pastello.
+    Colonne R (Totale Ore Lavorate): sfondo acqua marina pastello.
     Giornate lavorative (lun-ven); nei tag a due date inizio incluso, fine esclusa;
     se manca la 2ª data si usa oggi (incluso), eccetto tag Done.
 """
@@ -112,6 +113,7 @@ KANBAN_COLUMNS = [
     "Tags",
 ]
 FIX_TIME_COL = "Fix time"
+GIORNATE_STIMATE_COL = "Giornate Stimate"
 ORE_STIMATE_COL = "Ore Stimate"
 PERCENT_STIMATO_LAVORATO_COL = "% Stimato/Lavorato"
 TIMEOUT_COL = "Timeout (GG)"
@@ -138,8 +140,8 @@ STATUS_ESCLUSI_EXPORT = frozenset(
 )
 STAT_SHEET = "stat"
 CENTER_COLS = {3, 4, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21}
-COL_ORE_STIMATE = 7  # G — Estimate (giorni) × 8
-COL_ESTIMATE = 8  # H — Estimate (confronto % con col. M)
+COL_GIORNATE_STIMATE = 7  # G — giorni da tag # Estimate
+COL_ORE_STIMATE = 8  # H — Giornate Stimate × 8
 COL_TAGS_ORIG = 10  # J
 COL_INIZIO_LAVORAZIONE = 11  # K
 COL_TOTALE_WAITING = 12  # L
@@ -158,13 +160,13 @@ LEGENDA_COLONNE = [
     ("A–J", "", "dati card"),
     (
         "G",
-        ORE_STIMATE_COL,
-        "conversione in ore dei giorni Estimate (col. H): giorni × 8",
+        GIORNATE_STIMATE_COL,
+        "valore numerico dal tag '# Estimate' in Description, non dal CSV",
     ),
     (
         "H",
-        "Estimate",
-        "valore numerico dal tag '# Estimate' in Description, non dal CSV",
+        ORE_STIMATE_COL,
+        "conversione in ore delle Giornate Stimate (col. G): giorni × 8; sfondo acqua marina pastello",
     ),
     (
         "K",
@@ -180,7 +182,7 @@ LEGENDA_COLONNE = [
         "M",
         TOTALE_LAVORAZIONE_COL,
         "somma giornate lavorative (lun-ven) tag '# Working -' in colonna U; "
-        "sfondo M: (M/Estimate)×100 — ≤50% verde, 51–80% giallo, 81–100% rosso pastello, >100% rosso acceso",
+        "sfondo M: (M/Giornate Stimate)×100 — ≤50% verde, 51–80% giallo, 81–100% rosso pastello, >100% rosso acceso",
     ),
     (
         "N",
@@ -190,12 +192,13 @@ LEGENDA_COLONNE = [
     (
         "O",
         FIX_TIME_COL,
-        "somma giornate lavorative (lun-ven) dei tag '# Fix' in colonna U",
+        "somma colonna S (Ore) per righe con tag '# Fix' in colonna U",
     ),
     (
         "P",
         PERCENT_STIMATO_LAVORATO_COL,
-        "percentuale (Totale Ore Lavorate col. R / Ore Stimate col. G) × 100",
+        "percentuale (Totale Ore Lavorate col. R / Ore Stimate col. H) × 100; "
+        "stesse fasce colore di col. M",
     ),
     (
         "Q",
@@ -205,7 +208,8 @@ LEGENDA_COLONNE = [
     (
         "R",
         TOTALE_ORE_COL,
-        "somma colonna S (Ore) per righe tag lavorate (# Working, # Fix, # Rework; escluso Waiting)",
+        "somma colonna S (Ore) per righe tag lavorate (# Working, # Fix, # Rework; escluso Waiting); "
+        "sfondo acqua marina pastello",
     ),
     (
         "S",
@@ -227,6 +231,7 @@ PASTEL_RED_FILL = PatternFill(fill_type="solid", fgColor="FFEBEE")
 PASTEL_YELLOW_FILL = PatternFill(fill_type="solid", fgColor="FFFDE7")
 PASTEL_GRAY_FILL = PatternFill(fill_type="solid", fgColor="E8E8E8")
 PASTEL_BLUE_FILL = PatternFill(fill_type="solid", fgColor="D6EAF8")
+PASTEL_AQUA_MARINE_FILL = PatternFill(fill_type="solid", fgColor="B2DFDB")
 EXPORT_BRIGHT_GREEN_FILL = PatternFill(fill_type="solid", fgColor="81C784")
 BRIGHT_RED_FILL = PatternFill(fill_type="solid", fgColor="E53935")
 EXPORT_BLUE_BORDER = Side(style="medium", color="2563EB")
@@ -866,12 +871,13 @@ def espandi_card_con_tag(card):
         estimate_tag = estrai_estimate_da_description(record.get("Description", ""))
         estimate_csv = parse_numero(record.get("Estimate", ""))
         if estimate_tag is not None:
-            nuova_base["Estimate"] = estimate_tag
+            giornate_stimate = estimate_tag
         elif estimate_csv is not None:
-            nuova_base["Estimate"] = estimate_csv
+            giornate_stimate = estimate_csv
         else:
-            nuova_base["Estimate"] = ""
-        nuova_base[ORE_STIMATE_COL] = ore_stimate_da_estimate(nuova_base.get("Estimate"))
+            giornate_stimate = ""
+        nuova_base[GIORNATE_STIMATE_COL] = giornate_stimate
+        nuova_base[ORE_STIMATE_COL] = ore_stimate_da_estimate(giornate_stimate)
         nuova_base[INIZIO_LAVORAZIONE_COL] = giorni_da_inizio_attivita(
             record.get("Description", "")
         )
@@ -927,7 +933,9 @@ def colonne_output():
     base = []
     for col in KANBAN_COLUMNS:
         if col == "Estimate":
+            base.append(GIORNATE_STIMATE_COL)
             base.append(ORE_STIMATE_COL)
+            continue
         base.append(col)
     return base + [
         INIZIO_LAVORAZIONE_COL,
@@ -986,8 +994,23 @@ def somma_colonna_giorni_filtrata(ws, start, end, matcher):
     return totale if ha_valori else None
 
 
+def somma_colonna_ore_filtrata(ws, start, end, matcher):
+    """Somma colonna S (Ore) per righe il cui tag (col. U) passa matcher."""
+    totale = 0.0
+    ha_valori = False
+    for row in range(start, end + 1):
+        tag = ws.cell(row=row, column=COL_TAG).value
+        if not matcher(tag):
+            continue
+        val = parse_numero(ws.cell(row=row, column=COL_ORE).value)
+        if val is not None:
+            totale += val
+            ha_valori = True
+    return totale if ha_valori else None
+
+
 def somma_colonna_ore_gruppo(ws, start, end):
-    """Somma colonna Q (Ore) sulle righe lavorate del gruppo card (no # Waiting)."""
+    """Somma colonna S (Ore) sulle righe lavorate del gruppo card (no # Waiting)."""
     totale = 0.0
     ha_valori = False
     for row in range(start, end + 1):
@@ -1008,12 +1031,8 @@ def percentuale_su_estimate(estimate, totale):
     return (totale / estimate) * 100
 
 
-def applica_colore_colonna_m(cella, estimate, totale_lavorazione):
-    """
-    Sfondo col. M (Totale Lavorazione) in base a (M / Estimate) × 100.
-    Estimate in col. H. Fasce: ≤50% verde; 51–80% giallo; 81–100% rosso pastello; >100% rosso acceso.
-    """
-    percentuale = percentuale_su_estimate(estimate, totale_lavorazione)
+def applica_colore_percentuale(cella, percentuale):
+    """Fasce percentuale: ≤50% verde; 51–80% giallo; 81–100% rosso pastello; >100% rosso acceso."""
     if percentuale is None:
         return
     if percentuale <= 50:
@@ -1024,6 +1043,21 @@ def applica_colore_colonna_m(cella, estimate, totale_lavorazione):
         cella.fill = PASTEL_RED_FILL
     else:
         cella.fill = BRIGHT_RED_FILL
+
+
+def applica_colore_colonna_m(cella, estimate, totale_lavorazione):
+    """
+    Sfondo col. M (Totale Lavorazione) in base a (M / Giornate Stimate) × 100.
+    Giornate Stimate in col. G.
+    """
+    applica_colore_percentuale(
+        cella, percentuale_su_estimate(estimate, totale_lavorazione)
+    )
+
+
+def applica_sfondo_acqua_marina(cella):
+    """Sfondo acqua marina pastello per colonne ore."""
+    cella.fill = PASTEL_AQUA_MARINE_FILL
 
 
 def applica_totali_gruppo(ws, start, end):
@@ -1044,7 +1078,7 @@ def applica_totali_gruppo(ws, start, end):
     cella_rework.value = tot_rework
     cella_rework.alignment = center
 
-    tot_fix = somma_giorni_tag_gruppo(ws, start, end, is_tag_fix)
+    tot_fix = somma_colonna_ore_filtrata(ws, start, end, is_tag_fix)
     cella_fix = ws.cell(row=start, column=COL_FIX_TIME)
     cella_fix.value = tot_fix
     cella_fix.alignment = center
@@ -1053,12 +1087,16 @@ def applica_totali_gruppo(ws, start, end):
     cella_tot_ore = ws.cell(row=start, column=COL_TOTALE_ORE)
     cella_tot_ore.value = tot_ore
     cella_tot_ore.alignment = center
+    if tot_ore is not None:
+        applica_sfondo_acqua_marina(cella_tot_ore)
 
-    estimate = parse_numero(ws.cell(row=start, column=COL_ESTIMATE).value)
-    ore_stimate = ore_stimate_da_estimate(estimate)
+    giornate_stimate = parse_numero(ws.cell(row=start, column=COL_GIORNATE_STIMATE).value)
+    ore_stimate = ore_stimate_da_estimate(giornate_stimate)
     cella_ore_stimate = ws.cell(row=start, column=COL_ORE_STIMATE)
     cella_ore_stimate.value = ore_stimate
     cella_ore_stimate.alignment = center
+    if ore_stimate is not None:
+        applica_sfondo_acqua_marina(cella_ore_stimate)
 
     percentuale_ore = percentuale_su_estimate(ore_stimate, tot_ore)
     cella_percent = ws.cell(row=start, column=COL_PERCENT_STIMATO_LAVORATO)
@@ -1066,8 +1104,9 @@ def applica_totali_gruppo(ws, start, end):
         round(percentuale_ore, 1) if percentuale_ore is not None else None
     )
     cella_percent.alignment = center
+    applica_colore_percentuale(cella_percent, percentuale_ore)
 
-    applica_colore_colonna_m(cella_lav, estimate, tot_lavorazione)
+    applica_colore_colonna_m(cella_lav, giornate_stimate, tot_lavorazione)
 
     cella_inizio = ws.cell(row=start, column=COL_INIZIO_LAVORAZIONE)
     cella_inizio.alignment = center
@@ -1176,7 +1215,9 @@ def riepilogo_da_gruppi(ws, gruppi):
             {
                 "title": normalizza_testo(ws.cell(row=start, column=1).value),
                 "status": normalizza_testo(ws.cell(row=start, column=3).value),
-                "estimate": parse_numero(ws.cell(row=start, column=COL_ESTIMATE).value),
+                "estimate": parse_numero(
+                    ws.cell(row=start, column=COL_GIORNATE_STIMATE).value
+                ),
                 "period_sum": parse_numero(
                     ws.cell(row=start, column=COL_TOTALE_LAVORAZIONE).value
                 ),
@@ -1252,13 +1293,15 @@ def aggiungi_footer_data(ws, gruppi):
     ha_waiting = False
     ha_lavorazione = False
     for start, _end in gruppi:
-        estimate = parse_numero(ws.cell(row=start, column=COL_ESTIMATE).value)
+        giornate_stimate = parse_numero(
+            ws.cell(row=start, column=COL_GIORNATE_STIMATE).value
+        )
         waiting = parse_numero(ws.cell(row=start, column=COL_TOTALE_WAITING).value)
         lavorazione = parse_numero(
             ws.cell(row=start, column=COL_TOTALE_LAVORAZIONE).value
         )
-        if estimate is not None:
-            tot_estimate += estimate
+        if giornate_stimate is not None:
+            tot_estimate += giornate_stimate
             ha_estimate = True
         if waiting is not None:
             tot_waiting += waiting
@@ -1270,8 +1313,8 @@ def aggiungi_footer_data(ws, gruppi):
     ws.cell(row=totals_row, column=1).value = len(gruppi)
     ws.cell(row=totals_row, column=1).alignment = center
     if ha_estimate:
-        ws.cell(row=totals_row, column=COL_ESTIMATE).value = tot_estimate
-        ws.cell(row=totals_row, column=COL_ESTIMATE).alignment = center
+        ws.cell(row=totals_row, column=COL_GIORNATE_STIMATE).value = tot_estimate
+        ws.cell(row=totals_row, column=COL_GIORNATE_STIMATE).alignment = center
     if ha_waiting:
         ws.cell(row=totals_row, column=COL_TOTALE_WAITING).value = tot_waiting
         ws.cell(row=totals_row, column=COL_TOTALE_WAITING).alignment = center
@@ -1338,6 +1381,7 @@ def crea_foglio_stat(wb, riepilogo):
 
 
 def formatta_foglio_dati(ws):
+    ws.cell(row=1, column=COL_GIORNATE_STIMATE).value = GIORNATE_STIMATE_COL
     ws.cell(row=1, column=COL_ORE_STIMATE).value = ORE_STIMATE_COL
     ws.cell(row=1, column=COL_INIZIO_LAVORAZIONE).value = INIZIO_LAVORAZIONE_COL
     ws.cell(row=1, column=COL_TOTALE_WAITING).value = TOTALE_WAITING_COL
