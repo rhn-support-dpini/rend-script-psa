@@ -139,7 +139,7 @@ STATUS_ESCLUSI_EXPORT = frozenset(
     }
 )
 STAT_SHEET = "stat"
-CENTER_COLS = {3, 4, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21}
+CENTER_COLS = {3, 4, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}
 COL_GIORNATE_STIMATE = 7  # G — giorni da tag # Estimate
 COL_ORE_STIMATE = 8  # H — Giornate Stimate × 8
 COL_TAGS_ORIG = 10  # J
@@ -156,76 +156,6 @@ COL_ORE = 19  # S
 COL_TIMEOUT = 20  # T
 COL_TAG = 21  # U
 COL_LAST = 21
-LEGENDA_COLONNE = [
-    ("A–J", "", "dati card"),
-    (
-        "G",
-        GIORNATE_STIMATE_COL,
-        "valore numerico dal tag '# Estimate' in Description, non dal CSV; sfondo grigio leggibile",
-    ),
-    (
-        "H",
-        ORE_STIMATE_COL,
-        "conversione in ore delle Giornate Stimate (col. G): giorni × 8; sfondo acqua marina pastello",
-    ),
-    (
-        "K",
-        INIZIO_LAVORAZIONE_COL,
-        "giornate lavorative (lun-ven) dal tag '# Inizio Attivita' - <data>' a oggi",
-    ),
-    (
-        "L",
-        TOTALE_WAITING_COL,
-        "somma giornate lavorative (lun-ven) dei tag '# Waiting -' in colonna U",
-    ),
-    (
-        "M",
-        TOTALE_LAVORAZIONE_COL,
-        "somma giornate lavorative (lun-ven) tag '# Working -' in colonna U",
-    ),
-    (
-        "N",
-        REWORK_TIME_COL,
-        "somma colonna S (Ore) per righe con tag '# Rework' in colonna U",
-    ),
-    (
-        "O",
-        FIX_TIME_COL,
-        "somma colonna S (Ore) per righe con tag '# Fix' in colonna U",
-    ),
-    (
-        "P",
-        PERCENT_STIMATO_LAVORATO_COL,
-        "percentuale (Totale Ore Lavorate col. R / Ore Stimate col. H) × 100, "
-        'con suffisso " %"; fasce colore ≤50% verde, 51–80% giallo, '
-        "81–100% rosso pastello, >100% rosso acceso",
-    ),
-    (
-        "Q",
-        GIORNI_COL,
-        "giornate lavorative (lun-ven) per riga tag; due date: inizio incluso, fine esclusa; "
-        "sfondo grigio leggibile",
-    ),
-    (
-        "R",
-        TOTALE_ORE_COL,
-        "somma colonna S (Ore) per righe tag lavorate (# Working, # Fix, # Rework; escluso Waiting); "
-        "sfondo acqua marina pastello",
-    ),
-    (
-        "S",
-        ORE_COL,
-        "ore per riga tag (# Waiting, # Working, # Fix, # Rework): giorni×8 + ore extra (+Nh)",
-    ),
-    (
-        "T",
-        TIMEOUT_COL,
-        "giornate lavorative (lun-ven) da oggi al tag '# Timeout - <data>'",
-    ),
-    ("U", TAG_TEMPORALI_COL, "per riga tag"),
-]
-LEGENDA_COMMENTO_COL = 3
-LEGENDA_COMMENTO_COL_FIN = 4
 PASTEL_RED_BORDER = Side(style="medium", color="E8A0A0")
 PASTEL_GREEN_FILL = PatternFill(fill_type="solid", fgColor="D9EAD3")
 PASTEL_RED_FILL = PatternFill(fill_type="solid", fgColor="FFEBEE")
@@ -1051,12 +981,12 @@ def percentuale_su_estimate(estimate, totale):
 
 
 def applica_colore_percentuale(cella, percentuale):
-    """Fasce percentuale: ≤50% verde; 51–80% giallo; 81–100% rosso pastello; >100% rosso acceso."""
+    """Fasce percentuale: ≤75% verde; 76–85% giallo; 86–100% rosso pastello; >100% rosso acceso."""
     if percentuale is None:
         return
-    if percentuale <= 50:
+    if percentuale <= 75:
         cella.fill = PASTEL_GREEN_FILL
-    elif percentuale <= 80:
+    elif percentuale <= 85:
         cella.fill = PASTEL_YELLOW_FILL
     elif percentuale <= 100:
         cella.fill = PASTEL_RED_FILL
@@ -1312,7 +1242,6 @@ def aggiungi_footer_data(ws, gruppi):
     data_last = ws.max_row
     totals_row = data_last + 2
     ts_row = totals_row + 1
-    legend_start = ts_row + 2
 
     tot_estimate = 0.0
     tot_waiting = 0.0
@@ -1350,44 +1279,9 @@ def aggiungi_footer_data(ws, gruppi):
         ws.cell(row=totals_row, column=COL_TOTALE_LAVORAZIONE).value = tot_lavorazione
         ws.cell(row=totals_row, column=COL_TOTALE_LAVORAZIONE).alignment = center
 
-    n_card_waiting = conteggio_card_totale_waiting(ws, gruppi)
     ws.cell(row=ts_row, column=1).value = datetime.now().strftime(
         "%d/%m/%Y %H:%M:%S"
     )
-    aggiungi_legenda_colonne(ws, legend_start, n_card_totale_waiting=n_card_waiting)
-
-
-def aggiungi_legenda_colonne(ws, start_row, n_card_totale_waiting=None):
-    """Legenda colonne: lettera, titolo, commento (C–D senza a capo in C)."""
-    left = Alignment(vertical="center", wrap_text=False)
-    center = Alignment(horizontal="center", vertical="center", wrap_text=False)
-    commento = Alignment(vertical="center", wrap_text=False)
-    row = start_row
-    for lettera, titolo, testo_commento in LEGENDA_COLONNE:
-        cell_lettera = ws.cell(row=row, column=1)
-        cell_lettera.value = lettera
-        cell_lettera.alignment = center
-
-        cell_titolo = ws.cell(row=row, column=2)
-        if (
-            titolo == TOTALE_WAITING_COL
-            and n_card_totale_waiting is not None
-        ):
-            cell_titolo.value = f"{titolo} ({n_card_totale_waiting} card)"
-        else:
-            cell_titolo.value = titolo
-        cell_titolo.alignment = left
-
-        ws.merge_cells(
-            start_row=row,
-            start_column=LEGENDA_COMMENTO_COL,
-            end_row=row,
-            end_column=LEGENDA_COMMENTO_COL_FIN,
-        )
-        cell_commento = ws.cell(row=row, column=LEGENDA_COMMENTO_COL)
-        cell_commento.value = testo_commento
-        cell_commento.alignment = commento
-        row += 1
 
 
 def crea_foglio_stat(wb, riepilogo):
@@ -1408,6 +1302,13 @@ def crea_foglio_stat(wb, riepilogo):
         ws.cell(row=idx, column=2).alignment = center
 
 
+def allinea_colonna_tag_temporali(ws, max_row):
+    """Allinea a sinistra la colonna U (TAG Temporali)."""
+    left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    for row in range(1, max_row + 1):
+        ws.cell(row=row, column=COL_TAG).alignment = left
+
+
 def formatta_foglio_dati(ws):
     ws.cell(row=1, column=COL_GIORNATE_STIMATE).value = GIORNATE_STIMATE_COL
     ws.cell(row=1, column=COL_ORE_STIMATE).value = ORE_STIMATE_COL
@@ -1424,6 +1325,7 @@ def formatta_foglio_dati(ws):
     aggiungi_footer_data(ws, gruppi)
     applica_sfondo_colonna_grigio(ws, COL_GIORNATE_STIMATE, ws.max_row)
     applica_sfondo_colonna_grigio(ws, COL_GIORNI, ws.max_row)
+    allinea_colonna_tag_temporali(ws, ws.max_row)
     return gruppi
 
 
@@ -1565,16 +1467,6 @@ def riepilogo_acronimi_scope(card):
             col: dict(status_per_colonna[col]) for col in KANBAN_SNAPSHOT_COLS
         },
     }
-
-
-def conteggio_card_totale_waiting(ws, gruppi):
-    """Card con Totale Waiting (col. L) valorizzato."""
-    return sum(
-        1
-        for start, _end in gruppi
-        if parse_numero(ws.cell(row=start, column=COL_TOTALE_WAITING).value)
-        is not None
-    )
 
 
 def _migra_colonne_db_jkan(df):
