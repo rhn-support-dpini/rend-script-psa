@@ -21,16 +21,16 @@ Output:
     Le righe Description con prefisso "#" generano sotto-righe da colonna U (TAG Temporali);
     A–O sono merge verticali per Title, con bordo rosso pastello per card.
     K (InizioLavorazione(GG)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
-    L (Totale Waiting): somma giornate tag "# Waiting -" in col. U.
+    L (Totale Waiting (GG)): somma giornate tag "# Waiting -" in col. U.
     M (Totale Lavorazione (GG)): somma tag "# Working -" in giornate.
     N (Rework Time (h)): somma ore (col. S) per tag "# Rework" in col. U.
     O (Fix time): somma ore (col. S) per tag "# Fix" in col. U.
-    P (% Stimato/Lavorato): (Totale Ore Lavorate / Ore Stimate) × 100 con suffisso " %"; fasce colore.
-    Q (Giorni): giornate per riga tag. R (Totale Ore Lavorate): somma ore lavorate col. S (no Waiting).
+    P (% Stimato / Lavorato (GG)): (Totale Ore Lavorate / Ore Stimate) × 100 con suffisso " %"; fasce colore.
+    Q (Giorni Lavorati): giornate per riga tag. R (Totale Ore Lavorate): somma ore lavorate col. S (no Waiting).
     S (Ore): ore per riga tag (# Waiting/Working/Fix/Rework).
     T (Timeout (GG)): giornate lavorative da oggi al tag "# Timeout - <data>".
     U (TAG Temporali): testo del tag per riga; sfondo rosso pastello se segnalato nel log.
-    G (Giornate Stimate): valore numerico dal tag "# Estimate" in Description, non dal CSV.
+    G (Giornate Stimate): valore numerico dal tag "# Estimate" in Description; sfondo grigio leggibile.
     H (Ore Stimate): Giornate Stimate (col. G) × 8; sfondo acqua marina pastello.
     Colonne R (Totale Ore Lavorate): sfondo acqua marina pastello.
     Giornate lavorative (lun-ven); nei tag a due date inizio incluso, fine esclusa;
@@ -115,14 +115,14 @@ KANBAN_COLUMNS = [
 FIX_TIME_COL = "Fix time"
 GIORNATE_STIMATE_COL = "Giornate Stimate"
 ORE_STIMATE_COL = "Ore Stimate"
-PERCENT_STIMATO_LAVORATO_COL = "% Stimato/Lavorato"
+PERCENT_STIMATO_LAVORATO_COL = "% Stimato / Lavorato (GG)"
 TIMEOUT_COL = "Timeout (GG)"
-GIORNI_COL = "Giorni"
+GIORNI_COL = "Giorni Lavorati"
 TOTALE_ORE_COL = "Totale Ore Lavorate"
 ORE_COL = "Ore"
 TAG_TEMPORALI_COL = "TAG Temporali"
 INIZIO_LAVORAZIONE_COL = "InizioLavorazione(GG)"
-TOTALE_WAITING_COL = "Totale Waiting"
+TOTALE_WAITING_COL = "Totale Waiting (GG)"
 TOTALE_LAVORAZIONE_COL = "Totale Lavorazione (GG)"
 REWORK_TIME_COL = "Rework Time (h)"
 OUTPUT_SHEET = "data-all"
@@ -161,7 +161,7 @@ LEGENDA_COLONNE = [
     (
         "G",
         GIORNATE_STIMATE_COL,
-        "valore numerico dal tag '# Estimate' in Description, non dal CSV",
+        "valore numerico dal tag '# Estimate' in Description, non dal CSV; sfondo grigio leggibile",
     ),
     (
         "H",
@@ -203,7 +203,8 @@ LEGENDA_COLONNE = [
     (
         "Q",
         GIORNI_COL,
-        "giornate lavorative (lun-ven) per riga tag; due date: inizio incluso, fine esclusa",
+        "giornate lavorative (lun-ven) per riga tag; due date: inizio incluso, fine esclusa; "
+        "sfondo grigio leggibile",
     ),
     (
         "R",
@@ -1158,6 +1159,12 @@ def applica_bordo_gruppo(ws, min_row, max_row, min_col, max_col, side):
             cell.border = border
 
 
+def applica_sfondo_colonna_grigio(ws, col, max_row):
+    """Sfondo grigio pastello leggibile su tutte le celle di una colonna."""
+    for row in range(1, max_row + 1):
+        ws.cell(row=row, column=col).fill = PASTEL_GRAY_FILL
+
+
 def applica_sfondo_tag_sintassi_errata(ws, max_row):
     """Sfondo rosso pastello sulle celle TAG Temporali segnalate nel log."""
     for row in range(2, max_row + 1):
@@ -1410,10 +1417,13 @@ def formatta_foglio_dati(ws):
     ws.cell(row=1, column=COL_REWORK_TIME).value = REWORK_TIME_COL
     ws.cell(row=1, column=COL_FIX_TIME).value = FIX_TIME_COL
     ws.cell(row=1, column=COL_PERCENT_STIMATO_LAVORATO).value = PERCENT_STIMATO_LAVORATO_COL
+    ws.cell(row=1, column=COL_GIORNI).value = GIORNI_COL
     ws.cell(row=1, column=COL_TOTALE_ORE).value = TOTALE_ORE_COL
     ws.cell(row=1, column=COL_ORE).value = ORE_COL
     gruppi = formatta_foglio_card(ws)
     aggiungi_footer_data(ws, gruppi)
+    applica_sfondo_colonna_grigio(ws, COL_GIORNATE_STIMATE, ws.max_row)
+    applica_sfondo_colonna_grigio(ws, COL_GIORNI, ws.max_row)
     return gruppi
 
 
