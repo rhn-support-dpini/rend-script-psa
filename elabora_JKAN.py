@@ -30,7 +30,8 @@ Output:
     S (Ore): ore per riga tag (# Waiting/Working/Fix/Rework).
     T (Timeout (GG)): giorni solari dal tag "# Timeout - <data>" a oggi; errori → 999999;
         colori: ≤45 verde, 46–55 giallo, 56–60 rosso pastello, >60 rosso acceso.
-    U (TAG Temporali): testo del tag per riga; sfondo rosso pastello se segnalato nel log.
+    U (TAG Temporali): testo del tag per riga (# Timeout incluso, senza ore in col. S);
+        sfondo rosso pastello se segnalato nel log.
     G (Giornate Stimate): valore numerico dal tag "# Estimate" in Description; sfondo grigio leggibile.
     H (Ore Stimate): Giornate Stimate (col. G) × 8; sfondo acqua marina pastello.
     Colonne R (Totale Ore Lavorate): sfondo acqua marina pastello.
@@ -861,7 +862,7 @@ def espandi_card_con_tag(card):
         tag_list = [
             tag
             for tag in estrai_tag_temporali(record.get("Description", ""))
-            if not is_tag_estimate(tag) and not is_tag_timeout(tag)
+            if not is_tag_estimate(tag)
         ]
         if not tag_list:
             nuova = dict(nuova_base)
@@ -886,19 +887,23 @@ def espandi_card_con_tag(card):
             nuova[REWORK_TIME_COL] = None
             nuova[FIX_TIME_COL] = None
             nuova[PERCENT_STIMATO_LAVORATO_COL] = None
-            nuova[GIORNI_COL] = giorni_da_tag_temporale(
-                tag,
-                tag_next,
-                title=record.get("Title"),
-                is_ultimo_tag=is_ultimo_tag,
-            )
             nuova[TOTALE_ORE_COL] = None
-            nuova[ORE_COL] = ore_da_tag_temporale(
-                tag,
-                title=record.get("Title"),
-                is_ultimo_tag=is_ultimo_tag,
-                log_error=False,
-            )
+            if is_tag_timeout(tag):
+                nuova[GIORNI_COL] = None
+                nuova[ORE_COL] = None
+            else:
+                nuova[GIORNI_COL] = giorni_da_tag_temporale(
+                    tag,
+                    tag_next,
+                    title=record.get("Title"),
+                    is_ultimo_tag=is_ultimo_tag,
+                )
+                nuova[ORE_COL] = ore_da_tag_temporale(
+                    tag,
+                    title=record.get("Title"),
+                    is_ultimo_tag=is_ultimo_tag,
+                    log_error=False,
+                )
             nuova[TAG_TEMPORALI_COL] = tag
             righe.append(nuova)
     return righe
