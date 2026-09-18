@@ -28,7 +28,8 @@ Output:
     P (% Stimato / Lavorato (GG)): (Totale Ore Lavorate / Ore Stimate) × 100 con suffisso " %"; fasce colore.
     Q (Giorni Lavorati): giornate per riga tag. R (Totale Ore Lavorate): somma ore lavorate col. S (no Waiting).
     S (Ore): ore per riga tag (# Waiting/Working/Fix/Rework).
-    T (Timeout (GG)): giornate lavorative da oggi al tag "# Timeout - <data>".
+    T (Timeout (GG)): giorni solari dal tag "# Timeout - <data>" a oggi; errori → 999999;
+        colori: ≤45 verde, 46–55 giallo, 56–60 rosso pastello, >60 rosso acceso.
     U (TAG Temporali): testo del tag per riga; sfondo rosso pastello se segnalato nel log.
     G (Giornate Stimate): valore numerico dal tag "# Estimate" in Description; sfondo grigio leggibile.
     H (Ore Stimate): Giornate Stimate (col. G) × 8; sfondo acqua marina pastello.
@@ -117,6 +118,7 @@ GIORNATE_STIMATE_COL = "Giornate Stimate"
 ORE_STIMATE_COL = "Ore Stimate"
 PERCENT_STIMATO_LAVORATO_COL = "% Stimato / Lavorato (GG)"
 TIMEOUT_COL = "Timeout (GG)"
+TIMEOUT_VALORE_ERRATO = 999999
 GIORNI_COL = "Giorni Lavorati"
 TOTALE_ORE_COL = "Totale Ore Lavorate"
 ORE_COL = "Ore"
@@ -374,21 +376,45 @@ def is_tag_timeout(tag):
     return bool(TIMEOUT_TAG_RE.match(str(tag).strip()))
 
 
-def giorni_a_timeout(description, data_oggi=None):
-    """Giornate lavorative da oggi alla data nel tag '# Timeout - <data>'."""
+def estrai_tag_timeout(description):
+    """Primo tag '# Timeout -' nella Description, se presente."""
+    for tag in estrai_tag_temporali(description):
+        if is_tag_timeout(tag):
+            return tag
+    return None
+
+
+def valore_timeout(description, data_oggi=None):
+    """
+    Giorni solari tra la data nel tag '# Timeout - <data>' e oggi.
+    Nessun tag → None; tag presente ma data non valida → TIMEOUT_VALORE_ERRATO.
+    """
     if data_oggi is None:
         data_oggi = datetime.now().date()
-    for tag in estrai_tag_temporali(description):
-        if not is_tag_timeout(tag):
-            continue
-        date = estrai_date_da_tag(tag)
-        if not date:
-            continue
-        data_timeout = date[0]
-        if data_timeout <= data_oggi:
-            return 0
-        return giorni_lavorativi_tra(data_oggi, data_timeout, fine_inclusa=False)
-    return None
+    tag = estrai_tag_timeout(description)
+    if tag is None:
+        return None
+    date = estrai_date_da_tag(tag)
+    if not date:
+        return TIMEOUT_VALORE_ERRATO
+    return (data_oggi - date[0]).days
+
+
+def applica_colore_timeout(cella, giorni):
+    """Sfondo col. T: errore rosso acceso; altrimenti fasce su giorni solari trascorsi."""
+    if giorni is None:
+        return
+    if giorni == TIMEOUT_VALORE_ERRATO:
+        cella.fill = BRIGHT_RED_FILL
+        return
+    if giorni <= 45:
+        cella.fill = PASTEL_GREEN_FILL
+    elif giorni <= 55:
+        cella.fill = PASTEL_YELLOW_FILL
+    elif giorni <= 60:
+        cella.fill = PASTEL_RED_FILL
+    else:
+        cella.fill = BRIGHT_RED_FILL
 
 
 def is_tag_waiting(tag):
@@ -830,7 +856,7 @@ def espandi_card_con_tag(card):
         nuova_base[INIZIO_LAVORAZIONE_COL] = giorni_da_inizio_attivita(
             record.get("Description", "")
         )
-        nuova_base[TIMEOUT_COL] = giorni_a_timeout(record.get("Description", ""))
+        nuova_base[TIMEOUT_COL] = valore_timeout(record.get("Description", ""))
 
         tag_list = [
             tag
@@ -1055,6 +1081,7 @@ def applica_totali_gruppo(ws, start, end):
 
     cella_timeout = ws.cell(row=start, column=COL_TIMEOUT)
     cella_timeout.alignment = center
+    applica_colore_timeout(cella_timeout, parse_numero(cella_timeout.value))
 
 
 def gruppi_righe_per_title(ws):
