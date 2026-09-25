@@ -1,6 +1,6 @@
 # PROJECT_STATE — rend-script-psa
 
-Ultimo aggiornamento: 2026-08-12 (sessione Cursor su branch `Cursor`).
+Ultimo aggiornamento: 2026-09-25 (sessione Cursor su branch `Cursor`).
 
 Documento di handoff per sessioni successive: cosa c’è nel repo, come funziona, cosa è stato toccato di recente, e cosa evitare.
 
@@ -29,6 +29,10 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 ---
 
 ## Implementato / modificato (cronologia recente)
+
+### Sessione 2026-09-25 — evidenziazione Ore su `# Waiting` in `elabora_JKAN.py`
+
+- Colonna **Ore** (S) nel foglio `data-all`: sfondo giallo pastello (`#FFFDE7`) se l'ultimo tag temporale della card è `# Waiting -` e il valore Ore è ≥ 56 (`applica_sfondo_ore_waiting_lungo`, soglia `ORE_WAITING_EVIDENZIA_MIN`).
 
 ### Sessione 2026-08-12 — foglio `data-export` in `elabora_JKAN.py`
 

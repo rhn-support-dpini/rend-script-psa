@@ -30,7 +30,7 @@ Fogli: `data-all` (principale, tutte le card), `data-export` (export ridotto), `
 | N | Fix time | somma giornate `# Fix` in col. S |
 | O | Giorni | giornate lavorative per riga tag |
 | P | Totale Ore Lavorate | somma colonna Q (Ore) lavorate (# Working, # Fix, # Rework; escluso Waiting) |
-| Q | Ore | ore per riga tag (# Waiting/Working/Fix/Rework): giorni×8 + +Nh |
+| Q | Ore | ore per riga tag (# Waiting/Working/Fix/Rework): giorni×8 + +Nh; giallo pastello se ultimo tag è # Waiting e ore ≥ 56 |
 | R | Timeout (GG) | giornate da oggi al tag `# Timeout -` |
 | S | TAG Temporali | testo del tag `#` della riga |
 

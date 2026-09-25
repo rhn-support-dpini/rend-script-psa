@@ -27,7 +27,8 @@ Output:
     O (Fix time): somma ore (col. S) per tag "# Fix" in col. U.
     P (% Stimato / Lavorato (GG)): (Totale Ore Lavorate / Ore Stimate) × 100 con suffisso " %"; fasce colore.
     Q (Giorni Lavorati): giornate per riga tag. R (Totale Ore Lavorate): somma ore lavorate col. S (no Waiting).
-    S (Ore): ore per riga tag (# Waiting/Working/Fix/Rework).
+    S (Ore): ore per riga tag (# Waiting/Working/Fix/Rework);
+        sfondo giallo pastello se ultimo tag temporale è # Waiting e ore ≥ 56.
     T (Timeout (GG)): giorni solari dal tag "# Timeout - <data>" a oggi; errori → 999999;
         colori: ≤45 verde, 46–55 giallo, 56–60 rosso pastello, >60 rosso acceso.
     U (TAG Temporali): testo del tag per riga (# Timeout incluso, senza ore in col. S);
@@ -120,6 +121,7 @@ ORE_STIMATE_COL = "Ore Stimate"
 PERCENT_STIMATO_LAVORATO_COL = "% Stimato / Lavorato (GG)"
 TIMEOUT_COL = "Timeout (GG)"
 TIMEOUT_VALORE_ERRATO = 999999
+ORE_WAITING_EVIDENZIA_MIN = 56
 GIORNI_COL = "Giorni Lavorati"
 TOTALE_ORE_COL = "Totale Ore Lavorate"
 ORE_COL = "Ore"
@@ -1037,6 +1039,16 @@ def applica_sfondo_acqua_marina(cella):
     cella.fill = PASTEL_AQUA_MARINE_FILL
 
 
+def applica_sfondo_ore_waiting_lungo(ws, start, end):
+    """Sfondo giallo pastello su col. Ore se ultimo tag è # Waiting e ore ≥ soglia."""
+    tag = ws.cell(row=end, column=COL_TAG).value
+    if not is_tag_waiting(tag):
+        return
+    ore = parse_numero(ws.cell(row=end, column=COL_ORE).value)
+    if ore is not None and ore >= ORE_WAITING_EVIDENZIA_MIN:
+        ws.cell(row=end, column=COL_ORE).fill = PASTEL_YELLOW_FILL
+
+
 def applica_totali_gruppo(ws, start, end):
     center = Alignment(horizontal="center", vertical="center")
 
@@ -1191,6 +1203,7 @@ def formatta_foglio_card(ws):
             merged_timeout = ws.cell(row=start, column=COL_TIMEOUT)
             merged_timeout.alignment = center
         applica_totali_gruppo(ws, start, end)
+        applica_sfondo_ore_waiting_lungo(ws, start, end)
         applica_bordo_gruppo(ws, start, end, 1, COL_LAST, PASTEL_RED_BORDER)
 
     applica_sfondo_tag_sintassi_errata(ws, ws.max_row)
