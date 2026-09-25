@@ -33,8 +33,10 @@ Fogli: `data-all` (principale, tutte le card), `data-export` (export ridotto), `
 | Q | Ore | ore per riga tag (# Waiting/Working/Fix/Rework): giorni×8 + +Nh; rosso pastello se ultimo tag è # Waiting e ore ≥ 56 |
 | R | Timeout (GG) | giornate da oggi al tag `# Timeout -` |
 | S | TAG Temporali | testo del tag `#` della riga |
+| T | Delta ore | Ore Stimate (H) − Totale Ore Lavorate (R), solo Status Acronimi Done |
+| U | Delta Giorni | Delta ore / 8, solo Status Acronimi Done |
 
-Righe `#` in Description → sotto-righe col. S; col. O/Q con giorni/ore per tag; col. P totale ore card. Colonne A–N: merge verticali + bordo rosso pastello per card.
+Righe `#` in Description → sotto-righe col. S; col. O/Q con giorni/ore per tag; col. P totale ore card. Colonne A–N: merge verticali + bordo rosso pastello per card. Delta ore/giorni: merge per card come P e R.
 
 Foglio `data-export`: una riga per card, colonne A (Title), B (Status), C (Start Date), D (End Date), E (Tags); esclusi Status `Attività nuove`, `Attività in Backlog`, `Attività in Progress`, `Attività Complete`, `Attività Abbandonate`. Celle centrificate; bordo blu per riga e divisori blu chiaro tra colonne; sfondo per Status su A–E.
 

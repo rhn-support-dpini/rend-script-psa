@@ -30,9 +30,10 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 
 ## Implementato / modificato (cronologia recente)
 
-### Sessione 2026-09-25 — evidenziazione Ore su `# Waiting` in `elabora_JKAN.py`
+### Sessione 2026-09-25 — `elabora_JKAN.py`
 
-- Colonna **Ore** (S) nel foglio `data-all`: sfondo rosso pastello (`#FFEBEE`) se l'ultimo tag temporale della card è `# Waiting -` e il valore Ore è ≥ 56 (`applica_sfondo_ore_waiting_lungo`, soglia `ORE_WAITING_EVIDENZIA_MIN`).
+- Colonna **Ore** (S): sfondo rosso pastello se ultimo tag `# Waiting -` e ore ≥ 56.
+- Colonne **Delta ore** (V) e **Delta Giorni** (W): valorizzate solo per Status Acronimi Done; Delta ore = Ore Stimate (H) − Totale Ore Lavorate (R); Delta Giorni = Delta ore / 8.
 
 ### Sessione 2026-08-12 — foglio `data-export` in `elabora_JKAN.py`
 

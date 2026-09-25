@@ -33,6 +33,8 @@ Output:
         colori: ≤45 verde, 46–55 giallo, 56–60 rosso pastello, >60 rosso acceso.
     U (TAG Temporali): testo del tag per riga (# Timeout incluso, senza ore in col. S);
         sfondo rosso pastello se segnalato nel log.
+    V (Delta ore): Ore Stimate (H) − Totale Ore Lavorate (R), solo se Status è Acronimi Done.
+    W (Delta Giorni): Delta ore / 8, solo se Status è Acronimi Done.
     G (Giornate Stimate): valore numerico dal tag "# Estimate" in Description; sfondo grigio leggibile.
     H (Ore Stimate): Giornate Stimate (col. G) × 8; sfondo acqua marina pastello.
     Colonne R (Totale Ore Lavorate): sfondo acqua marina pastello.
@@ -126,6 +128,8 @@ GIORNI_COL = "Giorni Lavorati"
 TOTALE_ORE_COL = "Totale Ore Lavorate"
 ORE_COL = "Ore"
 TAG_TEMPORALI_COL = "TAG Temporali"
+DELTA_ORE_COL = "Delta ore"
+DELTA_GIORNI_COL = "Delta Giorni"
 INIZIO_LAVORAZIONE_COL = "InizioLavorazione(GG)"
 TOTALE_WAITING_COL = "Totale Waiting (GG)"
 TOTALE_LAVORAZIONE_COL = "Totale Lavorazione (GG)"
@@ -144,7 +148,8 @@ STATUS_ESCLUSI_EXPORT = frozenset(
     }
 )
 STAT_SHEET = "stat"
-CENTER_COLS = {3, 4, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}
+CENTER_COLS = {3, 4, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23}
+COL_STATUS = 3  # C — Status MIRO
 COL_GIORNATE_STIMATE = 7  # G — giorni da tag # Estimate
 COL_ORE_STIMATE = 8  # H — Giornate Stimate × 8
 COL_TAGS_ORIG = 10  # J
@@ -160,7 +165,9 @@ COL_TOTALE_ORE = 18  # R
 COL_ORE = 19  # S
 COL_TIMEOUT = 20  # T
 COL_TAG = 21  # U
-COL_LAST = 21
+COL_DELTA_ORE = 22  # V
+COL_DELTA_GIORNI = 23  # W
+COL_LAST = 23
 PASTEL_RED_BORDER = Side(style="medium", color="E8A0A0")
 PASTEL_GREEN_FILL = PatternFill(fill_type="solid", fgColor="D9EAD3")
 PASTEL_RED_FILL = PatternFill(fill_type="solid", fgColor="FFEBEE")
@@ -931,6 +938,8 @@ def colonne_output():
         ORE_COL,
         TIMEOUT_COL,
         TAG_TEMPORALI_COL,
+        DELTA_ORE_COL,
+        DELTA_GIORNI_COL,
     ]
 
 
@@ -1037,6 +1046,29 @@ def formatta_percentuale_stimato_lavorato(percentuale):
 def applica_sfondo_acqua_marina(cella):
     """Sfondo acqua marina pastello per colonne ore."""
     cella.fill = PASTEL_AQUA_MARINE_FILL
+
+
+def is_status_acronimi_done(status):
+    """True se lo Status MIRO indica Acronimi Done."""
+    return classifica_colonna_kanban(status) == "Acronimi done"
+
+
+def applica_delta_gruppo(ws, start, end):
+    """Valorizza Delta ore e Delta Giorni per card in stato Acronimi Done."""
+    if not is_status_acronimi_done(ws.cell(row=start, column=COL_STATUS).value):
+        return
+    ore_stimate = parse_numero(ws.cell(row=start, column=COL_ORE_STIMATE).value)
+    tot_ore = parse_numero(ws.cell(row=start, column=COL_TOTALE_ORE).value)
+    if ore_stimate is None or tot_ore is None:
+        return
+    center = Alignment(horizontal="center", vertical="center")
+    delta_ore = ore_stimate - tot_ore
+    cella_delta_ore = ws.cell(row=start, column=COL_DELTA_ORE)
+    cella_delta_ore.value = delta_ore
+    cella_delta_ore.alignment = center
+    cella_delta_giorni = ws.cell(row=start, column=COL_DELTA_GIORNI)
+    cella_delta_giorni.value = delta_ore / 8
+    cella_delta_giorni.alignment = center
 
 
 def applica_sfondo_ore_waiting_lungo(ws, start, end):
@@ -1202,7 +1234,24 @@ def formatta_foglio_card(ws):
             )
             merged_timeout = ws.cell(row=start, column=COL_TIMEOUT)
             merged_timeout.alignment = center
+            ws.merge_cells(
+                start_row=start,
+                start_column=COL_DELTA_ORE,
+                end_row=end,
+                end_column=COL_DELTA_ORE,
+            )
+            merged_delta_ore = ws.cell(row=start, column=COL_DELTA_ORE)
+            merged_delta_ore.alignment = center
+            ws.merge_cells(
+                start_row=start,
+                start_column=COL_DELTA_GIORNI,
+                end_row=end,
+                end_column=COL_DELTA_GIORNI,
+            )
+            merged_delta_giorni = ws.cell(row=start, column=COL_DELTA_GIORNI)
+            merged_delta_giorni.alignment = center
         applica_totali_gruppo(ws, start, end)
+        applica_delta_gruppo(ws, start, end)
         applica_sfondo_ore_waiting_lungo(ws, start, end)
         applica_bordo_gruppo(ws, start, end, 1, COL_LAST, PASTEL_RED_BORDER)
 
@@ -1366,6 +1415,8 @@ def formatta_foglio_dati(ws):
     ws.cell(row=1, column=COL_GIORNI).value = GIORNI_COL
     ws.cell(row=1, column=COL_TOTALE_ORE).value = TOTALE_ORE_COL
     ws.cell(row=1, column=COL_ORE).value = ORE_COL
+    ws.cell(row=1, column=COL_DELTA_ORE).value = DELTA_ORE_COL
+    ws.cell(row=1, column=COL_DELTA_GIORNI).value = DELTA_GIORNI_COL
     gruppi = formatta_foglio_card(ws)
     aggiungi_footer_data(ws, gruppi)
     applica_sfondo_colonna_grigio(ws, COL_GIORNATE_STIMATE, ws.max_row)
