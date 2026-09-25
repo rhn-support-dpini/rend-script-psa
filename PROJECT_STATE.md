@@ -32,7 +32,7 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 
 ### Sessione 2026-09-25 — evidenziazione Ore su `# Waiting` in `elabora_JKAN.py`
 
-- Colonna **Ore** (S) nel foglio `data-all`: sfondo giallo pastello (`#FFFDE7`) se l'ultimo tag temporale della card è `# Waiting -` e il valore Ore è ≥ 56 (`applica_sfondo_ore_waiting_lungo`, soglia `ORE_WAITING_EVIDENZIA_MIN`).
+- Colonna **Ore** (S) nel foglio `data-all`: sfondo rosso pastello (`#FFEBEE`) se l'ultimo tag temporale della card è `# Waiting -` e il valore Ore è ≥ 56 (`applica_sfondo_ore_waiting_lungo`, soglia `ORE_WAITING_EVIDENZIA_MIN`).
 
 ### Sessione 2026-08-12 — foglio `data-export` in `elabora_JKAN.py`
 

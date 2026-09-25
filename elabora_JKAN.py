@@ -28,7 +28,7 @@ Output:
     P (% Stimato / Lavorato (GG)): (Totale Ore Lavorate / Ore Stimate) × 100 con suffisso " %"; fasce colore.
     Q (Giorni Lavorati): giornate per riga tag. R (Totale Ore Lavorate): somma ore lavorate col. S (no Waiting).
     S (Ore): ore per riga tag (# Waiting/Working/Fix/Rework);
-        sfondo giallo pastello se ultimo tag temporale è # Waiting e ore ≥ 56.
+        sfondo rosso pastello se ultimo tag temporale è # Waiting e ore ≥ 56.
     T (Timeout (GG)): giorni solari dal tag "# Timeout - <data>" a oggi; errori → 999999;
         colori: ≤45 verde, 46–55 giallo, 56–60 rosso pastello, >60 rosso acceso.
     U (TAG Temporali): testo del tag per riga (# Timeout incluso, senza ore in col. S);
@@ -1040,13 +1040,13 @@ def applica_sfondo_acqua_marina(cella):
 
 
 def applica_sfondo_ore_waiting_lungo(ws, start, end):
-    """Sfondo giallo pastello su col. Ore se ultimo tag è # Waiting e ore ≥ soglia."""
+    """Sfondo rosso pastello su col. Ore se ultimo tag è # Waiting e ore ≥ soglia."""
     tag = ws.cell(row=end, column=COL_TAG).value
     if not is_tag_waiting(tag):
         return
     ore = parse_numero(ws.cell(row=end, column=COL_ORE).value)
     if ore is not None and ore >= ORE_WAITING_EVIDENZIA_MIN:
-        ws.cell(row=end, column=COL_ORE).fill = PASTEL_YELLOW_FILL
+        ws.cell(row=end, column=COL_ORE).fill = PASTEL_RED_FILL
 
 
 def applica_totali_gruppo(ws, start, end):
