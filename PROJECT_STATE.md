@@ -1,6 +1,6 @@
 # PROJECT_STATE — rend-script-psa
 
-Ultimo aggiornamento: 2026-09-25 (sessione Cursor su branch `Cursor`).
+Ultimo aggiornamento: 2026-09-28 (sessione Cursor su branch `Cursor`).
 
 Documento di handoff per sessioni successive: cosa c’è nel repo, come funziona, cosa è stato toccato di recente, e cosa evitare.
 
@@ -29,6 +29,12 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 ---
 
 ## Implementato / modificato (cronologia recente)
+
+### Sessione 2026-09-28 — `elabora_JKAN.py`
+
+- Colonna **Ore** spostata tra **TAG Temporali** (T) e **Delta ore** (V); aggiornati `COL_*`, `colonne_output()`, docstring e regola Cursor.
+- Foglio **`data-all`**: ordinamento per Status (Acronimi Done → Fab. Test in progress → in progress → Waiting for fab. → Backlog → POC → Abandoned; altri in coda), alfabetico per prima riga Title nel gruppo card.
+- Nuovo foglio **`time-Waiting`**: nome card (prima riga Title) e somma ore sui tag `# Waiting`; ordine decrescente per ore.
 
 ### Sessione 2026-09-25 — `elabora_JKAN.py`
 
@@ -89,7 +95,7 @@ Commits: `025ef4e`, `64041d9`.
 
 - Input CSV MIRO con sezioni Kanban ripetute (header standard 9 colonne); **nessun filtro per nome kanban**.
 - Data snapshot estratta dal **nome file** (`yyyy-mm-dd` o `yyyy/mm/dd`); obbligatoria.
-- Output: `<input>.xlsx` (fogli `data-all`, `data-export`, `stat`), `<input>.html`, aggiornamento `dbJKAN.csv` nella cartella script.
+- Output: `<input>.xlsx` (fogli `data-all`, `data-export`, `time-Waiting`, `stat`), `<input>.html`, aggiornamento `dbJKAN.csv` nella cartella script.
 - **Estimate (col. G):** sempre da tag `# Estimate` in Description, non dal CSV.
 - **Espansione righe:** ogni tag `#` in Description (eccetto Estimate) → sotto-riga da colonna N; merge A–M per Title.
 - **Giorni lavorativi:** lun–ven; intervalli a due date `[inizio, fine)` con fine esclusa; senza seconda data → fino a oggi incluso (eccetto Done).
@@ -167,8 +173,8 @@ Commits: `025ef4e`, `64041d9`.
 
 **File toccati di recente:**
 
-- `elabora_JKAN.py` — `COLONNE_EXPORT`, `EXPORT_COL_LAST`, `EXPORT_COL_DIVIDER`, `applica_bordo_riga_export`, `formatta_foglio_export`
-- `.cursor/rules/elabora-jkan.mdc` — descrizione foglio `data-export`
+- `elabora_JKAN.py` — riordino col. Ore, ordinamento `data-all`, foglio `time-Waiting`
+- `.cursor/rules/elabora-jkan.mdc` — layout colonne e foglio `time-Waiting`
 
 **Non modificati in questa sessione ma rilevanti:**
 

@@ -15,24 +15,24 @@ Parametri:
 
 Output:
     File .xlsx con stesso nome e percorso del CSV di input.
-    Fogli: data-all (tutte le card), data-export (export ridotto), stat.
+    Fogli: data-all (tutte le card), data-export (export ridotto), time-Waiting, stat.
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
     <input>.html — report Scrum/Kanban (stesso percorso del .xlsx prodotto).
-    Le righe Description con prefisso "#" generano sotto-righe da colonna U (TAG Temporali);
+    Le righe Description con prefisso "#" generano sotto-righe da colonna T (TAG Temporali);
     A–O sono merge verticali per Title, con bordo rosso pastello per card.
     K (InizioLavorazione(GG)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
-    L (Totale Waiting (GG)): somma giornate tag "# Waiting -" in col. U.
+    L (Totale Waiting (GG)): somma giornate tag "# Waiting -" in col. T.
     M (Totale Lavorazione (GG)): somma tag "# Working -" in giornate.
-    N (Rework Time (h)): somma ore (col. S) per tag "# Rework" in col. U.
-    O (Fix time): somma ore (col. S) per tag "# Fix" in col. U.
+    N (Rework Time (h)): somma ore (col. U) per tag "# Rework" in col. T.
+    O (Fix time): somma ore (col. U) per tag "# Fix" in col. T.
     P (% Stimato / Lavorato (GG)): (Totale Ore Lavorate / Ore Stimate) × 100 con suffisso " %"; fasce colore.
-    Q (Giorni Lavorati): giornate per riga tag. R (Totale Ore Lavorate): somma ore lavorate col. S (no Waiting).
-    S (Ore): ore per riga tag (# Waiting/Working/Fix/Rework);
-        sfondo rosso pastello se ultimo tag temporale è # Waiting e ore ≥ 56.
-    T (Timeout (GG)): giorni solari dal tag "# Timeout - <data>" a oggi; errori → 999999;
+    Q (Giorni Lavorati): giornate per riga tag. R (Totale Ore Lavorate): somma ore lavorate col. U (no Waiting).
+    S (Timeout (GG)): giorni solari dal tag "# Timeout - <data>" a oggi; errori → 999999;
         colori: ≤45 verde, 46–55 giallo, 56–60 rosso pastello, >60 rosso acceso.
-    U (TAG Temporali): testo del tag per riga (# Timeout incluso, senza ore in col. S);
+    T (TAG Temporali): testo del tag per riga (# Timeout incluso, senza ore in col. T);
         sfondo rosso pastello se segnalato nel log.
+    U (Ore): ore per riga tag (# Waiting/Working/Fix/Rework);
+        sfondo rosso pastello se ultimo tag temporale è # Waiting e ore ≥ 56.
     V (Delta ore): Ore Stimate (H) − Totale Ore Lavorate (R), solo se Status è Acronimi Done.
     W (Delta Giorni): Delta ore / 8, solo se Status è Acronimi Done.
     G (Giornate Stimate): valore numerico dal tag "# Estimate" in Description; sfondo grigio leggibile.
@@ -136,6 +136,16 @@ TOTALE_LAVORAZIONE_COL = "Totale Lavorazione (GG)"
 REWORK_TIME_COL = "Rework Time (h)"
 OUTPUT_SHEET = "data-all"
 DATA_EXPORT_SHEET = "data-export"
+TIME_WAITING_SHEET = "time-Waiting"
+STATUS_ORDINE_DATA_ALL = [
+    "Acronimi Done",
+    "Fab. Test in progress",
+    "in progress",
+    "Waiting for fab.",
+    "Backlog",
+    "POC",
+    "Abandoned",
+]
 COLONNE_EXPORT = ["Title", "Status", "Start Date", "End Date", "Tags"]
 EXPORT_COL_LAST = 5  # E: Tags
 STATUS_ESCLUSI_EXPORT = frozenset(
@@ -148,7 +158,7 @@ STATUS_ESCLUSI_EXPORT = frozenset(
     }
 )
 STAT_SHEET = "stat"
-CENTER_COLS = {3, 4, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23}
+CENTER_COLS = {3, 4, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23}
 COL_STATUS = 3  # C — Status MIRO
 COL_GIORNATE_STIMATE = 7  # G — giorni da tag # Estimate
 COL_ORE_STIMATE = 8  # H — Giornate Stimate × 8
@@ -162,9 +172,9 @@ COL_PERCENT_STIMATO_LAVORATO = 16  # P
 COL_CARD_END = 15  # A–O: dati card (merge verticali per Title)
 COL_GIORNI = 17  # Q
 COL_TOTALE_ORE = 18  # R
-COL_ORE = 19  # S
-COL_TIMEOUT = 20  # T
-COL_TAG = 21  # U
+COL_TIMEOUT = 19  # S
+COL_TAG = 20  # T
+COL_ORE = 21  # U
 COL_DELTA_ORE = 22  # V
 COL_DELTA_GIORNI = 23  # W
 COL_LAST = 23
@@ -935,16 +945,16 @@ def colonne_output():
         PERCENT_STIMATO_LAVORATO_COL,
         GIORNI_COL,
         TOTALE_ORE_COL,
-        ORE_COL,
         TIMEOUT_COL,
         TAG_TEMPORALI_COL,
+        ORE_COL,
         DELTA_ORE_COL,
         DELTA_GIORNI_COL,
     ]
 
 
 def somma_giorni_tag_gruppo(ws, start, end, matcher, data_oggi=None):
-    """Somma giornate lavorative per righe tag (col. U) che passano matcher."""
+    """Somma giornate lavorative per righe tag (col. T) che passano matcher."""
     if data_oggi is None:
         data_oggi = datetime.now().date()
     totale = 0.0
@@ -971,7 +981,7 @@ def somma_giorni_tag_gruppo(ws, start, end, matcher, data_oggi=None):
 
 
 def somma_colonna_giorni_filtrata(ws, start, end, matcher):
-    """Somma colonna Q (Giorni) per righe il cui tag (col. U) passa matcher."""
+    """Somma colonna Q (Giorni) per righe il cui tag (col. T) passa matcher."""
     totale = 0.0
     ha_valori = False
     for row in range(start, end + 1):
@@ -986,7 +996,7 @@ def somma_colonna_giorni_filtrata(ws, start, end, matcher):
 
 
 def somma_colonna_ore_filtrata(ws, start, end, matcher):
-    """Somma colonna S (Ore) per righe il cui tag (col. U) passa matcher."""
+    """Somma colonna U (Ore) per righe il cui tag (col. T) passa matcher."""
     totale = 0.0
     ha_valori = False
     for row in range(start, end + 1):
@@ -1001,7 +1011,7 @@ def somma_colonna_ore_filtrata(ws, start, end, matcher):
 
 
 def somma_colonna_ore_gruppo(ws, start, end):
-    """Somma colonna S (Ore) sulle righe lavorate del gruppo card (no # Waiting)."""
+    """Somma colonna U (Ore) sulle righe lavorate del gruppo card (no # Waiting)."""
     totale = 0.0
     ha_valori = False
     for row in range(start, end + 1):
@@ -1397,7 +1407,7 @@ def crea_foglio_stat(wb, riepilogo):
 
 
 def allinea_colonna_tag_temporali(ws, max_row):
-    """Allinea a sinistra la colonna U (TAG Temporali)."""
+    """Allinea a sinistra la colonna T (TAG Temporali)."""
     left = Alignment(horizontal="left", vertical="center", wrap_text=True)
     for row in range(1, max_row + 1):
         ws.cell(row=row, column=COL_TAG).alignment = left
@@ -1414,6 +1424,8 @@ def formatta_foglio_dati(ws):
     ws.cell(row=1, column=COL_PERCENT_STIMATO_LAVORATO).value = PERCENT_STIMATO_LAVORATO_COL
     ws.cell(row=1, column=COL_GIORNI).value = GIORNI_COL
     ws.cell(row=1, column=COL_TOTALE_ORE).value = TOTALE_ORE_COL
+    ws.cell(row=1, column=COL_TIMEOUT).value = TIMEOUT_COL
+    ws.cell(row=1, column=COL_TAG).value = TAG_TEMPORALI_COL
     ws.cell(row=1, column=COL_ORE).value = ORE_COL
     ws.cell(row=1, column=COL_DELTA_ORE).value = DELTA_ORE_COL
     ws.cell(row=1, column=COL_DELTA_GIORNI).value = DELTA_GIORNI_COL
@@ -1425,9 +1437,79 @@ def formatta_foglio_dati(ws):
     return gruppi
 
 
+def indice_ordinamento_status_data_all(status):
+    """Indice per ordinamento foglio data-all (status sconosciuti in coda)."""
+    testo = normalizza_testo(status, compatta_spazi=True).lower()
+    for i, label in enumerate(STATUS_ORDINE_DATA_ALL):
+        if testo == label.lower():
+            return i
+    return len(STATUS_ORDINE_DATA_ALL)
+
+
+def ordina_righe_data_all(righe):
+    """Ordina gruppi card per Status (ordine custom) e prima riga Title alfabetica."""
+    if not righe:
+        return righe
+
+    gruppi = []
+    gruppo = [righe[0]]
+    for riga in righe[1:]:
+        if normalizza_testo(riga.get("Title", "")) == normalizza_testo(
+            gruppo[0].get("Title", "")
+        ):
+            gruppo.append(riga)
+        else:
+            gruppi.append(gruppo)
+            gruppo = [riga]
+    gruppi.append(gruppo)
+
+    def chiave_gruppo(gruppo_card):
+        prima = gruppo_card[0]
+        titolo = (prima_riga_colonna(prima.get("Title")) or "").lower()
+        return (
+            indice_ordinamento_status_data_all(prima.get("Status", "")),
+            titolo,
+        )
+
+    gruppi.sort(key=chiave_gruppo)
+    ordinate = []
+    for gruppo_card in gruppi:
+        ordinate.extend(gruppo_card)
+    return ordinate
+
+
+def righe_time_waiting(ws, gruppi):
+    """Nome card (prima riga Title) e ore totali da tag # Waiting per gruppo."""
+    righe = []
+    for start, end in gruppi:
+        ore = somma_colonna_ore_filtrata(ws, start, end, is_tag_waiting)
+        if ore is None:
+            continue
+        nome = prima_riga_colonna(ws.cell(row=start, column=1).value) or ""
+        righe.append({"nome": nome, "ore": ore})
+    righe.sort(key=lambda r: (-r["ore"], r["nome"].lower()))
+    return righe
+
+
+def crea_foglio_time_waiting(wb, ws_data, gruppi):
+    """Foglio time-Waiting: nome card e ore da tag # Waiting, ordinate per ore decrescenti."""
+    ws = wb.create_sheet(TIME_WAITING_SHEET)
+    center = Alignment(horizontal="center", vertical="center")
+    ws.cell(row=1, column=1).value = "Nome"
+    ws.cell(row=1, column=2).value = ORE_COL
+    ws.cell(row=1, column=1).alignment = center
+    ws.cell(row=1, column=2).alignment = center
+
+    for idx, riga in enumerate(righe_time_waiting(ws_data, gruppi), start=2):
+        ws.cell(row=idx, column=1).value = riga["nome"]
+        ws.cell(row=idx, column=2).value = riga["ore"]
+        ws.cell(row=idx, column=1).alignment = center
+        ws.cell(row=idx, column=2).alignment = center
+
+
 def scrivi_excel(card, output_path):
     reset_tag_sintassi_errata()
-    righe_all = espandi_card_con_tag(card)
+    righe_all = ordina_righe_data_all(espandi_card_con_tag(card))
     df_all = pd.DataFrame(righe_all, columns=colonne_output())
     df_export = pd.DataFrame(righe_export(card), columns=COLONNE_EXPORT)
 
@@ -1436,9 +1518,11 @@ def scrivi_excel(card, output_path):
         df_export.to_excel(writer, sheet_name=DATA_EXPORT_SHEET, index=False)
 
     wb = load_workbook(output_path)
-    gruppi = formatta_foglio_dati(wb[OUTPUT_SHEET])
+    ws_data = wb[OUTPUT_SHEET]
+    gruppi = formatta_foglio_dati(ws_data)
     formatta_foglio_export(wb[DATA_EXPORT_SHEET])
-    riepilogo = riepilogo_da_gruppi(wb[OUTPUT_SHEET], gruppi)
+    crea_foglio_time_waiting(wb, ws_data, gruppi)
+    riepilogo = riepilogo_da_gruppi(ws_data, gruppi)
     crea_foglio_stat(wb, riepilogo)
     wb.save(output_path)
 

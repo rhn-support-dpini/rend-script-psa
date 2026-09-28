@@ -16,7 +16,7 @@ Il nome file input deve contenere una data `yyyy-mm-dd` o `yyyy/mm/dd`.
 
 ## Output Excel
 
-Fogli: `data-all` (principale, tutte le card), `data-export` (export ridotto), `stat`.
+Fogli: `data-all` (principale, tutte le card), `data-export` (export ridotto), `time-Waiting`, `stat`.
 
 ### Colonne foglio `data-all`
 
@@ -29,14 +29,18 @@ Fogli: `data-all` (principale, tutte le card), `data-export` (export ridotto), `
 | M | Rework time | somma col. O (Giorni) per tag `# Rework` in col. S |
 | N | Fix time | somma giornate `# Fix` in col. S |
 | O | Giorni | giornate lavorative per riga tag |
-| P | Totale Ore Lavorate | somma colonna Q (Ore) lavorate (# Working, # Fix, # Rework; escluso Waiting) |
-| Q | Ore | ore per riga tag (# Waiting/Working/Fix/Rework): giorni×8 + +Nh; rosso pastello se ultimo tag è # Waiting e ore ≥ 56 |
-| R | Timeout (GG) | giornate da oggi al tag `# Timeout -` |
-| S | TAG Temporali | testo del tag `#` della riga |
-| T | Delta ore | Ore Stimate (H) − Totale Ore Lavorate (R), solo Status Acronimi Done |
-| U | Delta Giorni | Delta ore / 8, solo Status Acronimi Done |
+| P | Totale Ore Lavorate | somma colonna U (Ore) lavorate (# Working, # Fix, # Rework; escluso Waiting) |
+| S | Timeout (GG) | giornate da oggi al tag `# Timeout -` |
+| T | TAG Temporali | testo del tag `#` della riga |
+| U | Ore | ore per riga tag (# Waiting/Working/Fix/Rework): giorni×8 + +Nh; rosso pastello se ultimo tag è # Waiting e ore ≥ 56 |
+| V | Delta ore | Ore Stimate (H) − Totale Ore Lavorate (R), solo Status Acronimi Done |
+| W | Delta Giorni | Delta ore / 8, solo Status Acronimi Done |
 
-Righe `#` in Description → sotto-righe col. S; col. O/Q con giorni/ore per tag; col. P totale ore card. Colonne A–N: merge verticali + bordo rosso pastello per card. Delta ore/giorni: merge per card come P e R.
+Righe `#` in Description → sotto-righe col. T; col. O/Q con giorni/ore per tag; col. P totale ore card. Colonne A–N: merge verticali + bordo rosso pastello per card. Delta ore/giorni: merge per card come P e R.
+
+Foglio `data-all`: righe card ordinate per Status (Acronimi Done → Fab. Test in progress → in progress → Waiting for fab. → Backlog → POC → Abandoned; altri in coda), alfabetico per prima riga Title nel gruppo.
+
+Foglio `time-Waiting`: una riga per card con tag `# Waiting`; col. A = prima riga Title, col. B = somma ore (col. U) sui tag Waiting; ordine decrescente per ore.
 
 Foglio `data-export`: una riga per card, colonne A (Title), B (Status), C (Start Date), D (End Date), E (Tags); esclusi Status `Attività nuove`, `Attività in Backlog`, `Attività in Progress`, `Attività Complete`, `Attività Abbandonate`. Celle centrificate; bordo blu per riga e divisori blu chiaro tra colonne; sfondo per Status su A–E.
 
