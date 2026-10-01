@@ -19,22 +19,26 @@ Output:
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
     <input>.html — report Scrum/Kanban (stesso percorso del .xlsx prodotto).
     Le righe Description con prefisso "#" generano sotto-righe da colonna T (TAG Temporali);
-    A–O sono merge verticali per Title, con bordo rosso pastello per card.
-    K (InizioLavorazione(GG)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
-    L (Totale Waiting (GG)): somma giornate tag "# Waiting -" in col. T.
-    M (Totale Lavorazione (GG)): somma tag "# Working -" in giornate.
-    N (Rework Time (h)): somma ore (col. U) per tag "# Rework" in col. T.
-    O (Fix time): somma ore (col. U) per tag "# Fix" in col. T.
-    P (% Stimato / Lavorato (GG)): (Totale Ore Lavorate / Ore Stimate) × 100 con suffisso " %"; fasce colore.
-    Q (Giorni Lavorati): giornate per riga tag. R (Totale Ore Lavorate): somma ore lavorate col. U (no Waiting).
-    S (Timeout (GG)): giorni solari dal tag "# Timeout - <data>" a oggi; errori → 999999;
+    A–S sono merge verticali per Title, con bordo rosso pastello per card.
+    K (InizioLavorazione(gg)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
+    L (Totale Waiting (hh)): somma ore (col. Y) per tag "# Waiting -" in col. X.
+    M (Totale Waiting (gg)): somma giornate tag "# Waiting -" in col. X.
+    N (Totale Lavorazione (hh)): somma ore (col. Y) per tag "# Working -" in col. X.
+    O (Totale Lavorazione (gg)): somma giornate tag "# Working -" in col. X.
+    P (Rework Time (hh)): somma ore (col. Y) per tag "# Rework" in col. X.
+    Q (Rework Time (gg)): somma Giorni Lavorati (col. U) per tag "# Rework" in col. X.
+    R (Fix Time (hh)): somma ore (col. Y) per tag "# Fix" in col. X.
+    S (Fix Time (gg)): somma Giorni Lavorati (col. U) per tag "# Fix" in col. X.
+    T (% Stimato / Lavorato (gg)): (Totale Ore Lavorate / Ore Stimate) × 100 con suffisso " %"; fasce colore.
+    U (Giorni Lavorati): giornate per riga tag. V (Totale Ore Lavorate): somma ore lavorate col. Y (no Waiting).
+    W (Timeout (gg)): giorni solari dal tag "# Timeout - <data>" a oggi; errori → 999999;
         colori: ≤45 verde, 46–55 giallo, 56–60 rosso pastello, >60 rosso acceso.
-    T (TAG Temporali): testo del tag per riga (# Timeout incluso, senza ore in col. T);
+    X (TAG Temporali): testo del tag per riga (# Timeout incluso, senza ore in col. X);
         sfondo rosso pastello se segnalato nel log.
-    U (Ore): ore per riga tag (# Waiting/Working/Fix/Rework);
+    Y (Ore): ore per riga tag (# Waiting/Working/Fix/Rework);
         sfondo rosso pastello se ultimo tag temporale è # Waiting e ore ≥ 56.
-    V (Delta ore): Ore Stimate (H) − Totale Ore Lavorate (R), solo se Status è Acronimi Done.
-    W (Delta Giorni): Delta ore / 8, solo se Status è Acronimi Done.
+    Z (Delta ore): Ore Stimate (H) − Totale Ore Lavorate (V), solo se Status è Acronimi Done.
+    AA (Delta Giorni): Delta ore / 8, solo se Status è Acronimi Done.
     G (Giornate Stimate): valore numerico dal tag "# Estimate" in Description; sfondo grigio leggibile.
     H (Ore Stimate): Giornate Stimate (col. G) × 8; sfondo acqua marina pastello.
     Colonne R (Totale Ore Lavorate): sfondo acqua marina pastello.
@@ -117,11 +121,12 @@ KANBAN_COLUMNS = [
     "Priority",
     "Tags",
 ]
-FIX_TIME_COL = "Fix time"
+FIX_TIME_COL = "Fix Time (hh)"
+FIX_TIME_GG_COL = "Fix Time (gg)"
 GIORNATE_STIMATE_COL = "Giornate Stimate"
 ORE_STIMATE_COL = "Ore Stimate"
-PERCENT_STIMATO_LAVORATO_COL = "% Stimato / Lavorato (GG)"
-TIMEOUT_COL = "Timeout (GG)"
+PERCENT_STIMATO_LAVORATO_COL = "% Stimato / Lavorato (gg)"
+TIMEOUT_COL = "Timeout (gg)"
 TIMEOUT_VALORE_ERRATO = 999999
 ORE_WAITING_EVIDENZIA_MIN = 56
 GIORNI_COL = "Giorni Lavorati"
@@ -130,10 +135,13 @@ ORE_COL = "Ore"
 TAG_TEMPORALI_COL = "TAG Temporali"
 DELTA_ORE_COL = "Delta ore"
 DELTA_GIORNI_COL = "Delta Giorni"
-INIZIO_LAVORAZIONE_COL = "InizioLavorazione(GG)"
-TOTALE_WAITING_COL = "Totale Waiting (GG)"
-TOTALE_LAVORAZIONE_COL = "Totale Lavorazione (GG)"
-REWORK_TIME_COL = "Rework Time (h)"
+INIZIO_LAVORAZIONE_COL = "InizioLavorazione(gg)"
+TOTALE_WAITING_HH_COL = "Totale Waiting (hh)"
+TOTALE_WAITING_COL = "Totale Waiting (gg)"
+TOTALE_LAVORAZIONE_HH_COL = "Totale Lavorazione (hh)"
+TOTALE_LAVORAZIONE_COL = "Totale Lavorazione (gg)"
+REWORK_TIME_COL = "Rework Time (hh)"
+REWORK_TIME_GG_COL = "Rework Time (gg)"
 OUTPUT_SHEET = "data-all"
 DATA_EXPORT_SHEET = "data-export"
 TIME_WAITING_SHEET = "time-Waiting"
@@ -158,26 +166,52 @@ STATUS_ESCLUSI_EXPORT = frozenset(
     }
 )
 STAT_SHEET = "stat"
-CENTER_COLS = {3, 4, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23}
+CENTER_COLS = {
+    3,
+    4,
+    7,
+    8,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    25,
+    26,
+    27,
+}
 COL_STATUS = 3  # C — Status MIRO
 COL_GIORNATE_STIMATE = 7  # G — giorni da tag # Estimate
 COL_ORE_STIMATE = 8  # H — Giornate Stimate × 8
 COL_TAGS_ORIG = 10  # J
 COL_INIZIO_LAVORAZIONE = 11  # K
-COL_TOTALE_WAITING = 12  # L
-COL_TOTALE_LAVORAZIONE = 13  # M
-COL_REWORK_TIME = 14  # N
-COL_FIX_TIME = 15  # O
-COL_PERCENT_STIMATO_LAVORATO = 16  # P
-COL_CARD_END = 15  # A–O: dati card (merge verticali per Title)
-COL_GIORNI = 17  # Q
-COL_TOTALE_ORE = 18  # R
-COL_TIMEOUT = 19  # S
-COL_TAG = 20  # T
-COL_ORE = 21  # U
-COL_DELTA_ORE = 22  # V
-COL_DELTA_GIORNI = 23  # W
-COL_LAST = 23
+COL_TOTALE_WAITING_HH = 12  # L
+COL_TOTALE_WAITING = 13  # M — GG
+COL_TOTALE_LAVORAZIONE_HH = 14  # N
+COL_TOTALE_LAVORAZIONE = 15  # O — GG
+COL_REWORK_TIME = 16  # P — ore (hh)
+COL_REWORK_TIME_GG = 17  # Q
+COL_FIX_TIME = 18  # R — ore (hh)
+COL_FIX_TIME_GG = 19  # S
+COL_PERCENT_STIMATO_LAVORATO = 20  # T
+COL_CARD_END = 19  # A–S: dati card (merge verticali per Title)
+COL_GIORNI = 21  # U
+COL_TOTALE_ORE = 22  # V
+COL_TIMEOUT = 23  # W
+COL_TAG = 24  # X
+COL_ORE = 25  # Y
+COL_DELTA_ORE = 26  # Z
+COL_DELTA_GIORNI = 27  # AA
+COL_LAST = 27
 PASTEL_RED_BORDER = Side(style="medium", color="E8A0A0")
 PASTEL_GREEN_FILL = PatternFill(fill_type="solid", fgColor="D9EAD3")
 PASTEL_RED_FILL = PatternFill(fill_type="solid", fgColor="FFEBEE")
@@ -885,10 +919,14 @@ def espandi_card_con_tag(card):
         ]
         if not tag_list:
             nuova = dict(nuova_base)
+            nuova[TOTALE_WAITING_HH_COL] = None
             nuova[TOTALE_WAITING_COL] = None
+            nuova[TOTALE_LAVORAZIONE_HH_COL] = None
             nuova[TOTALE_LAVORAZIONE_COL] = None
             nuova[REWORK_TIME_COL] = None
+            nuova[REWORK_TIME_GG_COL] = None
             nuova[FIX_TIME_COL] = None
+            nuova[FIX_TIME_GG_COL] = None
             nuova[PERCENT_STIMATO_LAVORATO_COL] = None
             nuova[GIORNI_COL] = None
             nuova[TOTALE_ORE_COL] = None
@@ -901,10 +939,14 @@ def espandi_card_con_tag(card):
             tag_next = tag_list[i + 1] if i + 1 < len(tag_list) else None
             is_ultimo_tag = tag_next is None
             nuova = dict(nuova_base)
+            nuova[TOTALE_WAITING_HH_COL] = None
             nuova[TOTALE_WAITING_COL] = None
+            nuova[TOTALE_LAVORAZIONE_HH_COL] = None
             nuova[TOTALE_LAVORAZIONE_COL] = None
             nuova[REWORK_TIME_COL] = None
+            nuova[REWORK_TIME_GG_COL] = None
             nuova[FIX_TIME_COL] = None
+            nuova[FIX_TIME_GG_COL] = None
             nuova[PERCENT_STIMATO_LAVORATO_COL] = None
             nuova[TOTALE_ORE_COL] = None
             if is_tag_timeout(tag):
@@ -938,10 +980,14 @@ def colonne_output():
         base.append(col)
     return base + [
         INIZIO_LAVORAZIONE_COL,
+        TOTALE_WAITING_HH_COL,
         TOTALE_WAITING_COL,
+        TOTALE_LAVORAZIONE_HH_COL,
         TOTALE_LAVORAZIONE_COL,
         REWORK_TIME_COL,
+        REWORK_TIME_GG_COL,
         FIX_TIME_COL,
+        FIX_TIME_GG_COL,
         PERCENT_STIMATO_LAVORATO_COL,
         GIORNI_COL,
         TOTALE_ORE_COL,
@@ -954,7 +1000,7 @@ def colonne_output():
 
 
 def somma_giorni_tag_gruppo(ws, start, end, matcher, data_oggi=None):
-    """Somma giornate lavorative per righe tag (col. T) che passano matcher."""
+    """Somma giornate lavorative per righe tag (col. TAG) che passano matcher."""
     if data_oggi is None:
         data_oggi = datetime.now().date()
     totale = 0.0
@@ -981,7 +1027,7 @@ def somma_giorni_tag_gruppo(ws, start, end, matcher, data_oggi=None):
 
 
 def somma_colonna_giorni_filtrata(ws, start, end, matcher):
-    """Somma colonna Q (Giorni) per righe il cui tag (col. T) passa matcher."""
+    """Somma colonna Giorni Lavorati per righe il cui tag (col. TAG) passa matcher."""
     totale = 0.0
     ha_valori = False
     for row in range(start, end + 1):
@@ -996,7 +1042,7 @@ def somma_colonna_giorni_filtrata(ws, start, end, matcher):
 
 
 def somma_colonna_ore_filtrata(ws, start, end, matcher):
-    """Somma colonna U (Ore) per righe il cui tag (col. T) passa matcher."""
+    """Somma colonna Ore per righe il cui tag (col. TAG) passa matcher."""
     totale = 0.0
     ha_valori = False
     for row in range(start, end + 1):
@@ -1011,7 +1057,7 @@ def somma_colonna_ore_filtrata(ws, start, end, matcher):
 
 
 def somma_colonna_ore_gruppo(ws, start, end):
-    """Somma colonna U (Ore) sulle righe lavorate del gruppo card (no # Waiting)."""
+    """Somma colonna Ore sulle righe lavorate del gruppo card (no # Waiting)."""
     totale = 0.0
     ha_valori = False
     for row in range(start, end + 1):
@@ -1094,10 +1140,20 @@ def applica_sfondo_ore_waiting_lungo(ws, start, end):
 def applica_totali_gruppo(ws, start, end):
     center = Alignment(horizontal="center", vertical="center")
 
+    tot_waiting_hh = somma_colonna_ore_filtrata(ws, start, end, is_tag_waiting)
+    cella_wait_hh = ws.cell(row=start, column=COL_TOTALE_WAITING_HH)
+    cella_wait_hh.value = tot_waiting_hh
+    cella_wait_hh.alignment = center
+
     tot_waiting = somma_giorni_tag_gruppo(ws, start, end, is_tag_waiting)
     cella_wait = ws.cell(row=start, column=COL_TOTALE_WAITING)
     cella_wait.value = tot_waiting
     cella_wait.alignment = center
+
+    tot_lavorazione_hh = somma_colonna_ore_filtrata(ws, start, end, is_tag_working)
+    cella_lav_hh = ws.cell(row=start, column=COL_TOTALE_LAVORAZIONE_HH)
+    cella_lav_hh.value = tot_lavorazione_hh
+    cella_lav_hh.alignment = center
 
     tot_lavorazione = somma_giorni_tag_gruppo(ws, start, end, is_tag_working)
     cella_lav = ws.cell(row=start, column=COL_TOTALE_LAVORAZIONE)
@@ -1109,10 +1165,20 @@ def applica_totali_gruppo(ws, start, end):
     cella_rework.value = tot_rework
     cella_rework.alignment = center
 
+    tot_rework_gg = somma_colonna_giorni_filtrata(ws, start, end, is_tag_rework)
+    cella_rework_gg = ws.cell(row=start, column=COL_REWORK_TIME_GG)
+    cella_rework_gg.value = tot_rework_gg
+    cella_rework_gg.alignment = center
+
     tot_fix = somma_colonna_ore_filtrata(ws, start, end, is_tag_fix)
     cella_fix = ws.cell(row=start, column=COL_FIX_TIME)
     cella_fix.value = tot_fix
     cella_fix.alignment = center
+
+    tot_fix_gg = somma_colonna_giorni_filtrata(ws, start, end, is_tag_fix)
+    cella_fix_gg = ws.cell(row=start, column=COL_FIX_TIME_GG)
+    cella_fix_gg.value = tot_fix_gg
+    cella_fix_gg.alignment = center
 
     tot_ore = somma_colonna_ore_gruppo(ws, start, end)
     cella_tot_ore = ws.cell(row=start, column=COL_TOTALE_ORE)
@@ -1407,7 +1473,7 @@ def crea_foglio_stat(wb, riepilogo):
 
 
 def allinea_colonna_tag_temporali(ws, max_row):
-    """Allinea a sinistra la colonna T (TAG Temporali)."""
+    """Allinea a sinistra la colonna TAG Temporali."""
     left = Alignment(horizontal="left", vertical="center", wrap_text=True)
     for row in range(1, max_row + 1):
         ws.cell(row=row, column=COL_TAG).alignment = left
@@ -1417,10 +1483,14 @@ def formatta_foglio_dati(ws):
     ws.cell(row=1, column=COL_GIORNATE_STIMATE).value = GIORNATE_STIMATE_COL
     ws.cell(row=1, column=COL_ORE_STIMATE).value = ORE_STIMATE_COL
     ws.cell(row=1, column=COL_INIZIO_LAVORAZIONE).value = INIZIO_LAVORAZIONE_COL
+    ws.cell(row=1, column=COL_TOTALE_WAITING_HH).value = TOTALE_WAITING_HH_COL
     ws.cell(row=1, column=COL_TOTALE_WAITING).value = TOTALE_WAITING_COL
+    ws.cell(row=1, column=COL_TOTALE_LAVORAZIONE_HH).value = TOTALE_LAVORAZIONE_HH_COL
     ws.cell(row=1, column=COL_TOTALE_LAVORAZIONE).value = TOTALE_LAVORAZIONE_COL
     ws.cell(row=1, column=COL_REWORK_TIME).value = REWORK_TIME_COL
+    ws.cell(row=1, column=COL_REWORK_TIME_GG).value = REWORK_TIME_GG_COL
     ws.cell(row=1, column=COL_FIX_TIME).value = FIX_TIME_COL
+    ws.cell(row=1, column=COL_FIX_TIME_GG).value = FIX_TIME_GG_COL
     ws.cell(row=1, column=COL_PERCENT_STIMATO_LAVORATO).value = PERCENT_STIMATO_LAVORATO_COL
     ws.cell(row=1, column=COL_GIORNI).value = GIORNI_COL
     ws.cell(row=1, column=COL_TOTALE_ORE).value = TOTALE_ORE_COL
