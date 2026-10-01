@@ -26,18 +26,18 @@ Output:
     N (Totale Working (hh)): somma ore (col. Y) per tag "# Working -" in col. X.
     O (Totale Working (gg)): formula =N/8. P–S Rework/Fix (hh da Ore, gg = formula hh/8).
     T (% Stimato / Lavorato (gg)): (Totale Lavorate (hh) / Ore Stimate) × 100; fasce colore.
-    U (Totale Lavorate (gg)): formula =V/8 (merge per card). V (Totale Lavorate (hh)): formula =N+P+R.
-    W (Timeout (gg)): giorni solari dal tag "# Timeout - <data>" a oggi; errori → 999999;
-        colori: ≤45 verde, 46–55 giallo, 56–60 rosso pastello, >60 rosso acceso.
+    U (Totale Lavorate (gg)): formula =W/8 (merge per card). V (Timeout (gg)): giorni solari dal tag "# Timeout - <data>" a oggi;
+        errori → 999999; colori: ≤45 verde, 46–55 giallo, 56–60 rosso pastello, >60 rosso acceso.
+    W (Totale Lavorate (hh)): formula =N+P+R.
     X (TAG Temporali): testo del tag per riga (# Timeout incluso, senza ore in col. X);
         sfondo rosso pastello se segnalato nel log.
     Y (Ore): ore per riga tag (# Waiting/Working/Fix/Rework);
         sfondo rosso pastello se ultimo tag temporale è # Waiting e ore ≥ 56.
-    Z (Delta ore): Ore Stimate (H) − Totale Lavorate (hh) (V), solo se Status è Acronimi Done.
+    Z (Delta ore): Ore Stimate (H) − Totale Lavorate (hh) (W), solo se Status è Acronimi Done.
     AA (Delta Giorni): Delta ore / 8, solo se Status è Acronimi Done.
     G (Giornate Stimate): valore numerico dal tag "# Estimate" in Description; sfondo grigio leggibile.
     H (Ore Stimate): Giornate Stimate (col. G) × 8; sfondo acqua marina pastello.
-    Colonna V (Totale Lavorate (hh)): sfondo acqua marina pastello.
+    Colonna W (Totale Lavorate (hh)): sfondo acqua marina pastello.
     Giornate lavorative (lun-ven); nei tag a due date inizio incluso, fine esclusa;
     se manca la 2ª data si usa oggi (incluso), eccetto tag Done.
 """
@@ -201,9 +201,9 @@ COL_FIX_TIME = 18  # R — ore (hh)
 COL_FIX_TIME_GG = 19  # S
 COL_PERCENT_STIMATO_LAVORATO = 20  # T
 COL_CARD_END = 19  # A–S: dati card (merge verticali per Title)
-COL_GIORNI = 21  # U
-COL_TOTALE_ORE = 22  # V
-COL_TIMEOUT = 23  # W
+COL_GIORNI = 21  # U — Totale Lavorate (gg)
+COL_TIMEOUT = 22  # V — Timeout (gg)
+COL_TOTALE_ORE = 23  # W — Totale Lavorate (hh)
 COL_TAG = 24  # X
 COL_ORE = 25  # Y
 COL_DELTA_ORE = 26  # Z
@@ -981,8 +981,8 @@ def colonne_output():
         FIX_TIME_GG_COL,
         PERCENT_STIMATO_LAVORATO_COL,
         TOTALE_LAVORATE_GG_COL,
-        TOTALE_LAVORATE_HH_COL,
         TIMEOUT_COL,
+        TOTALE_LAVORATE_HH_COL,
         TAG_TEMPORALI_COL,
         ORE_COL,
         DELTA_ORE_COL,
