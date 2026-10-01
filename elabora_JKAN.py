@@ -22,26 +22,22 @@ Output:
     A–S sono merge verticali per Title, con bordo rosso pastello per card.
     K (InizioLavorazione(gg)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
     L (Totale Waiting (hh)): somma ore (col. Y) per tag "# Waiting -" in col. X.
-    M (Totale Waiting (gg)): somma giornate tag "# Waiting -" in col. X.
-    N (Totale Lavorazione (hh)): somma ore (col. Y) per tag "# Working -" in col. X.
-    O (Totale Lavorazione (gg)): somma giornate tag "# Working -" in col. X.
-    P (Rework Time (hh)): somma ore (col. Y) per tag "# Rework" in col. X.
-    Q (Rework Time (gg)): somma Giorni Lavorati (col. U) per tag "# Rework" in col. X.
-    R (Fix Time (hh)): somma ore (col. Y) per tag "# Fix" in col. X.
-    S (Fix Time (gg)): somma Giorni Lavorati (col. U) per tag "# Fix" in col. X.
-    T (% Stimato / Lavorato (gg)): (Totale Ore Lavorate / Ore Stimate) × 100 con suffisso " %"; fasce colore.
-    U (Giorni Lavorati): giornate per riga tag. V (Totale Ore Lavorate): somma ore lavorate col. Y (no Waiting).
+    M (Totale Waiting (gg)): formula =L/8.
+    N (Totale Working (hh)): somma ore (col. Y) per tag "# Working -" in col. X.
+    O (Totale Working (gg)): formula =N/8. P–S Rework/Fix (hh da Ore, gg = formula hh/8).
+    T (% Stimato / Lavorato (gg)): (Totale Lavorate (hh) / Ore Stimate) × 100; fasce colore.
+    U (Totale Lavorate (gg)): formula =V/8 (merge per card). V (Totale Lavorate (hh)): formula =N+P+R.
     W (Timeout (gg)): giorni solari dal tag "# Timeout - <data>" a oggi; errori → 999999;
         colori: ≤45 verde, 46–55 giallo, 56–60 rosso pastello, >60 rosso acceso.
     X (TAG Temporali): testo del tag per riga (# Timeout incluso, senza ore in col. X);
         sfondo rosso pastello se segnalato nel log.
     Y (Ore): ore per riga tag (# Waiting/Working/Fix/Rework);
         sfondo rosso pastello se ultimo tag temporale è # Waiting e ore ≥ 56.
-    Z (Delta ore): Ore Stimate (H) − Totale Ore Lavorate (V), solo se Status è Acronimi Done.
+    Z (Delta ore): Ore Stimate (H) − Totale Lavorate (hh) (V), solo se Status è Acronimi Done.
     AA (Delta Giorni): Delta ore / 8, solo se Status è Acronimi Done.
     G (Giornate Stimate): valore numerico dal tag "# Estimate" in Description; sfondo grigio leggibile.
     H (Ore Stimate): Giornate Stimate (col. G) × 8; sfondo acqua marina pastello.
-    Colonne R (Totale Ore Lavorate): sfondo acqua marina pastello.
+    Colonna V (Totale Lavorate (hh)): sfondo acqua marina pastello.
     Giornate lavorative (lun-ven); nei tag a due date inizio incluso, fine esclusa;
     se manca la 2ª data si usa oggi (incluso), eccetto tag Done.
 """
@@ -60,6 +56,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Border, PatternFill, Side
+from openpyxl.utils import get_column_letter
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 VENV_DIR = os.path.join(SCRIPT_DIR, "venv")
@@ -129,8 +126,8 @@ PERCENT_STIMATO_LAVORATO_COL = "% Stimato / Lavorato (gg)"
 TIMEOUT_COL = "Timeout (gg)"
 TIMEOUT_VALORE_ERRATO = 999999
 ORE_WAITING_EVIDENZIA_MIN = 56
-GIORNI_COL = "Giorni Lavorati"
-TOTALE_ORE_COL = "Totale Ore Lavorate"
+TOTALE_LAVORATE_GG_COL = "Totale Lavorate (gg)"
+TOTALE_LAVORATE_HH_COL = "Totale Lavorate (hh)"
 ORE_COL = "Ore"
 TAG_TEMPORALI_COL = "TAG Temporali"
 DELTA_ORE_COL = "Delta ore"
@@ -138,8 +135,8 @@ DELTA_GIORNI_COL = "Delta Giorni"
 INIZIO_LAVORAZIONE_COL = "InizioLavorazione(gg)"
 TOTALE_WAITING_HH_COL = "Totale Waiting (hh)"
 TOTALE_WAITING_COL = "Totale Waiting (gg)"
-TOTALE_LAVORAZIONE_HH_COL = "Totale Lavorazione (hh)"
-TOTALE_LAVORAZIONE_COL = "Totale Lavorazione (gg)"
+TOTALE_WORKING_HH_COL = "Totale Working (hh)"
+TOTALE_WORKING_COL = "Totale Working (gg)"
 REWORK_TIME_COL = "Rework Time (hh)"
 REWORK_TIME_GG_COL = "Rework Time (gg)"
 OUTPUT_SHEET = "data-all"
@@ -196,8 +193,8 @@ COL_TAGS_ORIG = 10  # J
 COL_INIZIO_LAVORAZIONE = 11  # K
 COL_TOTALE_WAITING_HH = 12  # L
 COL_TOTALE_WAITING = 13  # M — GG
-COL_TOTALE_LAVORAZIONE_HH = 14  # N
-COL_TOTALE_LAVORAZIONE = 15  # O — GG
+COL_TOTALE_WORKING_HH = 14  # N
+COL_TOTALE_WORKING = 15  # O — gg (formula)
 COL_REWORK_TIME = 16  # P — ore (hh)
 COL_REWORK_TIME_GG = 17  # Q
 COL_FIX_TIME = 18  # R — ore (hh)
@@ -921,15 +918,15 @@ def espandi_card_con_tag(card):
             nuova = dict(nuova_base)
             nuova[TOTALE_WAITING_HH_COL] = None
             nuova[TOTALE_WAITING_COL] = None
-            nuova[TOTALE_LAVORAZIONE_HH_COL] = None
-            nuova[TOTALE_LAVORAZIONE_COL] = None
+            nuova[TOTALE_WORKING_HH_COL] = None
+            nuova[TOTALE_WORKING_COL] = None
             nuova[REWORK_TIME_COL] = None
             nuova[REWORK_TIME_GG_COL] = None
             nuova[FIX_TIME_COL] = None
             nuova[FIX_TIME_GG_COL] = None
             nuova[PERCENT_STIMATO_LAVORATO_COL] = None
-            nuova[GIORNI_COL] = None
-            nuova[TOTALE_ORE_COL] = None
+            nuova[TOTALE_LAVORATE_GG_COL] = None
+            nuova[TOTALE_LAVORATE_HH_COL] = None
             nuova[ORE_COL] = None
             nuova[TAG_TEMPORALI_COL] = ""
             righe.append(nuova)
@@ -941,24 +938,18 @@ def espandi_card_con_tag(card):
             nuova = dict(nuova_base)
             nuova[TOTALE_WAITING_HH_COL] = None
             nuova[TOTALE_WAITING_COL] = None
-            nuova[TOTALE_LAVORAZIONE_HH_COL] = None
-            nuova[TOTALE_LAVORAZIONE_COL] = None
+            nuova[TOTALE_WORKING_HH_COL] = None
+            nuova[TOTALE_WORKING_COL] = None
             nuova[REWORK_TIME_COL] = None
             nuova[REWORK_TIME_GG_COL] = None
             nuova[FIX_TIME_COL] = None
             nuova[FIX_TIME_GG_COL] = None
             nuova[PERCENT_STIMATO_LAVORATO_COL] = None
-            nuova[TOTALE_ORE_COL] = None
+            nuova[TOTALE_LAVORATE_GG_COL] = None
+            nuova[TOTALE_LAVORATE_HH_COL] = None
             if is_tag_timeout(tag):
-                nuova[GIORNI_COL] = None
                 nuova[ORE_COL] = None
             else:
-                nuova[GIORNI_COL] = giorni_da_tag_temporale(
-                    tag,
-                    tag_next,
-                    title=record.get("Title"),
-                    is_ultimo_tag=is_ultimo_tag,
-                )
                 nuova[ORE_COL] = ore_da_tag_temporale(
                     tag,
                     title=record.get("Title"),
@@ -982,15 +973,15 @@ def colonne_output():
         INIZIO_LAVORAZIONE_COL,
         TOTALE_WAITING_HH_COL,
         TOTALE_WAITING_COL,
-        TOTALE_LAVORAZIONE_HH_COL,
-        TOTALE_LAVORAZIONE_COL,
+        TOTALE_WORKING_HH_COL,
+        TOTALE_WORKING_COL,
         REWORK_TIME_COL,
         REWORK_TIME_GG_COL,
         FIX_TIME_COL,
         FIX_TIME_GG_COL,
         PERCENT_STIMATO_LAVORATO_COL,
-        GIORNI_COL,
-        TOTALE_ORE_COL,
+        TOTALE_LAVORATE_GG_COL,
+        TOTALE_LAVORATE_HH_COL,
         TIMEOUT_COL,
         TAG_TEMPORALI_COL,
         ORE_COL,
@@ -1104,6 +1095,46 @@ def applica_sfondo_acqua_marina(cella):
     cella.fill = PASTEL_AQUA_MARINE_FILL
 
 
+def rif_cella_excel(col, row):
+    """Riferimento cella in notazione A1."""
+    return f"{get_column_letter(col)}{row}"
+
+
+def formula_hh_div_8(col_hh, row):
+    return f"={rif_cella_excel(col_hh, row)}/8"
+
+
+def formula_somma_colonne(row, colonne):
+    return "=" + "+".join(rif_cella_excel(col, row) for col in colonne)
+
+
+def gg_da_hh(valore_hh):
+    if valore_hh is None:
+        return None
+    return valore_hh / 8
+
+
+def totale_lavorate_hh_da_valori(working_hh, rework_hh, fix_hh):
+    parti = [v for v in (working_hh, rework_hh, fix_hh) if v is not None]
+    if not parti:
+        return None
+    return sum(parti)
+
+
+def totale_lavorate_hh_da_riga(ws, row):
+    working = parse_numero(ws.cell(row=row, column=COL_TOTALE_WORKING_HH).value)
+    rework = parse_numero(ws.cell(row=row, column=COL_REWORK_TIME).value)
+    fix = parse_numero(ws.cell(row=row, column=COL_FIX_TIME).value)
+    return totale_lavorate_hh_da_valori(working, rework, fix)
+
+
+def imposta_formula_centrata(ws, row, col, formula):
+    cella = ws.cell(row=row, column=col)
+    cella.value = formula
+    cella.alignment = Alignment(horizontal="center", vertical="center")
+    return cella
+
+
 def is_status_acronimi_done(status):
     """True se lo Status MIRO indica Acronimi Done."""
     return classifica_colonna_kanban(status) == "Acronimi done"
@@ -1114,7 +1145,7 @@ def applica_delta_gruppo(ws, start, end):
     if not is_status_acronimi_done(ws.cell(row=start, column=COL_STATUS).value):
         return
     ore_stimate = parse_numero(ws.cell(row=start, column=COL_ORE_STIMATE).value)
-    tot_ore = parse_numero(ws.cell(row=start, column=COL_TOTALE_ORE).value)
+    tot_ore = totale_lavorate_hh_da_riga(ws, start)
     if ore_stimate is None or tot_ore is None:
         return
     center = Alignment(horizontal="center", vertical="center")
@@ -1145,47 +1176,81 @@ def applica_totali_gruppo(ws, start, end):
     cella_wait_hh.value = tot_waiting_hh
     cella_wait_hh.alignment = center
 
-    tot_waiting = somma_giorni_tag_gruppo(ws, start, end, is_tag_waiting)
-    cella_wait = ws.cell(row=start, column=COL_TOTALE_WAITING)
-    cella_wait.value = tot_waiting
-    cella_wait.alignment = center
+    if tot_waiting_hh is not None:
+        imposta_formula_centrata(
+            ws,
+            start,
+            COL_TOTALE_WAITING,
+            formula_hh_div_8(COL_TOTALE_WAITING_HH, start),
+        )
+    else:
+        ws.cell(row=start, column=COL_TOTALE_WAITING).value = None
 
-    tot_lavorazione_hh = somma_colonna_ore_filtrata(ws, start, end, is_tag_working)
-    cella_lav_hh = ws.cell(row=start, column=COL_TOTALE_LAVORAZIONE_HH)
-    cella_lav_hh.value = tot_lavorazione_hh
+    tot_working_hh = somma_colonna_ore_filtrata(ws, start, end, is_tag_working)
+    cella_lav_hh = ws.cell(row=start, column=COL_TOTALE_WORKING_HH)
+    cella_lav_hh.value = tot_working_hh
     cella_lav_hh.alignment = center
-
-    tot_lavorazione = somma_giorni_tag_gruppo(ws, start, end, is_tag_working)
-    cella_lav = ws.cell(row=start, column=COL_TOTALE_LAVORAZIONE)
-    cella_lav.value = tot_lavorazione
-    cella_lav.alignment = center
+    if tot_working_hh is not None:
+        imposta_formula_centrata(
+            ws,
+            start,
+            COL_TOTALE_WORKING,
+            formula_hh_div_8(COL_TOTALE_WORKING_HH, start),
+        )
+    else:
+        ws.cell(row=start, column=COL_TOTALE_WORKING).value = None
 
     tot_rework = somma_colonna_ore_filtrata(ws, start, end, is_tag_rework)
     cella_rework = ws.cell(row=start, column=COL_REWORK_TIME)
     cella_rework.value = tot_rework
     cella_rework.alignment = center
-
-    tot_rework_gg = somma_colonna_giorni_filtrata(ws, start, end, is_tag_rework)
-    cella_rework_gg = ws.cell(row=start, column=COL_REWORK_TIME_GG)
-    cella_rework_gg.value = tot_rework_gg
-    cella_rework_gg.alignment = center
+    if tot_rework is not None:
+        imposta_formula_centrata(
+            ws,
+            start,
+            COL_REWORK_TIME_GG,
+            formula_hh_div_8(COL_REWORK_TIME, start),
+        )
+    else:
+        ws.cell(row=start, column=COL_REWORK_TIME_GG).value = None
 
     tot_fix = somma_colonna_ore_filtrata(ws, start, end, is_tag_fix)
     cella_fix = ws.cell(row=start, column=COL_FIX_TIME)
     cella_fix.value = tot_fix
     cella_fix.alignment = center
+    if tot_fix is not None:
+        imposta_formula_centrata(
+            ws,
+            start,
+            COL_FIX_TIME_GG,
+            formula_hh_div_8(COL_FIX_TIME, start),
+        )
+    else:
+        ws.cell(row=start, column=COL_FIX_TIME_GG).value = None
 
-    tot_fix_gg = somma_colonna_giorni_filtrata(ws, start, end, is_tag_fix)
-    cella_fix_gg = ws.cell(row=start, column=COL_FIX_TIME_GG)
-    cella_fix_gg.value = tot_fix_gg
-    cella_fix_gg.alignment = center
-
-    tot_ore = somma_colonna_ore_gruppo(ws, start, end)
-    cella_tot_ore = ws.cell(row=start, column=COL_TOTALE_ORE)
-    cella_tot_ore.value = tot_ore
-    cella_tot_ore.alignment = center
-    if tot_ore is not None:
+    tot_lavorate_hh = totale_lavorate_hh_da_valori(
+        tot_working_hh, tot_rework, tot_fix
+    )
+    if tot_lavorate_hh is not None:
+        cella_tot_ore = imposta_formula_centrata(
+            ws,
+            start,
+            COL_TOTALE_ORE,
+            formula_somma_colonne(
+                start,
+                (COL_TOTALE_WORKING_HH, COL_REWORK_TIME, COL_FIX_TIME),
+            ),
+        )
         applica_sfondo_acqua_marina(cella_tot_ore)
+        imposta_formula_centrata(
+            ws,
+            start,
+            COL_GIORNI,
+            formula_hh_div_8(COL_TOTALE_ORE, start),
+        )
+    else:
+        ws.cell(row=start, column=COL_TOTALE_ORE).value = None
+        ws.cell(row=start, column=COL_GIORNI).value = None
 
     giornate_stimate = parse_numero(ws.cell(row=start, column=COL_GIORNATE_STIMATE).value)
     ore_stimate = ore_stimate_da_estimate(giornate_stimate)
@@ -1195,7 +1260,7 @@ def applica_totali_gruppo(ws, start, end):
     if ore_stimate is not None:
         applica_sfondo_acqua_marina(cella_ore_stimate)
 
-    percentuale_ore = percentuale_su_estimate(ore_stimate, tot_ore)
+    percentuale_ore = percentuale_su_estimate(ore_stimate, tot_lavorate_hh)
     cella_percent = ws.cell(row=start, column=COL_PERCENT_STIMATO_LAVORATO)
     applica_colore_percentuale(cella_percent, percentuale_ore)
     cella_percent.value = formatta_percentuale_stimato_lavorato(percentuale_ore)
@@ -1288,6 +1353,14 @@ def formatta_foglio_card(ws):
                     merged.alignment = middle
             ws.merge_cells(
                 start_row=start,
+                start_column=COL_GIORNI,
+                end_row=end,
+                end_column=COL_GIORNI,
+            )
+            merged_tot_gg = ws.cell(row=start, column=COL_GIORNI)
+            merged_tot_gg.alignment = center
+            ws.merge_cells(
+                start_row=start,
                 start_column=COL_TOTALE_ORE,
                 end_row=end,
                 end_column=COL_TOTALE_ORE,
@@ -1346,8 +1419,10 @@ def riepilogo_da_gruppi(ws, gruppi):
                 "estimate": parse_numero(
                     ws.cell(row=start, column=COL_GIORNATE_STIMATE).value
                 ),
-                "period_sum": parse_numero(
-                    ws.cell(row=start, column=COL_TOTALE_LAVORAZIONE).value
+                "period_sum": gg_da_hh(
+                    parse_numero(
+                        ws.cell(row=start, column=COL_TOTALE_WORKING_HH).value
+                    )
                 ),
             }
         )
@@ -1423,9 +1498,11 @@ def aggiungi_footer_data(ws, gruppi):
         giornate_stimate = parse_numero(
             ws.cell(row=start, column=COL_GIORNATE_STIMATE).value
         )
-        waiting = parse_numero(ws.cell(row=start, column=COL_TOTALE_WAITING).value)
-        lavorazione = parse_numero(
-            ws.cell(row=start, column=COL_TOTALE_LAVORAZIONE).value
+        waiting = gg_da_hh(
+            parse_numero(ws.cell(row=start, column=COL_TOTALE_WAITING_HH).value)
+        )
+        lavorazione = gg_da_hh(
+            parse_numero(ws.cell(row=start, column=COL_TOTALE_WORKING_HH).value)
         )
         if giornate_stimate is not None:
             tot_estimate += giornate_stimate
@@ -1446,8 +1523,8 @@ def aggiungi_footer_data(ws, gruppi):
         ws.cell(row=totals_row, column=COL_TOTALE_WAITING).value = tot_waiting
         ws.cell(row=totals_row, column=COL_TOTALE_WAITING).alignment = center
     if ha_lavorazione:
-        ws.cell(row=totals_row, column=COL_TOTALE_LAVORAZIONE).value = tot_lavorazione
-        ws.cell(row=totals_row, column=COL_TOTALE_LAVORAZIONE).alignment = center
+        ws.cell(row=totals_row, column=COL_TOTALE_WORKING).value = tot_lavorazione
+        ws.cell(row=totals_row, column=COL_TOTALE_WORKING).alignment = center
 
     ws.cell(row=ts_row, column=1).value = datetime.now().strftime(
         "%d/%m/%Y %H:%M:%S"
@@ -1485,15 +1562,15 @@ def formatta_foglio_dati(ws):
     ws.cell(row=1, column=COL_INIZIO_LAVORAZIONE).value = INIZIO_LAVORAZIONE_COL
     ws.cell(row=1, column=COL_TOTALE_WAITING_HH).value = TOTALE_WAITING_HH_COL
     ws.cell(row=1, column=COL_TOTALE_WAITING).value = TOTALE_WAITING_COL
-    ws.cell(row=1, column=COL_TOTALE_LAVORAZIONE_HH).value = TOTALE_LAVORAZIONE_HH_COL
-    ws.cell(row=1, column=COL_TOTALE_LAVORAZIONE).value = TOTALE_LAVORAZIONE_COL
+    ws.cell(row=1, column=COL_TOTALE_WORKING_HH).value = TOTALE_WORKING_HH_COL
+    ws.cell(row=1, column=COL_TOTALE_WORKING).value = TOTALE_WORKING_COL
     ws.cell(row=1, column=COL_REWORK_TIME).value = REWORK_TIME_COL
     ws.cell(row=1, column=COL_REWORK_TIME_GG).value = REWORK_TIME_GG_COL
     ws.cell(row=1, column=COL_FIX_TIME).value = FIX_TIME_COL
     ws.cell(row=1, column=COL_FIX_TIME_GG).value = FIX_TIME_GG_COL
     ws.cell(row=1, column=COL_PERCENT_STIMATO_LAVORATO).value = PERCENT_STIMATO_LAVORATO_COL
-    ws.cell(row=1, column=COL_GIORNI).value = GIORNI_COL
-    ws.cell(row=1, column=COL_TOTALE_ORE).value = TOTALE_ORE_COL
+    ws.cell(row=1, column=COL_GIORNI).value = TOTALE_LAVORATE_GG_COL
+    ws.cell(row=1, column=COL_TOTALE_ORE).value = TOTALE_LAVORATE_HH_COL
     ws.cell(row=1, column=COL_TIMEOUT).value = TIMEOUT_COL
     ws.cell(row=1, column=COL_TAG).value = TAG_TEMPORALI_COL
     ws.cell(row=1, column=COL_ORE).value = ORE_COL

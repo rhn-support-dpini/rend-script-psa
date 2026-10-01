@@ -25,16 +25,16 @@ Fogli: `data-all` (principale, tutte le card), `data-export` (export ridotto), `
 | A–I | campi card CSV | merge verticali per Title |
 | J | InizioLavorazione(gg) | giornate lavorative (lun-ven) dal tag `# Inizio Attivita' - <data>` a oggi |
 | L | Totale Waiting (hh) | somma col. Y (Ore) per tag `# Waiting -` in col. X |
-| M | Totale Waiting (gg) | somma giornate `# Waiting -` (ricavo da tag in col. X) |
-| N | Totale Lavorazione (hh) | somma col. Y (Ore) per tag `# Working -` |
-| O | Totale Lavorazione (gg) | somma giornate `# Working -` |
+| M | Totale Waiting (gg) | formula `=L/8` |
+| N | Totale Working (hh) | somma col. Y (Ore) per tag `# Working -` |
+| O | Totale Working (gg) | formula `=N/8` |
 | P | Rework Time (hh) | somma col. Y (Ore) per tag `# Rework` |
-| Q | Rework Time (gg) | somma col. U (Giorni Lavorati) per tag `# Rework` |
+| Q | Rework Time (gg) | formula `=P/8` |
 | R | Fix Time (hh) | somma col. Y (Ore) per tag `# Fix` |
-| S | Fix Time (gg) | somma col. U (Giorni Lavorati) per tag `# Fix` |
-| T | % Stimato / Lavorato (gg) | (Totale Ore Lavorate / Ore Stimate) × 100 |
-| U | Giorni Lavorati | giornate per riga tag |
-| V | Totale Ore Lavorate | somma col. Y lavorate (no Waiting) |
+| S | Fix Time (gg) | formula `=R/8` |
+| T | % Stimato / Lavorato (gg) | (Totale Lavorate (hh) / Ore Stimate) × 100 |
+| U | Totale Lavorate (gg) | formula `=V/8` (merge card) |
+| V | Totale Lavorate (hh) | formula `=N+P+R` |
 | W | Timeout (gg) | giornate da oggi al tag `# Timeout -` |
 | X | TAG Temporali | testo del tag `#` della riga |
 | Y | Ore | ore per riga tag; rosso pastello se ultimo tag è # Waiting e ore ≥ 56 |
@@ -62,8 +62,8 @@ Colonna G (Giornate Stimate): valore dal tag `# Estimate` in Description, non da
 
 - `# Estimate` — escluso dall'espansione righe; valorizza solo col. G
 - `# Inizio Attivita' - <data>` — valorizza col. J
-- `# Waiting -` / `# Working -` — (hh) da somma Ore (Y); (gg) da somma giornate sui tag
-- `# Rework` / `# Fix` — (hh) da col. Y; (gg) da col. U (Giorni Lavorati)
+- `# Waiting -` / `# Working -` / `# Rework` / `# Fix` — (hh) da somma Ore (Y); (gg) formula `=hh/8`
+- Totale Lavorate (hh) = N+P+R; Totale Lavorate (gg) = `=V/8`
 - Tag con due date e opzionale `+Nh` — col. Y Ore; Totale Ore Lavorate = somma Y lavorate (no Waiting). Senza data fine (`- -`) solo sull'**ultimo** tag temporale della card.
 
 Date supportate: `dd/mm/yyyy`, `dd/mm/yy`, `yyyy-mm-dd`.
