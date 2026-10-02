@@ -22,9 +22,11 @@ Fogli: `data-all` (principale, tutte le card), `data-export` (export ridotto), `
 
 | Col | Titolo | Logica |
 |-----|--------|--------|
-| A–I | campi card CSV | merge verticali per Title |
+| A | Title | merge verticali per Title |
+| B–I | Status … Tags (no Description) | merge verticali per Title |
+| AA | Description | ultima colonna; merge verticali per Title |
 | J | InizioLavorazione(gg) | giornate lavorative (lun-ven) dal tag `# Inizio Attivita' - <data>` a oggi |
-| L | Totale Waiting (hh) | somma col. Y (Ore) per tag `# Waiting -` in col. X |
+| K | Totale Waiting (hh) | somma col. Ore per tag `# Waiting -` in TAG Temporali |
 | M | Totale Waiting (gg) | formula `=L/8` |
 | N | Totale Working (hh) | somma col. Y (Ore) per tag `# Working -` |
 | O | Totale Working (gg) | formula `=N/8` |
@@ -36,11 +38,11 @@ Fogli: `data-all` (principale, tutte le card), `data-export` (export ridotto), `
 | U | Totale Lavorate (gg) | formula `=W/8` (merge card) |
 | V | Timeout (gg) | giornate da oggi al tag `# Timeout -` |
 | W | Totale Lavorate (hh) | formula `=N+P+R` |
-| X | TAG Temporali | testo del tag `#` della riga |
-| Y | Ore | ore per riga tag; rosso pastello se ultimo tag è # Waiting e ore ≥ 56 |
-| Z–AA | Delta ore / Delta Giorni | solo Status Acronimi Done |
+| W | TAG Temporali | testo del tag `#` della riga; giallo pastello per `# Nota - <data> -` |
+| X | Ore | ore per riga tag; rosso pastello se ultimo tag è # Waiting e ore ≥ 56 |
+| Y–Z | Delta ore / Delta Giorni | solo Status Acronimi Done |
 
-Righe `#` in Description → sotto-righe col. X; totali hh/gg in `applica_totali_gruppo` per card (merge A–S, bordo rosso pastello).
+Righe `#` in Description → sotto-righe col. TAG Temporali; totali hh/gg in `applica_totali_gruppo` per card (merge A–R + AA, bordo rosso pastello).
 
 Foglio `data-all`: righe card ordinate per Status (Acronimi Done → Fab. Test in progress → in progress → Waiting for fab. → Backlog → POC → Abandoned; altri in coda), alfabetico per prima riga Title nel gruppo.
 
@@ -61,6 +63,7 @@ Colonna G (Giornate Stimate): valore dal tag `# Estimate` in Description, non da
 ## Tag temporali (prefissi esatti)
 
 - `# Estimate` — escluso dall'espansione righe; valorizza solo col. G
+- `# Nota - <data> -` — riga in TAG Temporali; sfondo giallo pastello; nessuna Ore
 - `# Inizio Attivita' - <data>` — valorizza col. J
 - `# Waiting -` / `# Working -` / `# Rework` / `# Fix` — (hh) da somma Ore (Y); (gg) formula `=hh/8`
 - Totale Lavorate (hh) = N+P+R (col. W); Totale Lavorate (gg) = `=W/8`

@@ -18,8 +18,8 @@ Output:
     Fogli: data-all (tutte le card), data-export (export ridotto), time-Waiting, stat.
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
     <input>.html — report Scrum/Kanban (stesso percorso del .xlsx prodotto).
-    Le righe Description con prefisso "#" generano sotto-righe da colonna T (TAG Temporali);
-    A–S sono merge verticali per Title, con bordo rosso pastello per card.
+    Le righe Description con prefisso "#" generano sotto-righe da colonna W (TAG Temporali);
+    A–R (+ Description in AA) sono merge verticali per Title, con bordo rosso pastello per card.
     K (InizioLavorazione(gg)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
     L (Totale Waiting (hh)): somma ore (col. Y) per tag "# Waiting -" in col. X.
     M (Totale Waiting (gg)): formula =L/8.
@@ -29,8 +29,8 @@ Output:
     U (Totale Lavorate (gg)): formula =W/8 (merge per card). V (Timeout (gg)): giorni solari dal tag "# Timeout - <data>" a oggi;
         errori → 999999; colori: ≤45 verde, 46–55 giallo, 56–60 rosso pastello, >60 rosso acceso.
     W (Totale Lavorate (hh)): formula =N+P+R.
-    X (TAG Temporali): testo del tag per riga (# Timeout incluso, senza ore in col. X);
-        sfondo rosso pastello se segnalato nel log.
+    W (TAG Temporali): testo del tag per riga (# Timeout e # Nota inclusi, senza ore in col. Ore);
+        sfondo giallo pastello per tag '# Nota - <data> -'; rosso pastello se segnalato nel log.
     Y (Ore): ore per riga tag (# Waiting/Working/Fix/Rework);
         sfondo rosso pastello se ultimo tag temporale è # Waiting e ore ≥ 56.
     Z (Delta ore): Ore Stimate (H) − Totale Lavorate (hh) (W), solo se Status è Acronimi Done.
@@ -164,10 +164,11 @@ STATUS_ESCLUSI_EXPORT = frozenset(
 )
 STAT_SHEET = "stat"
 CENTER_COLS = {
+    2,
     3,
-    4,
+    6,
     7,
-    8,
+    9,
     10,
     11,
     12,
@@ -181,33 +182,33 @@ CENTER_COLS = {
     20,
     21,
     22,
-    23,
+    24,
     25,
     26,
-    27,
 }
-COL_STATUS = 3  # C — Status MIRO
-COL_GIORNATE_STIMATE = 7  # G — giorni da tag # Estimate
-COL_ORE_STIMATE = 8  # H — Giornate Stimate × 8
-COL_TAGS_ORIG = 10  # J
-COL_INIZIO_LAVORAZIONE = 11  # K
-COL_TOTALE_WAITING_HH = 12  # L
-COL_TOTALE_WAITING = 13  # M — GG
-COL_TOTALE_WORKING_HH = 14  # N
-COL_TOTALE_WORKING = 15  # O — gg (formula)
-COL_REWORK_TIME = 16  # P — ore (hh)
-COL_REWORK_TIME_GG = 17  # Q
-COL_FIX_TIME = 18  # R — ore (hh)
-COL_FIX_TIME_GG = 19  # S
-COL_PERCENT_STIMATO_LAVORATO = 20  # T
-COL_CARD_END = 19  # A–S: dati card (merge verticali per Title)
-COL_GIORNI = 21  # U — Totale Lavorate (gg)
-COL_TIMEOUT = 22  # V — Timeout (gg)
-COL_TOTALE_ORE = 23  # W — Totale Lavorate (hh)
-COL_TAG = 24  # X
-COL_ORE = 25  # Y
-COL_DELTA_ORE = 26  # Z
-COL_DELTA_GIORNI = 27  # AA
+COL_STATUS = 2  # B — Status MIRO
+COL_GIORNATE_STIMATE = 6  # F — giorni da tag # Estimate
+COL_ORE_STIMATE = 7  # G — Giornate Stimate × 8
+COL_TAGS_ORIG = 9  # I
+COL_INIZIO_LAVORAZIONE = 10  # J
+COL_TOTALE_WAITING_HH = 11  # K
+COL_TOTALE_WAITING = 12  # L — GG
+COL_TOTALE_WORKING_HH = 13  # M
+COL_TOTALE_WORKING = 14  # N — gg (formula)
+COL_REWORK_TIME = 15  # O — ore (hh)
+COL_REWORK_TIME_GG = 16  # P
+COL_FIX_TIME = 17  # Q — ore (hh)
+COL_FIX_TIME_GG = 18  # R
+COL_PERCENT_STIMATO_LAVORATO = 19  # S
+COL_CARD_END = 18  # A–R: dati card (merge verticali per Title; Description in fondo)
+COL_GIORNI = 20  # T — Totale Lavorate (gg)
+COL_TIMEOUT = 21  # U — Timeout (gg)
+COL_TOTALE_ORE = 22  # V — Totale Lavorate (hh)
+COL_TAG = 23  # W — TAG Temporali
+COL_ORE = 24  # X — Ore
+COL_DELTA_ORE = 25  # Y
+COL_DELTA_GIORNI = 26  # Z
+COL_DESCRIPTION = 27  # AA — Description (ultima colonna)
 COL_LAST = 27
 PASTEL_RED_BORDER = Side(style="medium", color="E8A0A0")
 PASTEL_GREEN_FILL = PatternFill(fill_type="solid", fgColor="D9EAD3")
@@ -271,6 +272,11 @@ TAG_DUE_DATE_STRUCTURE_RE = re.compile(
     re.IGNORECASE,
 )
 TAG_ORE_DATE = r"\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2}"
+NOTA_TAG_RE = re.compile(
+    r"^#\s*Nota\s*-\s*"
+    rf"(?P<data1>{TAG_ORE_DATE})\s*-\s*",
+    re.IGNORECASE,
+)
 TAG_ORE_STRUCTURE_RE = re.compile(
     r"^#\s*(?P<tag>Waiting|Working|Fix|Rework)\s*-\s*"
     rf"(?P<data1>{TAG_ORE_DATE})\s*-\s*"
@@ -425,6 +431,12 @@ def is_tag_timeout(tag):
     if not tag:
         return False
     return bool(TIMEOUT_TAG_RE.match(str(tag).strip()))
+
+
+def is_tag_nota(tag):
+    if not tag:
+        return False
+    return bool(NOTA_TAG_RE.match(str(tag).strip()))
 
 
 def estrai_tag_timeout(description):
@@ -947,7 +959,7 @@ def espandi_card_con_tag(card):
             nuova[PERCENT_STIMATO_LAVORATO_COL] = None
             nuova[TOTALE_LAVORATE_GG_COL] = None
             nuova[TOTALE_LAVORATE_HH_COL] = None
-            if is_tag_timeout(tag):
+            if is_tag_timeout(tag) or is_tag_nota(tag):
                 nuova[ORE_COL] = None
             else:
                 nuova[ORE_COL] = ore_da_tag_temporale(
@@ -964,6 +976,8 @@ def espandi_card_con_tag(card):
 def colonne_output():
     base = []
     for col in KANBAN_COLUMNS:
+        if col == "Description":
+            continue
         if col == "Estimate":
             base.append(GIORNATE_STIMATE_COL)
             base.append(ORE_STIMATE_COL)
@@ -987,6 +1001,7 @@ def colonne_output():
         ORE_COL,
         DELTA_ORE_COL,
         DELTA_GIORNI_COL,
+        "Description",
     ]
 
 
@@ -1320,6 +1335,14 @@ def applica_sfondo_tag_sintassi_errata(ws, max_row):
             ws.cell(row=row, column=COL_TAG).fill = PASTEL_RED_FILL
 
 
+def applica_sfondo_tag_nota(ws, max_row):
+    """Sfondo giallo pastello su TAG Temporali per tag '# Nota - <data> -'."""
+    for row in range(2, max_row + 1):
+        tag = ws.cell(row=row, column=COL_TAG).value
+        if tag and is_tag_nota(tag) and not is_tag_sintassi_errata(tag):
+            ws.cell(row=row, column=COL_TAG).fill = PASTEL_YELLOW_FILL
+
+
 def formatta_foglio_card(ws):
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
     middle = Alignment(vertical="center", wrap_text=True)
@@ -1399,12 +1422,21 @@ def formatta_foglio_card(ws):
             )
             merged_delta_giorni = ws.cell(row=start, column=COL_DELTA_GIORNI)
             merged_delta_giorni.alignment = center
+            ws.merge_cells(
+                start_row=start,
+                start_column=COL_DESCRIPTION,
+                end_row=end,
+                end_column=COL_DESCRIPTION,
+            )
+            merged_description = ws.cell(row=start, column=COL_DESCRIPTION)
+            merged_description.alignment = middle
         applica_totali_gruppo(ws, start, end)
         applica_delta_gruppo(ws, start, end)
         applica_sfondo_ore_waiting_lungo(ws, start, end)
         applica_bordo_gruppo(ws, start, end, 1, COL_LAST, PASTEL_RED_BORDER)
 
     applica_sfondo_tag_sintassi_errata(ws, ws.max_row)
+    applica_sfondo_tag_nota(ws, ws.max_row)
 
     return gruppi
 
@@ -1415,7 +1447,7 @@ def riepilogo_da_gruppi(ws, gruppi):
         riepilogo.append(
             {
                 "title": normalizza_testo(ws.cell(row=start, column=1).value),
-                "status": normalizza_testo(ws.cell(row=start, column=3).value),
+                "status": normalizza_testo(ws.cell(row=start, column=COL_STATUS).value),
                 "estimate": parse_numero(
                     ws.cell(row=start, column=COL_GIORNATE_STIMATE).value
                 ),
