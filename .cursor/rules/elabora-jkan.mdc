@@ -66,6 +66,7 @@ Colonna G (Giornate Stimate): valore dal tag `# Estimate` in Description, non da
 - `# Nota - <data> -` — riga in TAG Temporali; sfondo giallo pastello; testo dopo la data in grassetto; nessuna Ore
 - `# Inizio Attivita' - <data>` — valorizza col. J
 - `# Waiting -` / `# Working -` / `# Rework` / `# Fix` — (hh) da somma Ore (Y); (gg) formula `=hh/8`
+- `# Waiting` **aperto** (senza data fine) — solo come **ultimo** tag temporale (i `# Nota` finali non contano); altrimenti Warning e TAG Temporali rosso pastello
 - Totale Lavorate (hh) = N+P+R (col. W); Totale Lavorate (gg) = `=W/8`
 - Tag con due date e opzionale `+Nh` — col. Y Ore; Totale Ore Lavorate = somma Y lavorate (no Waiting). Senza data fine (`- -`) solo sull'**ultimo** tag temporale della card.
 

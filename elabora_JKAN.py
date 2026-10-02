@@ -501,6 +501,45 @@ def is_tag_waiting(tag):
     return bool(WAITING_TAG_RE.match(str(tag).strip()))
 
 
+def is_waiting_aperto(tag):
+    """True se # Waiting - non ha data di fine (periodo ancora aperto)."""
+    if not is_tag_waiting(tag):
+        return False
+    parsed_ore = parse_tag_ore(tag)
+    if parsed_ore is not None:
+        return parsed_ore["data2"] is None
+    parsed_due = parse_tag_due_date(tag)
+    if parsed_due is not None:
+        return parsed_due["data2"] is None
+    return len(estrai_date_da_tag(tag)) == 1
+
+
+def is_ultimo_tag_temporale_per_waiting(tag_list, index):
+    """Ultimo tag rilevante per # Waiting aperto: i # Nota successivi non contano."""
+    for j in range(index + 1, len(tag_list)):
+        if not is_tag_nota(tag_list[j]):
+            return False
+    return True
+
+
+def valida_waiting_aperto_ultimo(tag, tag_list, index, title=None):
+    """
+    Un # Waiting aperto deve essere l'ultimo tag temporale della card (esclusi # Nota finali).
+    In caso contrario: Warning su log e cella TAG Temporali in rosso pastello.
+    """
+    if not is_waiting_aperto(tag):
+        return True
+    if is_ultimo_tag_temporale_per_waiting(tag_list, index):
+        return True
+    log_warning_tag_errato(
+        "tag # Waiting aperto ammesso solo come ultimo tag temporale della card "
+        "(eventuali # Nota finali non contano)",
+        tag,
+        title=title,
+    )
+    return False
+
+
 def is_tag_working(tag):
     if not tag:
         return False
@@ -962,6 +1001,9 @@ def espandi_card_con_tag(card):
             valida_struttura_tag_due_date(tag, title=record.get("Title"))
             tag_next = tag_list[i + 1] if i + 1 < len(tag_list) else None
             is_ultimo_tag = tag_next is None
+            valida_waiting_aperto_ultimo(
+                tag, tag_list, i, title=record.get("Title")
+            )
             nuova = dict(nuova_base)
             nuova[TOTALE_WAITING_HH_COL] = None
             nuova[TOTALE_WAITING_COL] = None
