@@ -1758,16 +1758,19 @@ def riga_waiting_riferimento(ws, start, end):
     return None
 
 
-def ore_waiting_riga_riferimento(ws, start, end):
-    """Valore col. Ore (X) sulla riga # Waiting di riferimento."""
+def stato_waiting_riga_riferimento(ws, start, end):
+    """Valore col. TAG Temporali (W in data-all) sulla riga # Waiting di riferimento."""
     row = riga_waiting_riferimento(ws, start, end)
     if row is None:
-        return None
-    return parse_numero(ws.cell(row=row, column=COL_ORE).value)
+        return ""
+    valore = ws.cell(row=row, column=COL_TAG).value
+    if valore is None:
+        return ""
+    return valore
 
 
 def righe_time_waiting(ws, gruppi):
-    """Nome card, ore totali Waiting e Ore riga riferimento; esclude Status Abandoned."""
+    """Nome card, ore totali Waiting e TAG Temporali riga riferimento; esclude Abandoned."""
     righe = []
     for start, end in gruppi:
         if is_status_abandoned(ws.cell(row=start, column=COL_STATUS).value):
@@ -1776,16 +1779,17 @@ def righe_time_waiting(ws, gruppi):
         if ore is None:
             continue
         nome = prima_riga_colonna(ws.cell(row=start, column=1).value) or ""
-        stato = ore_waiting_riga_riferimento(ws, start, end)
+        stato = stato_waiting_riga_riferimento(ws, start, end)
         righe.append({"nome": nome, "ore": ore, "stato": stato})
     righe.sort(key=lambda r: (-r["ore"], r["nome"].lower()))
     return righe
 
 
 def crea_foglio_time_waiting(wb, ws_data, gruppi):
-    """Foglio time-Waiting: nome, ore totali Waiting e Stato (Ore riga riferimento)."""
+    """Foglio time-Waiting: nome, ore totali Waiting e Stato (TAG Temporali col. W)."""
     ws = wb.create_sheet(TIME_WAITING_SHEET)
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left = Alignment(horizontal="left", vertical="center", wrap_text=True)
     ws.cell(row=1, column=1).value = "Nome"
     ws.cell(row=1, column=2).value = ORE_COL
     ws.cell(row=1, column=3).value = "Stato"
@@ -1798,7 +1802,7 @@ def crea_foglio_time_waiting(wb, ws_data, gruppi):
         ws.cell(row=idx, column=3).value = riga["stato"]
         ws.cell(row=idx, column=1).alignment = center
         ws.cell(row=idx, column=2).alignment = center
-        ws.cell(row=idx, column=3).alignment = center
+        ws.cell(row=idx, column=3).alignment = left
 
 
 def scrivi_excel(card, output_path):
