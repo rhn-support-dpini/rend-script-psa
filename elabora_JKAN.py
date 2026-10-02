@@ -32,7 +32,7 @@ Output:
     W (TAG Temporali): testo del tag per riga (# Timeout e # Nota inclusi, senza ore in col. Ore);
         sfondo giallo pastello per tag '# Nota - <data> -'; rosso pastello se segnalato nel log.
     Y (Ore): ore per riga tag (# Waiting/Working/Fix/Rework);
-        sfondo rosso pastello se ultimo tag temporale è # Waiting e ore ≥ 56.
+        sfondo rosso pastello se ultimo tag operativo è # Waiting e ore ≥ 56 (# Nota finali escluse).
     Z (Delta ore): Ore Stimate (H) − Totale Lavorate (hh) (W), solo se Status è Acronimi Done.
     AA (Delta Giorni): Delta ore / 8, solo se Status è Acronimi Done.
     G (Giornate Stimate): valore numerico dal tag "# Estimate" in Description; sfondo grigio leggibile.
@@ -528,6 +528,16 @@ def is_ultimo_tag_temporale_ignorando_note(tag_list, index):
         if not is_riga_tag_nota(tag_list[j]):
             return False
     return True
+
+
+def ultima_riga_tag_operativo(ws, start, end):
+    """Indice ultima riga tag del gruppo, escludendo # Nota finali."""
+    for row in range(end, start - 1, -1):
+        tag = ws.cell(row=row, column=COL_TAG).value
+        if is_riga_tag_nota(tag):
+            continue
+        return row
+    return None
 
 
 def valida_waiting_aperto_ultimo(tag, tag_list, index, title=None):
@@ -1216,6 +1226,10 @@ def imposta_formula_centrata(ws, row, col, formula):
     return cella
 
 
+def is_status_abandoned(status):
+    return normalizza_testo(status, compatta_spazi=True).lower() == "abandoned"
+
+
 def is_status_acronimi_done(status):
     """True se lo Status MIRO indica Acronimi Done."""
     return classifica_colonna_kanban(status) == "Acronimi done"
@@ -1240,13 +1254,16 @@ def applica_delta_gruppo(ws, start, end):
 
 
 def applica_sfondo_ore_waiting_lungo(ws, start, end):
-    """Sfondo rosso pastello su col. Ore se ultimo tag è # Waiting e ore ≥ soglia."""
-    tag = ws.cell(row=end, column=COL_TAG).value
+    """Sfondo rosso pastello su col. Ore se ultimo tag operativo è # Waiting e ore ≥ soglia."""
+    row = ultima_riga_tag_operativo(ws, start, end)
+    if row is None:
+        return
+    tag = ws.cell(row=row, column=COL_TAG).value
     if not is_tag_waiting(tag):
         return
-    ore = parse_numero(ws.cell(row=end, column=COL_ORE).value)
+    ore = parse_numero(ws.cell(row=row, column=COL_ORE).value)
     if ore is not None and ore >= ORE_WAITING_EVIDENZIA_MIN:
-        ws.cell(row=end, column=COL_ORE).fill = PASTEL_RED_FILL
+        ws.cell(row=row, column=COL_ORE).fill = PASTEL_RED_FILL
 
 
 def applica_totali_gruppo(ws, start, end):
@@ -1725,35 +1742,48 @@ def ordina_righe_data_all(righe):
     return ordinate
 
 
-def tag_temporale_waiting_gruppo(ws, start, end):
-    """Testo col. TAG Temporali dell'ultimo tag # Waiting nel gruppo card."""
-    ultimo = None
-    for row in range(start, end + 1):
-        tag = ws.cell(row=row, column=COL_TAG).value
-        if not is_tag_waiting(tag):
-            continue
-        testo = normalizza_testo(tag)
-        if testo:
-            ultimo = testo
-    return ultimo or ""
+def riga_waiting_riferimento(ws, start, end):
+    """
+    Riga del tag # Waiting di riferimento: ultimo tag operativo se è Waiting,
+    altrimenti l'ultimo # Waiting del gruppo (stessa logica della colorazione Ore).
+    """
+    row_op = ultima_riga_tag_operativo(ws, start, end)
+    if row_op is not None and is_tag_waiting(
+        ws.cell(row=row_op, column=COL_TAG).value
+    ):
+        return row_op
+    for row in range(end, start - 1, -1):
+        if is_tag_waiting(ws.cell(row=row, column=COL_TAG).value):
+            return row
+    return None
+
+
+def ore_waiting_riga_riferimento(ws, start, end):
+    """Valore col. Ore (X) sulla riga # Waiting di riferimento."""
+    row = riga_waiting_riferimento(ws, start, end)
+    if row is None:
+        return None
+    return parse_numero(ws.cell(row=row, column=COL_ORE).value)
 
 
 def righe_time_waiting(ws, gruppi):
-    """Nome card, ore totali e ultimo tag # Waiting (TAG Temporali) per gruppo."""
+    """Nome card, ore totali Waiting e Ore riga riferimento; esclude Status Abandoned."""
     righe = []
     for start, end in gruppi:
+        if is_status_abandoned(ws.cell(row=start, column=COL_STATUS).value):
+            continue
         ore = somma_colonna_ore_filtrata(ws, start, end, is_tag_waiting)
         if ore is None:
             continue
         nome = prima_riga_colonna(ws.cell(row=start, column=1).value) or ""
-        stato = tag_temporale_waiting_gruppo(ws, start, end)
+        stato = ore_waiting_riga_riferimento(ws, start, end)
         righe.append({"nome": nome, "ore": ore, "stato": stato})
     righe.sort(key=lambda r: (-r["ore"], r["nome"].lower()))
     return righe
 
 
 def crea_foglio_time_waiting(wb, ws_data, gruppi):
-    """Foglio time-Waiting: nome, ore e Stato (TAG Temporali) per # Waiting."""
+    """Foglio time-Waiting: nome, ore totali Waiting e Stato (Ore riga riferimento)."""
     ws = wb.create_sheet(TIME_WAITING_SHEET)
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
     left = Alignment(horizontal="left", vertical="center", wrap_text=True)
@@ -1769,7 +1799,7 @@ def crea_foglio_time_waiting(wb, ws_data, gruppi):
         ws.cell(row=idx, column=3).value = riga["stato"]
         ws.cell(row=idx, column=1).alignment = center
         ws.cell(row=idx, column=2).alignment = center
-        ws.cell(row=idx, column=3).alignment = left
+        ws.cell(row=idx, column=3).alignment = center
 
 
 def scrivi_excel(card, output_path):

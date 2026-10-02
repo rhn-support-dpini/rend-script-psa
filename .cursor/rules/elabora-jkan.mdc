@@ -39,14 +39,14 @@ Fogli: `data-all` (principale, tutte le card), `data-export` (export ridotto), `
 | V | Timeout (gg) | giornate da oggi al tag `# Timeout -` |
 | W | Totale Lavorate (hh) | formula `=N+P+R` |
 | W | TAG Temporali | testo del tag `#` della riga; giallo pastello per `# Nota - <data> -` |
-| X | Ore | ore per riga tag; rosso pastello se ultimo tag è # Waiting e ore ≥ 56 |
+| X | Ore | ore per riga tag; rosso pastello se ultimo tag operativo (# Nota finali escluse) è # Waiting e ore ≥ 56 |
 | Y–Z | Delta ore / Delta Giorni | solo Status Acronimi Done |
 
 Righe `#` in Description → sotto-righe col. TAG Temporali; totali hh/gg in `applica_totali_gruppo` per card (merge A–R + AA, bordo rosso pastello).
 
 Foglio `data-all`: righe card ordinate per Status (Acronimi Done → Fab. Test in progress → in progress → Waiting for fab. → Backlog → POC → Abandoned; altri in coda), alfabetico per prima riga Title nel gruppo.
 
-Foglio `time-Waiting`: una riga per card con tag `# Waiting`; col. A = Nome, B = somma Ore sui tag Waiting, C = Stato (testo TAG Temporali dell’ultimo `# Waiting`); ordine decrescente per ore.
+Foglio `time-Waiting`: una riga per card con tag `# Waiting` e Status ≠ Abandoned; col. A = Nome, B = somma Ore sui tag Waiting, C = Stato (valore col. Ore sulla riga `# Waiting` di riferimento — ultimo operativo se Waiting, altrimenti ultimo Waiting); ordine decrescente per ore.
 
 Foglio `data-export`: una riga per card, colonne A (Title), B (Status), C (Start Date), D (End Date), E (Tags); esclusi Status legacy aggregati. Celle centrificate; bordo blu per riga.
 
