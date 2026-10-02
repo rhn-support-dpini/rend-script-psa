@@ -1725,33 +1725,51 @@ def ordina_righe_data_all(righe):
     return ordinate
 
 
+def tag_temporale_waiting_gruppo(ws, start, end):
+    """Testo col. TAG Temporali dell'ultimo tag # Waiting nel gruppo card."""
+    ultimo = None
+    for row in range(start, end + 1):
+        tag = ws.cell(row=row, column=COL_TAG).value
+        if not is_tag_waiting(tag):
+            continue
+        testo = normalizza_testo(tag)
+        if testo:
+            ultimo = testo
+    return ultimo or ""
+
+
 def righe_time_waiting(ws, gruppi):
-    """Nome card (prima riga Title) e ore totali da tag # Waiting per gruppo."""
+    """Nome card, ore totali e ultimo tag # Waiting (TAG Temporali) per gruppo."""
     righe = []
     for start, end in gruppi:
         ore = somma_colonna_ore_filtrata(ws, start, end, is_tag_waiting)
         if ore is None:
             continue
         nome = prima_riga_colonna(ws.cell(row=start, column=1).value) or ""
-        righe.append({"nome": nome, "ore": ore})
+        stato = tag_temporale_waiting_gruppo(ws, start, end)
+        righe.append({"nome": nome, "ore": ore, "stato": stato})
     righe.sort(key=lambda r: (-r["ore"], r["nome"].lower()))
     return righe
 
 
 def crea_foglio_time_waiting(wb, ws_data, gruppi):
-    """Foglio time-Waiting: nome card e ore da tag # Waiting, ordinate per ore decrescenti."""
+    """Foglio time-Waiting: nome, ore e Stato (TAG Temporali) per # Waiting."""
     ws = wb.create_sheet(TIME_WAITING_SHEET)
-    center = Alignment(horizontal="center", vertical="center")
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left = Alignment(horizontal="left", vertical="center", wrap_text=True)
     ws.cell(row=1, column=1).value = "Nome"
     ws.cell(row=1, column=2).value = ORE_COL
-    ws.cell(row=1, column=1).alignment = center
-    ws.cell(row=1, column=2).alignment = center
+    ws.cell(row=1, column=3).value = "Stato"
+    for col in (1, 2, 3):
+        ws.cell(row=1, column=col).alignment = center
 
     for idx, riga in enumerate(righe_time_waiting(ws_data, gruppi), start=2):
         ws.cell(row=idx, column=1).value = riga["nome"]
         ws.cell(row=idx, column=2).value = riga["ore"]
+        ws.cell(row=idx, column=3).value = riga["stato"]
         ws.cell(row=idx, column=1).alignment = center
         ws.cell(row=idx, column=2).alignment = center
+        ws.cell(row=idx, column=3).alignment = left
 
 
 def scrivi_excel(card, output_path):
