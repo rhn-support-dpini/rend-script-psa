@@ -1786,7 +1786,6 @@ def crea_foglio_time_waiting(wb, ws_data, gruppi):
     """Foglio time-Waiting: nome, ore totali Waiting e Stato (Ore riga riferimento)."""
     ws = wb.create_sheet(TIME_WAITING_SHEET)
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    left = Alignment(horizontal="left", vertical="center", wrap_text=True)
     ws.cell(row=1, column=1).value = "Nome"
     ws.cell(row=1, column=2).value = ORE_COL
     ws.cell(row=1, column=3).value = "Stato"
