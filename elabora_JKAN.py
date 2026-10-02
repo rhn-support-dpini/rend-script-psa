@@ -55,6 +55,8 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 from openpyxl import load_workbook
+from openpyxl.cell.rich_text import CellRichText, TextBlock
+from openpyxl.cell.text import InlineFont
 from openpyxl.styles import Alignment, Border, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -437,6 +439,19 @@ def is_tag_nota(tag):
     if not tag:
         return False
     return bool(NOTA_TAG_RE.match(str(tag).strip()))
+
+
+def valore_cella_tag_nota(tag):
+    """Testo TAG Temporali per # Nota: parte dopo la data in grassetto."""
+    testo = str(tag).strip()
+    match = NOTA_TAG_RE.match(testo)
+    if not match:
+        return testo
+    prefisso = testo[: match.end()]
+    suffisso = testo[match.end() :]
+    if not suffisso:
+        return testo
+    return CellRichText(prefisso, TextBlock(InlineFont(b=True), suffisso))
 
 
 def estrai_tag_timeout(description):
@@ -1336,11 +1351,13 @@ def applica_sfondo_tag_sintassi_errata(ws, max_row):
 
 
 def applica_sfondo_tag_nota(ws, max_row):
-    """Sfondo giallo pastello su TAG Temporali per tag '# Nota - <data> -'."""
+    """Sfondo giallo pastello e commento in grassetto per tag '# Nota - <data> -'."""
     for row in range(2, max_row + 1):
         tag = ws.cell(row=row, column=COL_TAG).value
         if tag and is_tag_nota(tag) and not is_tag_sintassi_errata(tag):
-            ws.cell(row=row, column=COL_TAG).fill = PASTEL_YELLOW_FILL
+            cella = ws.cell(row=row, column=COL_TAG)
+            cella.fill = PASTEL_YELLOW_FILL
+            cella.value = valore_cella_tag_nota(tag)
 
 
 def formatta_foglio_card(ws):

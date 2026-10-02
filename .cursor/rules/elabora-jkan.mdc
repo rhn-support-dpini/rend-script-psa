@@ -63,7 +63,7 @@ Colonna G (Giornate Stimate): valore dal tag `# Estimate` in Description, non da
 ## Tag temporali (prefissi esatti)
 
 - `# Estimate` — escluso dall'espansione righe; valorizza solo col. G
-- `# Nota - <data> -` — riga in TAG Temporali; sfondo giallo pastello; nessuna Ore
+- `# Nota - <data> -` — riga in TAG Temporali; sfondo giallo pastello; testo dopo la data in grassetto; nessuna Ore
 - `# Inizio Attivita' - <data>` — valorizza col. J
 - `# Waiting -` / `# Working -` / `# Rework` / `# Fix` — (hh) da somma Ore (Y); (gg) formula `=hh/8`
 - Totale Lavorate (hh) = N+P+R (col. W); Totale Lavorate (gg) = `=W/8`
