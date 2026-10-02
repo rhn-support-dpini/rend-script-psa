@@ -279,6 +279,7 @@ NOTA_TAG_RE = re.compile(
     rf"(?P<data1>{TAG_ORE_DATE})\s*-\s*",
     re.IGNORECASE,
 )
+NOTA_RIGA_RE = re.compile(r"^#\s*Nota\b", re.IGNORECASE)
 TAG_ORE_STRUCTURE_RE = re.compile(
     r"^#\s*(?P<tag>Waiting|Working|Fix|Rework)\s*-\s*"
     rf"(?P<data1>{TAG_ORE_DATE})\s*-\s*"
@@ -441,6 +442,13 @@ def is_tag_nota(tag):
     return bool(NOTA_TAG_RE.match(str(tag).strip()))
 
 
+def is_riga_tag_nota(tag):
+    """True per righe # Nota (anche se non rispettano il formato data completo)."""
+    if not tag:
+        return False
+    return bool(NOTA_RIGA_RE.match(str(tag).strip()))
+
+
 def valore_cella_tag_nota(tag):
     """Testo TAG Temporali per # Nota: parte dopo la data in grassetto."""
     testo = str(tag).strip()
@@ -514,10 +522,10 @@ def is_waiting_aperto(tag):
     return len(estrai_date_da_tag(tag)) == 1
 
 
-def is_ultimo_tag_temporale_per_waiting(tag_list, index):
-    """Ultimo tag rilevante per # Waiting aperto: i # Nota successivi non contano."""
+def is_ultimo_tag_temporale_ignorando_note(tag_list, index):
+    """Ultimo tag operativo: i # Nota successivi (qualsiasi formato) non contano."""
     for j in range(index + 1, len(tag_list)):
-        if not is_tag_nota(tag_list[j]):
+        if not is_riga_tag_nota(tag_list[j]):
             return False
     return True
 
@@ -529,7 +537,7 @@ def valida_waiting_aperto_ultimo(tag, tag_list, index, title=None):
     """
     if not is_waiting_aperto(tag):
         return True
-    if is_ultimo_tag_temporale_per_waiting(tag_list, index):
+    if is_ultimo_tag_temporale_ignorando_note(tag_list, index):
         return True
     log_warning_tag_errato(
         "tag # Waiting aperto ammesso solo come ultimo tag temporale della card "
@@ -999,8 +1007,9 @@ def espandi_card_con_tag(card):
             continue
         for i, tag in enumerate(tag_list):
             valida_struttura_tag_due_date(tag, title=record.get("Title"))
-            tag_next = tag_list[i + 1] if i + 1 < len(tag_list) else None
-            is_ultimo_tag = tag_next is None
+            is_ultimo_tag_operativo = is_ultimo_tag_temporale_ignorando_note(
+                tag_list, i
+            )
             valida_waiting_aperto_ultimo(
                 tag, tag_list, i, title=record.get("Title")
             )
@@ -1022,7 +1031,7 @@ def espandi_card_con_tag(card):
                 nuova[ORE_COL] = ore_da_tag_temporale(
                     tag,
                     title=record.get("Title"),
-                    is_ultimo_tag=is_ultimo_tag,
+                    is_ultimo_tag=is_ultimo_tag_operativo,
                     log_error=False,
                 )
             nuova[TAG_TEMPORALI_COL] = tag
