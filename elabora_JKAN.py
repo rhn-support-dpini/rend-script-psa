@@ -1230,6 +1230,19 @@ def is_status_abandoned(status):
     return normalizza_testo(status, compatta_spazi=True).lower() == "abandoned"
 
 
+def is_status_poc(status):
+    return normalizza_testo(status, compatta_spazi=True).lower() == "poc"
+
+
+def escluso_da_grafico_ratio_tutti_acronimi(card):
+    """Esclude POC, Abandoned e l'acronimo LIBRERIE list dal grafico rapporto globale."""
+    status = card.get("status", "")
+    if is_status_poc(status) or is_status_abandoned(status):
+        return True
+    label = normalizza_testo(card.get("label", ""), compatta_spazi=True).lower()
+    return label == "librerie list"
+
+
 def is_status_acronimi_done(status):
     """True se lo Status MIRO indica Acronimi Done."""
     return classifica_colonna_kanban(status) == "Acronimi done"
@@ -1569,6 +1582,7 @@ def riepilogo_stima_ore_da_gruppi(ws, gruppi):
         cards.append(
             {
                 "label": _nome_acronimo_da_title(title),
+                "status": normalizza_testo(status),
                 "ore_stimate": ore_stimate,
                 "tot_ore": tot_ore,
                 "done": done,
@@ -1625,6 +1639,7 @@ def _dati_stima_ore_grafici(cards):
             bool(c.get("done")),
         )
         for c in cards
+        if not escluso_da_grafico_ratio_tutti_acronimi(c)
     ]
 
     for c in cards:
@@ -2706,7 +2721,7 @@ def genera_html_jkan(
     </div>
     <div class="chart-card chart-card-full">
       <h3>Rapporto lavorato/stima — tutti gli acronimi</h3>
-      <p class="sub">Una riga per ogni card del foglio data-all (ordine alfabetico). Barra assente se il rapporto non è calcolabile (ore stimate mancanti o pari a zero). Altezza del grafico adattata al numero di acronimi.</p>
+      <p class="sub">Card del foglio data-all in ordine alfabetico, esclusi Status <b>POC</b> e <b>Abandoned</b> e l'acronimo <b>LIBRERIE list</b>. Barra assente se il rapporto non è calcolabile (ore stimate mancanti o pari a zero). Altezza del grafico adattata al numero di acronimi.</p>
       <div class="chart-wrap-ratio-all" id="chart-stima-ratio-all-wrap">
         <canvas id="chart-stima-ratio-all"></canvas>
       </div>
