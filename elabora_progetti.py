@@ -40,8 +40,8 @@ Configurazione (cartella dello script):
                      - nome progetto PSA (Project: Project Name) → tab progetti;
                      - codice interno (colonna A, Tabella di Export) → tab Export/HTML.
                      I calcoli e il foglio dati includono sempre tutte le righe sorgente.
-    .prjDB.json     Metadati RHProj per Project Name (Opportunity, End Date, giorni
-                     Consulting riscattati/usati); creato/aggiornato interattivamente.
+    .prjDB.json     Metadati RHProj (cwd di lancio); Opportunity, End Date, giorni
+                     Consulting riscattati/usati; creato/aggiornato interattivamente.
 """
 
 import argparse
@@ -242,6 +242,13 @@ def carica_prj_ignore(nome_file='.prjIgnore'):
 
 
 PRJ_DB_NOME_FILE = ".prjDB.json"
+
+
+def percorso_prj_db():
+    """Percorso .prjDB.json nella directory da cui è stato lanciato lo script (cwd)."""
+    return os.path.join(os.getcwd(), PRJ_DB_NOME_FILE)
+
+
 PRJ_DB_CAMPI = (
     ("opportunity", "Opportunity (col. C)"),
     ("end_date", "End Date (col. D)"),
@@ -253,7 +260,7 @@ PRJ_DB_CAMPI = (
 def carica_prj_db(path=None):
     """Carica il database progetti RHProj (dict indicizzato per Project Name)."""
     if path is None:
-        path = risolvi_config(PRJ_DB_NOME_FILE)
+        path = percorso_prj_db()
     if not os.path.exists(path):
         return {}
     with open(path, encoding="utf-8") as f:
@@ -264,9 +271,9 @@ def carica_prj_db(path=None):
 
 
 def salva_prj_db(db, path=None):
-    """Salva .prjDB.json con indentazione leggibile."""
+    """Salva .prjDB.json nella cwd di lancio, con indentazione leggibile."""
     if path is None:
-        path = risolvi_config(PRJ_DB_NOME_FILE)
+        path = percorso_prj_db()
     with open(path, "w", encoding="utf-8") as f:
         json.dump(db, f, ensure_ascii=False, indent=2)
         f.write("\n")
