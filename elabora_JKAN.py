@@ -1615,53 +1615,37 @@ def _aggrega_metriche_stima_done(cards):
 
 
 def _dati_stima_ore_grafici(cards):
-    """Serie Chart.js: scatter stima vs lavorato e delta per card Done."""
+    """Serie Chart.js: rapporto stima/lavorato e delta per card Done."""
     summary = _aggrega_metriche_stima_done(cards)
-    scatter_done = []
-    scatter_other = []
     delta_pairs = []
+    ratio_all_pairs = []
 
     for c in cards:
-        if c.get("ore_stimate") is None or c.get("tot_ore") is None:
+        if c.get("ratio") is not None:
+            ratio_all_pairs.append(
+                (c["label"], round(c["ratio"], 3), bool(c.get("done")))
+            )
+        if not c.get("done") or c.get("delta") is None:
             continue
-        if c["ore_stimate"] <= 0 and c["tot_ore"] <= 0:
-            continue
-        punto = {
-            "x": c["ore_stimate"],
-            "y": c["tot_ore"],
-            "label": c["label"],
-        }
-        if c.get("done"):
-            scatter_done.append(punto)
-            if c.get("delta") is not None:
-                delta_pairs.append(
-                    (c["label"], round(c["delta"], 2), round(c["ratio"], 3))
-                )
-        else:
-            scatter_other.append(punto)
+        delta_pairs.append(
+            (c["label"], round(c["delta"], 2), round(c["ratio"], 3))
+        )
 
     delta_pairs.sort(key=lambda t: t[1], reverse=True)
-    delta_labels = [p[0] for p in delta_pairs]
-    delta_values = [p[1] for p in delta_pairs]
-    ratio_values = [p[2] for p in delta_pairs]
-
-    xs = [p["x"] for p in scatter_done + scatter_other]
-    ys = [p["y"] for p in scatter_done + scatter_other]
-    parity = {}
-    if xs and ys:
-        lo = min(min(xs), min(ys), 0)
-        hi = max(max(xs), max(ys))
-        if hi <= lo:
-            hi = lo + 8
-        parity = {"min": lo, "max": hi}
+    ratio_all_pairs.sort(key=lambda t: t[0].lower())
 
     return {
         "summary": summary,
-        "scatter_done": scatter_done,
-        "scatter_other": scatter_other,
-        "delta_done": {"labels": delta_labels, "values": delta_values},
-        "ratio_done": ratio_values,
-        "parity": parity,
+        "delta_done": {
+            "labels": [p[0] for p in delta_pairs],
+            "values": [p[1] for p in delta_pairs],
+        },
+        "ratio_done": [p[2] for p in delta_pairs],
+        "ratio_all": {
+            "labels": [p[0] for p in ratio_all_pairs],
+            "values": [p[1] for p in ratio_all_pairs],
+            "done": [p[2] for p in ratio_all_pairs],
+        },
     }
 
 
@@ -2702,12 +2686,12 @@ def genera_html_jkan(
 
   <section id="stima-ore">
     <h2>Bontà stima — Ore Stimate (G) vs Totale ore lavorate (V)</h2>
-    <p class="sub">Confronto sullo snapshot corrente. Le card in stato <b>Acronimi Done</b> sono evidenziate in verde; le altre (con entrambi i valori) in grigio. Delta ore = stimate − lavorate (positivo = meno ore lavorate rispetto alla stima).</p>
+    <p class="sub">Confronto sullo snapshot corrente. Nei grafici del rapporto lavorate/stimate, le card <b>Acronimi Done</b> sono in verde e le altre in grigio. Delta ore = stimate − lavorate (positivo = meno ore lavorate rispetto alla stima).</p>
 {kpi_stima_html}
     <div class="chart-grid">
       <div class="chart-card">
-        <h3>Scatter — stima vs lavorato</h3>
-        <div class="chart-wrap"><canvas id="chart-stima-scatter"></canvas></div>
+        <h3>Rapporto lavorato/stima — tutti gli acronimi</h3>
+        <div class="chart-wrap"><canvas id="chart-stima-ratio-all"></canvas></div>
       </div>
       <div class="chart-card">
         <h3>Delta ore per card Done</h3>
@@ -3011,66 +2995,51 @@ def genera_html_jkan(
 
   (function() {{
     const S = D.stima || {{}};
-    const scatterTooltip = function(ctx) {{
-      const raw = ctx.raw || {{}};
-      const nome = raw.label || "";
-      return nome + ": stimate " + raw.x + " h, lavorate " + raw.y + " h";
-    }};
-    const scatterOpts = Object.assign({{}}, baseOpts, {{
-      plugins: {{
-        legend: {{ position: "top" }},
-        tooltip: {{
-          callbacks: {{
-            label: function(ctx) {{ return scatterTooltip(ctx); }}
-          }}
-        }}
-      }},
+    const ratioChartOpts = Object.assign({{}}, baseOpts, {{
       scales: {{
-        x: {{
-          title: {{ display: true, text: "Ore stimate (G)" }},
-          beginAtZero: true
-        }},
         y: {{
-          title: {{ display: true, text: "Totale ore lavorate (V)" }},
-          beginAtZero: true
+          beginAtZero: true,
+          title: {{ display: true, text: "Rapporto (1 = in linea)" }}
         }}
       }}
     }});
-    const parityDs = [];
-    if (S.parity && S.parity.max !== undefined) {{
-      parityDs.push({{
-        label: "Stima perfetta (y = x)",
-        data: [{{ x: S.parity.min, y: S.parity.min }}, {{ x: S.parity.max, y: S.parity.max }}],
-        type: "line",
-        borderColor: "#94a3b8",
-        borderDash: [6, 4],
-        pointRadius: 0,
-        fill: false
+    function chartRapportoStima(canvasId, labels, values, barColors) {{
+      new Chart(document.getElementById(canvasId), {{
+        type: "bar",
+        data: {{
+          labels: labels,
+          datasets: [
+            {{
+              label: "Lavorate / stimate",
+              data: values,
+              backgroundColor: barColors
+            }},
+            {{
+              label: "Target 1,0",
+              data: values.map(function() {{ return 1; }}),
+              type: "line",
+              borderColor: "#94a3b8",
+              borderDash: [6, 4],
+              pointRadius: 0,
+              fill: false
+            }}
+          ]
+        }},
+        options: ratioChartOpts
       }});
     }}
-    new Chart(document.getElementById("chart-stima-scatter"), {{
-      type: "scatter",
-      data: {{
-        datasets: parityDs.concat([
-          {{
-            label: "Altre card",
-            data: S.scatter_other || [],
-            backgroundColor: "rgba(100,116,139,0.45)",
-            borderColor: "#64748b",
-            pointRadius: 5
-          }},
-          {{
-            label: "Acronimi Done",
-            data: S.scatter_done || [],
-            backgroundColor: "rgba(16,185,129,0.85)",
-            borderColor: "#059669",
-            pointRadius: 7,
-            pointHoverRadius: 9
-          }}
-        ])
-      }},
-      options: scatterOpts
-    }});
+
+    const ratioAll = S.ratio_all || {{ labels: [], values: [], done: [] }};
+    chartRapportoStima(
+      "chart-stima-ratio-all",
+      ratioAll.labels,
+      ratioAll.values,
+      (ratioAll.done || []).map(function(d) {{
+        return d
+          ? "rgba(16,185,129,0.75)"
+          : "rgba(100,116,139,0.55)";
+      }})
+    );
 
     const delta = S.delta_done || {{ labels: [], values: [] }};
     new Chart(document.getElementById("chart-stima-delta"), {{
@@ -3101,36 +3070,12 @@ def genera_html_jkan(
     }});
 
     const ratios = S.ratio_done || [];
-    new Chart(document.getElementById("chart-stima-ratio"), {{
-      type: "bar",
-      data: {{
-        labels: delta.labels,
-        datasets: [
-          {{
-            label: "Lavorate / stimate",
-            data: ratios,
-            backgroundColor: "rgba(26,86,219,0.65)"
-          }},
-          {{
-            label: "Target 1,0",
-            data: ratios.map(function() {{ return 1; }}),
-            type: "line",
-            borderColor: "#94a3b8",
-            borderDash: [6, 4],
-            pointRadius: 0,
-            fill: false
-          }}
-        ]
-      }},
-      options: Object.assign({{}}, baseOpts, {{
-        scales: {{
-          y: {{
-            beginAtZero: true,
-            title: {{ display: true, text: "Rapporto (1 = in linea)" }}
-          }}
-        }}
-      }})
-    }});
+    chartRapportoStima(
+      "chart-stima-ratio",
+      delta.labels,
+      ratios,
+      ratios.map(function() {{ return "rgba(26,86,219,0.65)"; }})
+    );
   }})();
 {js_colonne}
 }})();
