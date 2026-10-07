@@ -1101,11 +1101,12 @@ def _metriche_rhproj_per_progetto(
     contratti_idx,
     meta,
 ):
-    """Campi C–K RHProj: C,D,F da .prjDB; E,G,H da config/calcoli sulle righe dati."""
+    """Campi C–K RHProj: C,D,F da .prjDB; E,G da config/calcoli; H come tab progetti (cons./8)."""
     df_p_full = df_dati_comp[df_dati_comp[col_proj] == proj]
     df_p_calc = df_per_detrazione_giornate(
         df_per_calc[df_per_calc[col_proj] == proj], col_role_name
     )
+    # Stessa logica del tab progetti: ore consuntivate sulle righe dati del progetto / 8
     pm_mask = df_p_calc["RifInterno PSA"].str.contains("@pm|@pc", case=False, na=False)
     giorni_pm = float(df_p_calc.loc[pm_mask, col_actual].sum()) / 8.0
     giorni_cons = float(df_p_calc.loc[~pm_mask, col_actual].sum()) / 8.0
@@ -1128,7 +1129,7 @@ def _metriche_rhproj_per_progetto(
         "E": giorni_pm_red,
         "F": meta["days_redempted_consulting"],
         "G": giorni_pm,
-        "H": giorni_cons,
+        "H": giorni_cons,  # Days Used Consulting: somma giorni da righe tab dati
         "I": "",
         "J": "",
         "K": rif_val,
@@ -1146,60 +1147,56 @@ def prepara_righe_rhproj(
     prj_db,
     col_opa_idx=1,
 ):
-    """Una riga RHProj per riga dati; .prjDB: nuova entry solo per Project Name non ancora censito."""
+    """Una riga RHProj per Project Name; si scorrono tutte le righe dati per censire .prjDB."""
     col_opa = df_dati_comp.columns[col_opa_idx]
     rows_rhproj = []
-    metriche_cache = {}
+    progetti_visti = set()
     progetti_nuovi_db = 0
 
     for _, row in df_dati_comp.iterrows():
         if pd.isna(row[col_proj]):
             continue
         proj = str(row[col_proj]).strip()
-        if not proj:
+        if not proj or proj in progetti_visti:
             continue
-        if proj not in metriche_cache:
-            if progetto_completo_in_prj_db(prj_db, proj):
-                log.info(
-                    "RHProj: Project Name già in %s, riuso valori salvati: %r",
-                    PRJ_DB_NOME_FILE,
-                    proj,
-                )
-            else:
-                era_nuovo = proj not in prj_db
-                log.info(
-                    "RHProj: %s in %s, richiesta dati mancanti: %r",
-                    "nuovo Project Name" if era_nuovo else "Project Name incompleto",
-                    PRJ_DB_NOME_FILE,
-                    proj,
-                )
-                completa_entry_prj_db(prj_db, proj)
-                if era_nuovo:
-                    progetti_nuovi_db += 1
-            metriche_cache[proj] = _metriche_rhproj_per_progetto(
+        progetti_visti.add(proj)
+
+        if progetto_completo_in_prj_db(prj_db, proj):
+            log.info(
+                "RHProj: Project Name già in %s, riuso valori salvati: %r",
+                PRJ_DB_NOME_FILE,
                 proj,
-                df_dati_comp,
-                df_per_calc,
-                col_proj,
-                col_role_name,
-                col_actual,
-                config,
-                contratti_idx,
-                prj_db[proj],
             )
-        rows_rhproj.append(
-            {
-                "A": proj,
-                "B": row[col_opa],
-                **metriche_cache[proj],
-            }
+        else:
+            era_nuovo = proj not in prj_db
+            log.info(
+                "RHProj: %s in %s, richiesta dati mancanti: %r",
+                "nuovo Project Name" if era_nuovo else "Project Name incompleto",
+                PRJ_DB_NOME_FILE,
+                proj,
+            )
+            completa_entry_prj_db(prj_db, proj)
+            if era_nuovo:
+                progetti_nuovi_db += 1
+
+        df_p = df_dati_comp[df_dati_comp[col_proj] == proj]
+        opa = df_p.iloc[0][col_opa]
+        metriche = _metriche_rhproj_per_progetto(
+            proj,
+            df_dati_comp,
+            df_per_calc,
+            col_proj,
+            col_role_name,
+            col_actual,
+            config,
+            contratti_idx,
+            prj_db[proj],
         )
+        rows_rhproj.append({"A": proj, "B": opa, **metriche})
 
     log.info(
-        "RHProj: %d righe dati con Project Name; %d Project Name distinti "
-        "(%d nuovi in %s in questa esecuzione).",
+        "RHProj: %d righe (una per Project Name); %d nuovi in %s in questa esecuzione.",
         len(rows_rhproj),
-        len(metriche_cache),
         progetti_nuovi_db,
         PRJ_DB_NOME_FILE,
     )
