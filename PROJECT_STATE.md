@@ -1,6 +1,6 @@
 # PROJECT_STATE — rend-script-psa
 
-Ultimo aggiornamento: 2026-10-02 (sessione Cursor su branch `Cursor`).
+Ultimo aggiornamento: 2026-10-07 (sessione Cursor su branch `Cursor`).
 
 Documento di handoff per sessioni successive: cosa c’è nel repo, come funziona, cosa è stato toccato di recente, e cosa evitare.
 
@@ -29,6 +29,10 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 ---
 
 ## Implementato / modificato (cronologia recente)
+
+### Sessione 2026-10-07 — `elabora_JKAN.py`
+
+- Report **HTML**: sezione «Bontà stima» con KPI e grafici Chart.js (scatter Ore Stimate G vs Totale ore lavorate V, barre delta e rapporto lavorato/stima) sullo snapshot corrente; card **Acronimi Done** evidenziate in verde. Dati da `riepilogo_stima_ore_da_gruppi` dopo formattazione Excel; `scrivi_excel` restituisce il riepilogo per `genera_html_jkan`.
 
 ### Sessione 2026-10-02 — `elabora_JKAN.py`
 

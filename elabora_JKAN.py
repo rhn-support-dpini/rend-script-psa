@@ -1546,6 +1546,148 @@ def riepilogo_da_gruppi(ws, gruppi):
     return riepilogo
 
 
+def riepilogo_stima_ore_da_gruppi(ws, gruppi):
+    """Ore stimate (G) e totale lavorate (V) per card — per report HTML."""
+    cards = []
+    for start, _end in gruppi:
+        title = normalizza_testo(ws.cell(row=start, column=1).value)
+        status = ws.cell(row=start, column=COL_STATUS).value
+        ore_stimate = parse_numero(ws.cell(row=start, column=COL_ORE_STIMATE).value)
+        tot_ore = parse_numero(ws.cell(row=start, column=COL_TOTALE_ORE).value)
+        if tot_ore is None:
+            tot_ore = totale_lavorate_hh_da_riga(ws, start)
+        done = is_status_acronimi_done(status)
+        delta = None
+        ratio = None
+        if (
+            ore_stimate is not None
+            and tot_ore is not None
+            and ore_stimate > 0
+        ):
+            delta = ore_stimate - tot_ore
+            ratio = tot_ore / ore_stimate
+        cards.append(
+            {
+                "label": _nome_acronimo_da_title(title),
+                "ore_stimate": ore_stimate,
+                "tot_ore": tot_ore,
+                "done": done,
+                "delta": delta,
+                "ratio": ratio,
+            }
+        )
+    return cards
+
+
+def _aggrega_metriche_stima_done(cards):
+    """Statistiche riassuntive sul confronto stima/lavorato per card Acronimi Done."""
+    done_cards = [c for c in cards if c.get("done")]
+    confronto = [
+        c
+        for c in done_cards
+        if c.get("delta") is not None and c.get("ore_stimate") is not None
+    ]
+    if not confronto:
+        return {
+            "n_done": len(done_cards),
+            "n_confronto": 0,
+            "media_delta": None,
+            "media_abs_delta": None,
+            "n_sotto_stima": 0,
+            "n_sopra_stima": 0,
+            "n_in_linea": 0,
+        }
+    deltas = [c["delta"] for c in confronto]
+    soglia = 4.0  # ore: ± mezza giornata lavorativa
+    n_sotto = sum(1 for d in deltas if d > soglia)
+    n_sopra = sum(1 for d in deltas if d < -soglia)
+    n_in_linea = len(deltas) - n_sotto - n_sopra
+    return {
+        "n_done": len(done_cards),
+        "n_confronto": len(confronto),
+        "media_delta": sum(deltas) / len(deltas),
+        "media_abs_delta": sum(abs(d) for d in deltas) / len(deltas),
+        "n_sotto_stima": n_sotto,
+        "n_sopra_stima": n_sopra,
+        "n_in_linea": n_in_linea,
+        "soglia_ore": soglia,
+    }
+
+
+def _dati_stima_ore_grafici(cards):
+    """Serie Chart.js: scatter stima vs lavorato e delta per card Done."""
+    summary = _aggrega_metriche_stima_done(cards)
+    scatter_done = []
+    scatter_other = []
+    delta_pairs = []
+
+    for c in cards:
+        if c.get("ore_stimate") is None or c.get("tot_ore") is None:
+            continue
+        if c["ore_stimate"] <= 0 and c["tot_ore"] <= 0:
+            continue
+        punto = {
+            "x": c["ore_stimate"],
+            "y": c["tot_ore"],
+            "label": c["label"],
+        }
+        if c.get("done"):
+            scatter_done.append(punto)
+            if c.get("delta") is not None:
+                delta_pairs.append(
+                    (c["label"], round(c["delta"], 2), round(c["ratio"], 3))
+                )
+        else:
+            scatter_other.append(punto)
+
+    delta_pairs.sort(key=lambda t: t[1], reverse=True)
+    delta_labels = [p[0] for p in delta_pairs]
+    delta_values = [p[1] for p in delta_pairs]
+    ratio_values = [p[2] for p in delta_pairs]
+
+    xs = [p["x"] for p in scatter_done + scatter_other]
+    ys = [p["y"] for p in scatter_done + scatter_other]
+    parity = {}
+    if xs and ys:
+        lo = min(min(xs), min(ys), 0)
+        hi = max(max(xs), max(ys))
+        if hi <= lo:
+            hi = lo + 8
+        parity = {"min": lo, "max": hi}
+
+    return {
+        "summary": summary,
+        "scatter_done": scatter_done,
+        "scatter_other": scatter_other,
+        "delta_done": {"labels": delta_labels, "values": delta_values},
+        "ratio_done": ratio_values,
+        "parity": parity,
+    }
+
+
+def _html_kpi_stima_ore(summary):
+    """KPI HTML per la sezione bontà stima."""
+    if summary["n_confronto"] == 0:
+        return (
+            '<p class="sub"><em>Nessuna card in stato Acronimi Done con ore stimate '
+            "e totale ore lavorate confrontabili.</em></p>"
+        )
+    media = summary["media_delta"]
+    media_abs = summary["media_abs_delta"]
+    media_txt = f"{media:+.1f}".replace(".", ",")
+    media_abs_txt = f"{media_abs:.1f}".replace(".", ",")
+    soglia = summary["soglia_ore"]
+    return f"""<div class="kpis">
+    <div class="kpi"><b>{summary["n_done"]}</b><span>Card Acronimi Done</span></div>
+    <div class="kpi"><b>{summary["n_confronto"]}</b><span>Con stima e ore lavorate</span></div>
+    <div class="kpi"><b>{media_txt}</b><span>Media delta ore (stimate − lavorate)</span></div>
+    <div class="kpi"><b>{media_abs_txt}</b><span>Scostamento medio assoluto (ore)</span></div>
+    <div class="kpi"><b>{summary["n_in_linea"]}</b><span>In linea (|delta| ≤ {soglia:g} h)</span></div>
+    <div class="kpi"><b>{summary["n_sotto_stima"]}</b><span>Sotto stima (lavorate meno)</span></div>
+    <div class="kpi"><b>{summary["n_sopra_stima"]}</b><span>Oltre stima (lavorate di più)</span></div>
+  </div>"""
+
+
 def status_escluso_da_export(status):
     return normalizza_testo(status, compatta_spazi=True) in STATUS_ESCLUSI_EXPORT
 
@@ -1822,7 +1964,9 @@ def scrivi_excel(card, output_path):
     crea_foglio_time_waiting(wb, ws_data, gruppi)
     riepilogo = riepilogo_da_gruppi(ws_data, gruppi)
     crea_foglio_stat(wb, riepilogo)
+    riepilogo_stima = riepilogo_stima_ore_da_gruppi(ws_data, gruppi)
     wb.save(output_path)
+    return riepilogo_stima
 
 
 def estrai_data_da_nome_file(path):
@@ -2416,13 +2560,21 @@ def _js_griglia_colonne_kanban():
     return "".join(blocks)
 
 
-def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronimi=None):
+def genera_html_jkan(
+    df,
+    html_path,
+    data_ultimo_snapshot=None,
+    riepilogo_acronimi=None,
+    riepilogo_stima=None,
+):
     """Genera report HTML Scrum/Kanban con burnup, burndown, CFD ed evoluzione colonne."""
     if df.empty:
         return
 
     dati = _dati_grafici_jkan(df)
+    dati["stima"] = _dati_stima_ore_grafici(riepilogo_stima or [])
     chart_json = json.dumps(dati, ensure_ascii=False)
+    kpi_stima_html = _html_kpi_stima_ore(dati["stima"]["summary"])
     burndown_forecast_html = _html_burndown_forecast(dati["burndown"]["forecast"])
     griglia_html = _html_griglia_colonne_kanban()
     js_colonne = _js_griglia_colonne_kanban()
@@ -2545,6 +2697,26 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronim
     <p class="sub">Snapshot corrente: target di progetto, scope concordato sul board Kanban, card in verifica e gap residuo. Generato il {now_str}.</p>
     <div class="kpis kpis-acronimi">
 {kpi_acronimi_html}
+    </div>
+  </section>
+
+  <section id="stima-ore">
+    <h2>Bontà stima — Ore Stimate (G) vs Totale ore lavorate (V)</h2>
+    <p class="sub">Confronto sullo snapshot corrente. Le card in stato <b>Acronimi Done</b> sono evidenziate in verde; le altre (con entrambi i valori) in grigio. Delta ore = stimate − lavorate (positivo = meno ore lavorate rispetto alla stima).</p>
+{kpi_stima_html}
+    <div class="chart-grid">
+      <div class="chart-card">
+        <h3>Scatter — stima vs lavorato</h3>
+        <div class="chart-wrap"><canvas id="chart-stima-scatter"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <h3>Delta ore per card Done</h3>
+        <div class="chart-wrap"><canvas id="chart-stima-delta"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <h3>Rapporto lavorato/stima (Done)</h3>
+        <div class="chart-wrap"><canvas id="chart-stima-ratio"></canvas></div>
+      </div>
     </div>
   </section>
 
@@ -2836,6 +3008,130 @@ def genera_html_jkan(df, html_path, data_ultimo_snapshot=None, riepilogo_acronim
     }},
     options: baseOpts
   }});
+
+  (function() {{
+    const S = D.stima || {{}};
+    const scatterTooltip = function(ctx) {{
+      const raw = ctx.raw || {{}};
+      const nome = raw.label || "";
+      return nome + ": stimate " + raw.x + " h, lavorate " + raw.y + " h";
+    }};
+    const scatterOpts = Object.assign({{}}, baseOpts, {{
+      plugins: {{
+        legend: {{ position: "top" }},
+        tooltip: {{
+          callbacks: {{
+            label: function(ctx) {{ return scatterTooltip(ctx); }}
+          }}
+        }}
+      }},
+      scales: {{
+        x: {{
+          title: {{ display: true, text: "Ore stimate (G)" }},
+          beginAtZero: true
+        }},
+        y: {{
+          title: {{ display: true, text: "Totale ore lavorate (V)" }},
+          beginAtZero: true
+        }}
+      }}
+    }});
+    const parityDs = [];
+    if (S.parity && S.parity.max !== undefined) {{
+      parityDs.push({{
+        label: "Stima perfetta (y = x)",
+        data: [{{ x: S.parity.min, y: S.parity.min }}, {{ x: S.parity.max, y: S.parity.max }}],
+        type: "line",
+        borderColor: "#94a3b8",
+        borderDash: [6, 4],
+        pointRadius: 0,
+        fill: false
+      }});
+    }}
+    new Chart(document.getElementById("chart-stima-scatter"), {{
+      type: "scatter",
+      data: {{
+        datasets: parityDs.concat([
+          {{
+            label: "Altre card",
+            data: S.scatter_other || [],
+            backgroundColor: "rgba(100,116,139,0.45)",
+            borderColor: "#64748b",
+            pointRadius: 5
+          }},
+          {{
+            label: "Acronimi Done",
+            data: S.scatter_done || [],
+            backgroundColor: "rgba(16,185,129,0.85)",
+            borderColor: "#059669",
+            pointRadius: 7,
+            pointHoverRadius: 9
+          }}
+        ])
+      }},
+      options: scatterOpts
+    }});
+
+    const delta = S.delta_done || {{ labels: [], values: [] }};
+    new Chart(document.getElementById("chart-stima-delta"), {{
+      type: "bar",
+      data: {{
+        labels: delta.labels,
+        datasets: [{{
+          label: "Delta ore (stimate − lavorate)",
+          data: delta.values,
+          backgroundColor: delta.values.map(function(v) {{
+            return v >= 0 ? "rgba(16,185,129,0.75)" : "rgba(239,68,68,0.75)";
+          }})
+        }}]
+      }},
+      options: Object.assign({{}}, baseOpts, {{
+        indexAxis: "y",
+        plugins: {{ legend: {{ display: false }} }},
+        scales: {{
+          x: {{
+            title: {{ display: true, text: "Ore" }},
+            grid: {{ color: function(ctx) {{
+              return ctx.tick.value === 0 ? "#64748b" : "#e2e8f0";
+            }} }}
+          }},
+          y: {{ ticks: {{ autoSkip: false, font: {{ size: 10 }} }} }}
+        }}
+      }})
+    }});
+
+    const ratios = S.ratio_done || [];
+    new Chart(document.getElementById("chart-stima-ratio"), {{
+      type: "bar",
+      data: {{
+        labels: delta.labels,
+        datasets: [
+          {{
+            label: "Lavorate / stimate",
+            data: ratios,
+            backgroundColor: "rgba(26,86,219,0.65)"
+          }},
+          {{
+            label: "Target 1,0",
+            data: ratios.map(function() {{ return 1; }}),
+            type: "line",
+            borderColor: "#94a3b8",
+            borderDash: [6, 4],
+            pointRadius: 0,
+            fill: false
+          }}
+        ]
+      }},
+      options: Object.assign({{}}, baseOpts, {{
+        scales: {{
+          y: {{
+            beginAtZero: true,
+            title: {{ display: true, text: "Rapporto (1 = in linea)" }}
+          }}
+        }}
+      }})
+    }});
+  }})();
 {js_colonne}
 }})();
 </script>
@@ -2862,7 +3158,7 @@ def elabora(input_csv):
             f"Nessuna card Kanban trovata nel file {input_path}"
         )
 
-    scrivi_excel(card, output_path)
+    riepilogo_stima = scrivi_excel(card, output_path)
 
     data_snapshot = estrai_data_da_nome_file(input_path)
     conteggi, non_mappate = conteggio_per_colonna_kanban(card)
@@ -2873,6 +3169,7 @@ def elabora(input_csv):
         html_path,
         data_ultimo_snapshot=data_snapshot,
         riepilogo_acronimi=riepilogo_acronimi,
+        riepilogo_stima=riepilogo_stima,
     )
 
     righe_output = len(espandi_card_con_tag(card))
