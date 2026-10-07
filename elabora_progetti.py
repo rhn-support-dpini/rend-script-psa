@@ -4,6 +4,7 @@ elabora_progetti.py — Report settimanale risorse consulenza Red Hat Italy
 Legge un file Excel di input (export da PSA/pianificazione) e produce un file
 Excel di output multi-foglio con:
   - dati     : dati sorgente arricchiti con colonne derivate
+  - RHProj   : come progetti; intestazione col. A «Project Name» (righe 9–10)
   - progetti : riepilogo contratti con giorni consuntivati vs. riscattati
   - Riepilogo Settimanale : pivot actual/estimated per attività e settimana
   - Dettaglio Ruoli       : pivot estimated con breakdown per ruolo/milestone
@@ -990,7 +991,7 @@ def scrivi_fogli_base(file_output, df_dati_comp, rows_progetti):
     successive tramite openpyxl diretto.
 
     Il foglio 'dati' parte dalla riga 4 (righe 1-3 riservate a metadati).
-    Il foglio 'progetti' parte dalla riga 11 (righe 1-10 per intestazioni).
+    'RHProj' e 'progetti' partono dalla riga 11 (righe 1-10 per intestazioni).
 
     Args:
         file_output:    percorso del file Excel da creare/sovrascrivere.
@@ -999,6 +1000,7 @@ def scrivi_fogli_base(file_output, df_dati_comp, rows_progetti):
     """
     with pd.ExcelWriter(file_output, engine='openpyxl') as writer:
         df_dati_comp.drop(columns=['sett_calc']).to_excel(writer, sheet_name='dati', index=False, startrow=0)
+        pd.DataFrame(rows_progetti).to_excel(writer, sheet_name='RHProj', index=False, startrow=10, header=False)
         pd.DataFrame(rows_progetti).to_excel(writer, sheet_name='progetti', index=False, startrow=10, header=False)
         pd.DataFrame().to_excel(writer, sheet_name='Riepilogo Settimanale', index=False)
         pd.DataFrame().to_excel(writer, sheet_name='Dettaglio Ruoli', index=False)
@@ -1128,8 +1130,16 @@ def _riga_note_progetti(n_righe):
 
 # --- FORMATTAZIONE TAB PROGETTI ---
 
-def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold, center):
-    """Applica intestazioni, formattazione e tabella dati al foglio 'progetti'.
+def formatta_tab_progetti(
+    ws_p,
+    config,
+    rows_progetti,
+    weeks_limit_active,
+    bold,
+    center,
+    col_a_header="Contract name",
+):
+    """Applica intestazioni, formattazione e tabella dati al foglio progetti/RHProj.
 
     La struttura del foglio è:
       - Righe 3-4  : intestazioni titolo (merge A:K)
@@ -1178,7 +1188,7 @@ def formatta_tab_progetti(ws_p, config, rows_progetti, weeks_limit_active, bold,
 
     def scrivi_intestazione(base_row):
         """Scrive l'intestazione a due righe della tabella contratti."""
-        for col_lett, titolo in [('A', 'Contract name'), ('B', 'OPA Number'),
+        for col_lett, titolo in [('A', col_a_header), ('B', 'OPA Number'),
                                   ('C', 'Opportunity'), ('D', 'End Date'), ('K', 'Riferimento')]:
             ws_p[f'{col_lett}{base_row}'] = titolo
             ws_p.merge_cells(f'{col_lett}{base_row}:{col_lett}{base_row + 1}')
@@ -3102,6 +3112,15 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
         fill_nero = PatternFill(fill_type="solid", fgColor="000000")
         font_bianco_bold = Font(color="FFFFFF", bold=True)
 
+        formatta_tab_progetti(
+            wb['RHProj'],
+            config,
+            rows_progetti_tab,
+            weeks_limit_active,
+            bold,
+            center,
+            col_a_header="Project Name",
+        )
         formatta_tab_progetti(wb['progetti'], config, rows_progetti_tab, weeks_limit_active, bold, center)
         # Colonne K e L del sorgente contengono lo stato di schedulazione e commit/exclude
         col_status_k = df_dati_comp_full.columns[10]
@@ -3154,7 +3173,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
                     col_proj, col_period, col_estimated, file_output,
                     codici_ignorati=progetti_ignorati, progetti_ignorati=progetti_ignorati)
 
-        for sheet_name in ['dati', 'progetti', 'Riepilogo Settimanale',
+        for sheet_name in ['dati', 'RHProj', 'progetti', 'Riepilogo Settimanale',
                             'Dettaglio Ruoli', 'Tabella di Export', 'Tentative', 'VERIFICA']:
             autofit_columns(wb[sheet_name])
 
