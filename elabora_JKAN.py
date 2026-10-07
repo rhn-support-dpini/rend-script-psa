@@ -1618,13 +1618,16 @@ def _dati_stima_ore_grafici(cards):
     """Serie Chart.js: rapporto stima/lavorato e delta per card Done."""
     summary = _aggrega_metriche_stima_done(cards)
     delta_pairs = []
-    ratio_all_pairs = []
+    ratio_all_pairs = [
+        (
+            c["label"],
+            round(c["ratio"], 3) if c.get("ratio") is not None else None,
+            bool(c.get("done")),
+        )
+        for c in cards
+    ]
 
     for c in cards:
-        if c.get("ratio") is not None:
-            ratio_all_pairs.append(
-                (c["label"], round(c["ratio"], 3), bool(c.get("done")))
-            )
         if not c.get("done") or c.get("delta") is None:
             continue
         delta_pairs.append(
@@ -2651,6 +2654,9 @@ def genera_html_jkan(
       background: #fafbfc;
     }}
     .chart-card h3 {{ margin: 0 0 .5rem; font-size: .95rem; font-weight: 600; }}
+    .chart-card-full {{ margin-top: 1rem; }}
+    .chart-card-full .sub {{ margin: 0 0 .75rem; }}
+    .chart-wrap-ratio-all {{ position: relative; width: 100%; min-height: 360px; }}
     .chart-wrap-sm {{ position: relative; height: 200px; }}
     table {{ width: 100%; border-collapse: collapse; font-size: .9rem; }}
     th, td {{ border: 1px solid var(--border); padding: .45rem .6rem; text-align: center; }}
@@ -2690,16 +2696,19 @@ def genera_html_jkan(
 {kpi_stima_html}
     <div class="chart-grid">
       <div class="chart-card">
-        <h3>Rapporto lavorato/stima — tutti gli acronimi</h3>
-        <div class="chart-wrap"><canvas id="chart-stima-ratio-all"></canvas></div>
-      </div>
-      <div class="chart-card">
         <h3>Delta ore per card Done</h3>
         <div class="chart-wrap"><canvas id="chart-stima-delta"></canvas></div>
       </div>
       <div class="chart-card">
         <h3>Rapporto lavorato/stima (Done)</h3>
         <div class="chart-wrap"><canvas id="chart-stima-ratio"></canvas></div>
+      </div>
+    </div>
+    <div class="chart-card chart-card-full">
+      <h3>Rapporto lavorato/stima — tutti gli acronimi</h3>
+      <p class="sub">Una riga per ogni card del foglio data-all (ordine alfabetico). Barra assente se il rapporto non è calcolabile (ore stimate mancanti o pari a zero). Altezza del grafico adattata al numero di acronimi.</p>
+      <div class="chart-wrap-ratio-all" id="chart-stima-ratio-all-wrap">
+        <canvas id="chart-stima-ratio-all"></canvas>
       </div>
     </div>
   </section>
@@ -3030,16 +3039,72 @@ def genera_html_jkan(
     }}
 
     const ratioAll = S.ratio_all || {{ labels: [], values: [], done: [] }};
-    chartRapportoStima(
-      "chart-stima-ratio-all",
-      ratioAll.labels,
-      ratioAll.values,
-      (ratioAll.done || []).map(function(d) {{
-        return d
-          ? "rgba(16,185,129,0.75)"
-          : "rgba(100,116,139,0.55)";
+    const ratioAllWrap = document.getElementById("chart-stima-ratio-all-wrap");
+    const ratioAllN = ratioAll.labels.length;
+    if (ratioAllWrap) {{
+      ratioAllWrap.style.height = Math.max(400, ratioAllN * 30) + "px";
+    }}
+    const ratioAllValues = (ratioAll.values || []).map(function(v) {{
+      return v === null || v === undefined ? null : v;
+    }});
+    new Chart(document.getElementById("chart-stima-ratio-all"), {{
+      type: "bar",
+      data: {{
+        labels: ratioAll.labels,
+        datasets: [
+          {{
+            label: "Lavorate / stimate",
+            data: ratioAllValues,
+            backgroundColor: (ratioAll.done || []).map(function(d) {{
+              return d
+                ? "rgba(16,185,129,0.75)"
+                : "rgba(100,116,139,0.55)";
+            }})
+          }},
+          {{
+            label: "Target 1,0",
+            data: ratioAll.labels.map(function() {{ return 1; }}),
+            type: "line",
+            borderColor: "#94a3b8",
+            borderDash: [6, 4],
+            pointRadius: 0,
+            fill: false
+          }}
+        ]
+      }},
+      options: Object.assign({{}}, baseOpts, {{
+        indexAxis: "y",
+        plugins: {{
+          legend: {{ position: "top" }},
+          tooltip: {{
+            callbacks: {{
+              label: function(ctx) {{
+                if (ctx.datasetIndex !== 0) {{
+                  return ctx.dataset.label;
+                }}
+                const v = ctx.raw;
+                if (v === null || v === undefined || Number.isNaN(v)) {{
+                  return "Rapporto non calcolabile (stima assente/zero o ore non disponibili)";
+                }}
+                return "Rapporto: " + v;
+              }}
+            }}
+          }}
+        }},
+        scales: {{
+          x: {{
+            beginAtZero: true,
+            title: {{ display: true, text: "Rapporto (1 = in linea)" }}
+          }},
+          y: {{
+            ticks: {{
+              autoSkip: false,
+              font: {{ size: 11 }}
+            }}
+          }}
+        }}
       }})
-    );
+    }});
 
     const delta = S.delta_done || {{ labels: [], values: [] }};
     new Chart(document.getElementById("chart-stima-delta"), {{
