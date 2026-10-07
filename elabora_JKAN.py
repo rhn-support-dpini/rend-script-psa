@@ -1568,6 +1568,9 @@ def riepilogo_stima_ore_da_gruppi(ws, gruppi):
         tot_ore = parse_numero(ws.cell(row=start, column=COL_TOTALE_ORE).value)
         if tot_ore is None:
             tot_ore = totale_lavorate_hh_da_riga(ws, start)
+        waiting_hh = parse_numero(
+            ws.cell(row=start, column=COL_TOTALE_WAITING_HH).value
+        )
         done = is_status_acronimi_done(status)
         delta = None
         ratio = None
@@ -1584,6 +1587,7 @@ def riepilogo_stima_ore_da_gruppi(ws, gruppi):
                 "status": normalizza_testo(status),
                 "ore_stimate": ore_stimate,
                 "tot_ore": tot_ore,
+                "waiting_hh": waiting_hh,
                 "done": done,
                 "delta": delta,
                 "ratio": ratio,
@@ -1627,6 +1631,47 @@ def _aggrega_metriche_stima_done(cards):
     }
 
 
+def _serie_lavorato_attesa_grafico(cards, done_only=False, filtro_tutti=False):
+    """
+    Quota V e K sul totale V+K per card (rapporto lavorato / attesa).
+    done_only: solo Acronimi Done; filtro_tutti: esclusioni grafico tutti gli acronimi.
+    """
+    rows = []
+    for c in cards:
+        if done_only and not c.get("done"):
+            continue
+        if filtro_tutti and escluso_da_grafico_ratio_tutti_acronimi(c):
+            continue
+        v = c.get("tot_ore")
+        k = c.get("waiting_hh")
+        v_num = v if v is not None else 0.0
+        k_num = k if k is not None else 0.0
+        tot = v_num + k_num
+        if tot > 0:
+            pct_lav = round(v_num / tot, 4)
+            pct_att = round(k_num / tot, 4)
+        else:
+            pct_lav = None
+            pct_att = None
+        rows.append(
+            (
+                c["label"],
+                pct_lav,
+                pct_att,
+                round(v_num, 2),
+                round(k_num, 2),
+            )
+        )
+    rows.sort(key=lambda t: t[0].lower())
+    return {
+        "labels": [r[0] for r in rows],
+        "lavorato": [r[1] for r in rows],
+        "attesa": [r[2] for r in rows],
+        "ore_lavorate": [r[3] for r in rows],
+        "ore_attesa": [r[4] for r in rows],
+    }
+
+
 def _dati_stima_ore_grafici(cards):
     """Serie Chart.js: rapporto stima/lavorato e delta per card Done."""
     summary = _aggrega_metriche_stima_done(cards)
@@ -1663,6 +1708,12 @@ def _dati_stima_ore_grafici(cards):
             "values": [p[1] for p in ratio_all_pairs],
             "done": [p[2] for p in ratio_all_pairs],
         },
+        "lavorato_attesa_done": _serie_lavorato_attesa_grafico(
+            cards, done_only=True
+        ),
+        "lavorato_attesa_all": _serie_lavorato_attesa_grafico(
+            cards, filtro_tutti=True
+        ),
     }
 
 
@@ -2725,6 +2776,20 @@ def genera_html_jkan(
         <canvas id="chart-stima-ratio-all"></canvas>
       </div>
     </div>
+    <div class="chart-card chart-card-full">
+      <h3>Rapporto lavorato (V) e attesa (K) — Acronimi Done</h3>
+      <p class="sub">Per ogni card completata: quota ore lavorate (col. V) e in attesa (col. K) sul totale V+K. Tooltip con valori in ore.</p>
+      <div class="chart-wrap-ratio-all" id="chart-lavorato-attesa-done-wrap">
+        <canvas id="chart-lavorato-attesa-done"></canvas>
+      </div>
+    </div>
+    <div class="chart-card chart-card-full">
+      <h3>Rapporto lavorato (V) e attesa (K) — tutti gli acronimi</h3>
+      <p class="sub">Stesse esclusioni del grafico rapporto/stima (<b>POC</b>, <b>POC 10</b>, <b>Abandoned</b>, <b>LIBRERIE list</b>). Barre impilate se V+K &gt; 0.</p>
+      <div class="chart-wrap-ratio-all" id="chart-lavorato-attesa-all-wrap">
+        <canvas id="chart-lavorato-attesa-all"></canvas>
+      </div>
+    </div>
   </section>
 
   <section id="cfd">
@@ -3052,12 +3117,88 @@ def genera_html_jkan(
       }});
     }}
 
+    function impostaAltezzaGraficoAcronimi(wrapEl, n) {{
+      if (wrapEl) {{
+        wrapEl.style.height = Math.max(400, n * 30) + "px";
+      }}
+    }}
+    function chartLavoratoAttesa(wrapEl, canvasId, block) {{
+      const labels = block.labels || [];
+      impostaAltezzaGraficoAcronimi(wrapEl, labels.length);
+      const lav = (block.lavorato || []).map(function(v) {{
+        return v === null || v === undefined ? 0 : v;
+      }});
+      const att = (block.attesa || []).map(function(v, i) {{
+        if (block.lavorato[i] === null || block.lavorato[i] === undefined) {{
+          return 0;
+        }}
+        return v === null || v === undefined ? 0 : v;
+      }});
+      new Chart(document.getElementById(canvasId), {{
+        type: "bar",
+        data: {{
+          labels: labels,
+          datasets: [
+            {{
+              label: "Rapporto lavorato (V)",
+              data: lav,
+              backgroundColor: "rgba(26,86,219,0.78)",
+              stack: "vk"
+            }},
+            {{
+              label: "Rapporto attesa (K)",
+              data: att,
+              backgroundColor: "rgba(245,158,11,0.85)",
+              stack: "vk"
+            }}
+          ]
+        }},
+        options: Object.assign({{}}, baseOpts, {{
+          indexAxis: "y",
+          plugins: {{
+            legend: {{ position: "top" }},
+            tooltip: {{
+              callbacks: {{
+                label: function(ctx) {{
+                  const pct = Math.round((ctx.raw || 0) * 1000) / 10;
+                  return ctx.dataset.label + ": " + pct + "%";
+                }},
+                afterBody: function(items) {{
+                  if (!items.length) {{
+                    return "";
+                  }}
+                  const i = items[0].dataIndex;
+                  const v = block.ore_lavorate[i];
+                  const k = block.ore_attesa[i];
+                  const vTxt = v === null || v === undefined ? "n/d" : v + " h";
+                  const kTxt = k === null || k === undefined ? "n/d" : k + " h";
+                  return "V = " + vTxt + ", K = " + kTxt;
+                }}
+              }}
+            }}
+          }},
+          scales: {{
+            x: {{
+              stacked: true,
+              min: 0,
+              max: 1,
+              title: {{ display: true, text: "Quota su V+K" }},
+              ticks: {{
+                callback: function(v) {{ return Math.round(v * 100) + "%"; }}
+              }}
+            }},
+            y: {{
+              stacked: true,
+              ticks: {{ autoSkip: false, font: {{ size: 11 }} }}
+            }}
+          }}
+        }})
+      }});
+    }}
+
     const ratioAll = S.ratio_all || {{ labels: [], values: [], done: [] }};
     const ratioAllWrap = document.getElementById("chart-stima-ratio-all-wrap");
-    const ratioAllN = ratioAll.labels.length;
-    if (ratioAllWrap) {{
-      ratioAllWrap.style.height = Math.max(400, ratioAllN * 30) + "px";
-    }}
+    impostaAltezzaGraficoAcronimi(ratioAllWrap, ratioAll.labels.length);
     const ratioAllValues = (ratioAll.values || []).map(function(v) {{
       return v === null || v === undefined ? null : v;
     }});
@@ -3154,6 +3295,17 @@ def genera_html_jkan(
       delta.labels,
       ratios,
       ratios.map(function() {{ return "rgba(26,86,219,0.65)"; }})
+    );
+
+    chartLavoratoAttesa(
+      document.getElementById("chart-lavorato-attesa-done-wrap"),
+      "chart-lavorato-attesa-done",
+      S.lavorato_attesa_done || {{}}
+    );
+    chartLavoratoAttesa(
+      document.getElementById("chart-lavorato-attesa-all-wrap"),
+      "chart-lavorato-attesa-all",
+      S.lavorato_attesa_all || {{}}
     );
   }})();
 {js_colonne}
