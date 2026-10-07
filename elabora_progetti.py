@@ -40,8 +40,8 @@ Configurazione (cartella dello script):
                      - nome progetto PSA (Project: Project Name) → tab progetti;
                      - codice interno (colonna A, Tabella di Export) → tab Export/HTML.
                      I calcoli e il foglio dati includono sempre tutte le righe sorgente.
-    .prjDB.json     Metadati RHProj (cwd di lancio); Opportunity, End Date, giorni
-                     Consulting riscattati/usati; creato/aggiornato interattivamente.
+    .prjDB.json     Per ogni nuovo Project Name (cwd di lancio): Opportunity, End Date,
+                     Days redempted Consulting; progetti già censiti riusano il JSON.
 """
 
 import argparse
@@ -253,7 +253,6 @@ PRJ_DB_CAMPI = (
     ("opportunity", "Opportunity (col. C)"),
     ("end_date", "End Date (col. D)"),
     ("days_redempted_consulting", "Days redempted — Consulting (col. F)"),
-    ("days_used_consulting", "Days Used — Consulting (col. H)"),
 )
 
 
@@ -311,11 +310,19 @@ def _parse_prj_db_numero(testo):
     return float(t.replace(",", "."))
 
 
+def progetto_completo_in_prj_db(db, project_name):
+    """True se il Project Name ha in .prjDB tutti i campi richiesti."""
+    if project_name not in db:
+        return False
+    entry = db[project_name]
+    return all(_prj_db_valore_presente(entry.get(key)) for key, _ in PRJ_DB_CAMPI)
+
+
 def completa_entry_prj_db(db, project_name):
     """Richiede su stdin i campi mancanti; ritorna True se il DB è stato aggiornato."""
     entry = db.setdefault(project_name, {})
     modified = False
-    campi_numerici = {"days_redempted_consulting", "days_used_consulting"}
+    campi_numerici = {"days_redempted_consulting"}
     for key, label in PRJ_DB_CAMPI:
         if _prj_db_valore_presente(entry.get(key)):
             continue
@@ -1092,18 +1099,16 @@ def _metriche_rhproj_per_progetto(
     col_actual,
     config,
     contratti_idx,
-    prj_db,
+    meta,
 ):
-    """Campi C–K RHProj per Project Name (.prjDB + calcoli su tutte le righe dati del progetto)."""
-    completa_entry_prj_db(prj_db, proj)
-    meta = prj_db[proj]
-
+    """Campi C–K RHProj: C,D,F da .prjDB; E,G,H da config/calcoli sulle righe dati."""
     df_p_full = df_dati_comp[df_dati_comp[col_proj] == proj]
     df_p_calc = df_per_detrazione_giornate(
         df_per_calc[df_per_calc[col_proj] == proj], col_role_name
     )
     pm_mask = df_p_calc["RifInterno PSA"].str.contains("@pm|@pc", case=False, na=False)
     giorni_pm = float(df_p_calc.loc[pm_mask, col_actual].sum()) / 8.0
+    giorni_cons = float(df_p_calc.loc[~pm_mask, col_actual].sum()) / 8.0
 
     rif_val_raw = df_p_full.iloc[0]["Riferimento tabella 1"]
     rif_val = str(rif_val_raw) if pd.notna(rif_val_raw) else ""
@@ -1123,7 +1128,7 @@ def _metriche_rhproj_per_progetto(
         "E": giorni_pm_red,
         "F": meta["days_redempted_consulting"],
         "G": giorni_pm,
-        "H": meta["days_used_consulting"],
+        "H": giorni_cons,
         "I": "",
         "J": "",
         "K": rif_val,
@@ -1141,10 +1146,11 @@ def prepara_righe_rhproj(
     prj_db,
     col_opa_idx=1,
 ):
-    """Una riga RHProj per ogni riga del tab dati con Project Name valorizzato."""
+    """Una riga RHProj per riga dati; .prjDB: nuova entry solo per Project Name non ancora censito."""
     col_opa = df_dati_comp.columns[col_opa_idx]
     rows_rhproj = []
     metriche_cache = {}
+    progetti_nuovi_db = 0
 
     for _, row in df_dati_comp.iterrows():
         if pd.isna(row[col_proj]):
@@ -1153,6 +1159,23 @@ def prepara_righe_rhproj(
         if not proj:
             continue
         if proj not in metriche_cache:
+            if progetto_completo_in_prj_db(prj_db, proj):
+                log.info(
+                    "RHProj: Project Name già in %s, riuso valori salvati: %r",
+                    PRJ_DB_NOME_FILE,
+                    proj,
+                )
+            else:
+                era_nuovo = proj not in prj_db
+                log.info(
+                    "RHProj: %s in %s, richiesta dati mancanti: %r",
+                    "nuovo Project Name" if era_nuovo else "Project Name incompleto",
+                    PRJ_DB_NOME_FILE,
+                    proj,
+                )
+                completa_entry_prj_db(prj_db, proj)
+                if era_nuovo:
+                    progetti_nuovi_db += 1
             metriche_cache[proj] = _metriche_rhproj_per_progetto(
                 proj,
                 df_dati_comp,
@@ -1162,7 +1185,7 @@ def prepara_righe_rhproj(
                 col_actual,
                 config,
                 contratti_idx,
-                prj_db,
+                prj_db[proj],
             )
         rows_rhproj.append(
             {
@@ -1173,10 +1196,12 @@ def prepara_righe_rhproj(
         )
 
     log.info(
-        "RHProj: %d righe (allineate alle righe dati con Project Name); "
-        "%d Project Name distinti, .prjDB aggiornato per ciascuno.",
+        "RHProj: %d righe dati con Project Name; %d Project Name distinti "
+        "(%d nuovi in %s in questa esecuzione).",
         len(rows_rhproj),
         len(metriche_cache),
+        progetti_nuovi_db,
+        PRJ_DB_NOME_FILE,
     )
 
     if prj_db and not os.path.exists(percorso_prj_db()):
