@@ -4,7 +4,7 @@ elabora_progetti.py — Report settimanale risorse consulenza Red Hat Italy
 Legge un file Excel di input (export da PSA/pianificazione) e produce un file
 Excel di output multi-foglio con:
   - dati     : dati sorgente arricchiti con colonne derivate
-  - RHProj   : come progetti; intestazione col. A «Project Name» (righe 9–10)
+  - RHProj   : una riga per Project Name (da tab dati); metadati in .prjDB.json
   - progetti : riepilogo contratti con giorni consuntivati vs. riscattati
   - Riepilogo Settimanale : pivot actual/estimated per attività e settimana
   - Dettaglio Ruoli       : pivot estimated con breakdown per ruolo/milestone
@@ -40,6 +40,8 @@ Configurazione (cartella dello script):
                      - nome progetto PSA (Project: Project Name) → tab progetti;
                      - codice interno (colonna A, Tabella di Export) → tab Export/HTML.
                      I calcoli e il foglio dati includono sempre tutte le righe sorgente.
+    .prjDB.json     Metadati RHProj per Project Name (Opportunity, End Date, giorni
+                     Consulting riscattati/usati); creato/aggiornato interattivamente.
 """
 
 import argparse
@@ -237,6 +239,111 @@ def carica_prj_ignore(nome_file='.prjIgnore'):
             if line and not line.startswith('#'):
                 progetti.add(line)
     return progetti
+
+
+PRJ_DB_NOME_FILE = ".prjDB.json"
+PRJ_DB_CAMPI = (
+    ("opportunity", "Opportunity (col. C)"),
+    ("end_date", "End Date (col. D)"),
+    ("days_redempted_consulting", "Days redempted — Consulting (col. F)"),
+    ("days_used_consulting", "Days Used — Consulting (col. H)"),
+)
+
+
+def carica_prj_db(path=None):
+    """Carica il database progetti RHProj (dict indicizzato per Project Name)."""
+    if path is None:
+        path = risolvi_config(PRJ_DB_NOME_FILE)
+    if not os.path.exists(path):
+        return {}
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError(f"{path}: atteso un oggetto JSON con chiavi Project Name.")
+    return data
+
+
+def salva_prj_db(db, path=None):
+    """Salva .prjDB.json con indentazione leggibile."""
+    if path is None:
+        path = risolvi_config(PRJ_DB_NOME_FILE)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(db, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+
+
+def _prj_db_valore_presente(val):
+    if val is None:
+        return False
+    if isinstance(val, str) and not val.strip():
+        return False
+    return True
+
+
+def completa_entry_prj_db(db, project_name):
+    """Richiede su stdin i campi mancanti; ritorna True se il DB è stato aggiornato."""
+    entry = db.setdefault(project_name, {})
+    modified = False
+    for key, label in PRJ_DB_CAMPI:
+        if _prj_db_valore_presente(entry.get(key)):
+            continue
+        log.info(
+            "Manca in %s per progetto %r: %s",
+            PRJ_DB_NOME_FILE,
+            project_name,
+            label,
+        )
+        try:
+            risposta = input(f"{project_name} — {label}: ").strip()
+        except EOFError:
+            raise SystemExit(
+                f"Esecuzione interrotta: manca '{key}' per {project_name!r} in "
+                f"{PRJ_DB_NOME_FILE} (input non interattivo)."
+            ) from None
+        if not risposta:
+            raise SystemExit(
+                f"Esecuzione interrotta: valore obbligatorio per {project_name!r} ({label})."
+            )
+        if key in ("days_redempted_consulting", "days_used_consulting"):
+            try:
+                entry[key] = float(risposta.replace(",", "."))
+            except ValueError:
+                raise SystemExit(
+                    f"Valore numerico atteso per {label}: {risposta!r}"
+                ) from None
+        else:
+            entry[key] = risposta
+        modified = True
+    return modified
+
+
+def progetti_in_ordine_prima_comparsa(df, col_proj):
+    """Project Name unici nell'ordine di prima comparsa nel foglio dati."""
+    ordered = []
+    seen = set()
+    for val in df[col_proj]:
+        if pd.isna(val):
+            continue
+        name = str(val).strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        ordered.append(name)
+    return ordered
+
+
+def opa_number_per_progetto(df, col_proj, col_opa):
+    """Primo valore colonna OPA (B) incontrato per ogni Project Name."""
+    mapping = {}
+    for _, row in df.iterrows():
+        if pd.isna(row[col_proj]):
+            continue
+        name = str(row[col_proj]).strip()
+        if not name or name in mapping:
+            continue
+        mapping[name] = row[col_opa]
+    return mapping
+
 
 def escludi_progetti_ignorati(df, col_proj, progetti_ignorati):
     """Rimuove righe il cui progetto compare in progetti_ignorati."""
@@ -956,6 +1063,68 @@ def prepara_righe_progetti(df_src, df_dati_comp, df_per_calc, col_proj, col_role
         })
     return rows_progetti
 
+
+def prepara_righe_rhproj(
+    df_dati_comp,
+    df_per_calc,
+    col_proj,
+    col_role_name,
+    col_actual,
+    config,
+    contratti_idx,
+    prj_db,
+    col_opa_idx=1,
+):
+    """Righe foglio RHProj: un Project Name per riga dati; B da col. B; C,D,F,H da .prjDB.json."""
+    col_opa = df_dati_comp.columns[col_opa_idx]
+    opa_map = opa_number_per_progetto(df_dati_comp, col_proj, col_opa)
+    db_modified = False
+    rows_rhproj = []
+
+    for proj in progetti_in_ordine_prima_comparsa(df_dati_comp, col_proj):
+        if completa_entry_prj_db(prj_db, proj):
+            db_modified = True
+        meta = prj_db[proj]
+
+        df_p_full = df_dati_comp[df_dati_comp[col_proj] == proj]
+        df_p_calc = df_per_detrazione_giornate(
+            df_per_calc[df_per_calc[col_proj] == proj], col_role_name
+        )
+        pm_mask = df_p_calc["RifInterno PSA"].str.contains("@pm|@pc", case=False, na=False)
+        giorni_pm = float(df_p_calc.loc[pm_mask, col_actual].sum()) / 8.0
+
+        rif_val_raw = df_p_full.iloc[0]["Riferimento tabella 1"]
+        rif_val = str(rif_val_raw) if pd.notna(rif_val_raw) else ""
+
+        red_s = trova_valore_config(proj, contratti_idx, config, "DaysRedempted")
+        if red_s and "," in red_s:
+            try:
+                giorni_pm_red = float(red_s.split(",")[0].strip())
+            except ValueError:
+                giorni_pm_red = 0.0
+        else:
+            giorni_pm_red = 0.0
+
+        rows_rhproj.append(
+            {
+                "A": proj,
+                "B": opa_map.get(proj),
+                "C": meta["opportunity"],
+                "D": meta["end_date"],
+                "E": giorni_pm_red,
+                "F": meta["days_redempted_consulting"],
+                "G": giorni_pm,
+                "H": meta["days_used_consulting"],
+                "I": "",
+                "J": "",
+                "K": rif_val,
+            }
+        )
+
+    if db_modified:
+        salva_prj_db(prj_db)
+    return rows_rhproj
+
 # --- SCRITTURA FOGLI BASE ---
 
 def formatta_assegnazione_dati(ws, df_dati_out, idx_col_assegnazione=2):
@@ -983,7 +1152,7 @@ def evidenzia_progetti_prj_ignore_dettaglio_ruoli(ws_dr, data_start_row, ultima_
             ws_dr.cell(row=r, column=c).fill = FILLS_GRIGIO_PRJ_IGNORE
 
 
-def scrivi_fogli_base(file_output, df_dati_comp, rows_progetti):
+def scrivi_fogli_base(file_output, df_dati_comp, rows_progetti, rows_rhproj):
     """Scrive i fogli con dati grezzi nel file di output.
 
     I fogli Riepilogo Settimanale, Dettaglio Ruoli, Tentative e Tabella di Export vengono
@@ -997,10 +1166,11 @@ def scrivi_fogli_base(file_output, df_dati_comp, rows_progetti):
         file_output:    percorso del file Excel da creare/sovrascrivere.
         df_dati_comp:   DataFrame arricchito (senza la colonna temporanea sett_calc).
         rows_progetti:  lista di dict prodotta da prepara_righe_progetti.
+        rows_rhproj:    lista di dict prodotta da prepara_righe_rhproj.
     """
     with pd.ExcelWriter(file_output, engine='openpyxl') as writer:
         df_dati_comp.drop(columns=['sett_calc']).to_excel(writer, sheet_name='dati', index=False, startrow=0)
-        pd.DataFrame(rows_progetti).to_excel(writer, sheet_name='RHProj', index=False, startrow=10, header=False)
+        pd.DataFrame(rows_rhproj).to_excel(writer, sheet_name='RHProj', index=False, startrow=10, header=False)
         pd.DataFrame(rows_progetti).to_excel(writer, sheet_name='progetti', index=False, startrow=10, header=False)
         pd.DataFrame().to_excel(writer, sheet_name='Riepilogo Settimanale', index=False)
         pd.DataFrame().to_excel(writer, sheet_name='Dettaglio Ruoli', index=False)
@@ -3081,8 +3251,20 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
         log_prj_ignore(progetti_ignorati, config, col_proj, df_dati_comp_full)
         rows_progetti_tab = escludi_righe_progetti_ignorati(rows_progetti, progetti_ignorati)
 
+        prj_db = carica_prj_db()
+        rows_rhproj = prepara_righe_rhproj(
+            df_dati_comp_full,
+            df_per_calc,
+            col_proj,
+            col_role_name,
+            col_actual,
+            config,
+            contratti_idx,
+            prj_db,
+        )
+
         log.info("2. Scrittura fogli base...")
-        scrivi_fogli_base(file_output, df_dati_comp_full, rows_progetti_tab)
+        scrivi_fogli_base(file_output, df_dati_comp_full, rows_progetti_tab, rows_rhproj)
 
         log.info("3. Applicazione formattazione e dati mancanti...")
         wb = load_workbook(file_output)
@@ -3115,7 +3297,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
         formatta_tab_progetti(
             wb['RHProj'],
             config,
-            rows_progetti_tab,
+            rows_rhproj,
             weeks_limit_active,
             bold,
             center,
