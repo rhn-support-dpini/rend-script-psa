@@ -277,6 +277,7 @@ def salva_prj_db(db, path=None):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(db, f, ensure_ascii=False, indent=2)
         f.write("\n")
+    log.info("Salvato %s", os.path.abspath(path))
 
 
 def _prj_db_valore_presente(val):
@@ -287,69 +288,80 @@ def _prj_db_valore_presente(val):
     return True
 
 
+_PRJ_DB_PAROLE_NUMERO = {
+    "zero": 0,
+    "uno": 1,
+    "due": 2,
+    "tre": 3,
+    "quattro": 4,
+    "cinque": 5,
+    "sei": 6,
+    "sette": 7,
+    "otto": 8,
+    "nove": 9,
+    "dieci": 10,
+}
+
+
+def _parse_prj_db_numero(testo):
+    """Converte input utente in float (cifre, virgola decimale o parole italiane base)."""
+    t = testo.strip().lower()
+    if t in _PRJ_DB_PAROLE_NUMERO:
+        return float(_PRJ_DB_PAROLE_NUMERO[t])
+    return float(t.replace(",", "."))
+
+
 def completa_entry_prj_db(db, project_name):
     """Richiede su stdin i campi mancanti; ritorna True se il DB è stato aggiornato."""
     entry = db.setdefault(project_name, {})
     modified = False
+    campi_numerici = {"days_redempted_consulting", "days_used_consulting"}
     for key, label in PRJ_DB_CAMPI:
         if _prj_db_valore_presente(entry.get(key)):
             continue
-        log.info(
-            "Manca in %s per progetto %r: %s",
-            PRJ_DB_NOME_FILE,
-            project_name,
-            label,
-        )
-        try:
-            risposta = input(f"{project_name} — {label}: ").strip()
-        except EOFError:
-            raise SystemExit(
-                f"Esecuzione interrotta: manca '{key}' per {project_name!r} in "
-                f"{PRJ_DB_NOME_FILE} (input non interattivo)."
-            ) from None
-        if not risposta:
-            raise SystemExit(
-                f"Esecuzione interrotta: valore obbligatorio per {project_name!r} ({label})."
+        while True:
+            print()
+            log.info(
+                "Manca in %s per progetto %r: %s",
+                PRJ_DB_NOME_FILE,
+                project_name,
+                label,
             )
-        if key in ("days_redempted_consulting", "days_used_consulting"):
+            log.info("Percorso file: %s", os.path.abspath(percorso_prj_db()))
+            if key in campi_numerici:
+                log.info(
+                    "Inserire un numero di giorni (es. 120, 12,5; accettate anche parole "
+                    "zero–dieci in italiano)."
+                )
             try:
-                entry[key] = float(risposta.replace(",", "."))
-            except ValueError:
+                risposta = input(f"{project_name} — {label}: ").strip()
+            except EOFError:
                 raise SystemExit(
-                    f"Valore numerico atteso per {label}: {risposta!r}"
+                    f"Esecuzione interrotta: manca '{key}' per {project_name!r} in "
+                    f"{PRJ_DB_NOME_FILE} (input non interattivo)."
                 ) from None
-        else:
-            entry[key] = risposta
+            if not risposta:
+                print()
+                log.warning("Valore obbligatorio; riprovare.")
+                continue
+            if key in campi_numerici:
+                try:
+                    valore = _parse_prj_db_numero(risposta)
+                except ValueError:
+                    print()
+                    log.warning(
+                        "Valore numerico non valido per %s (ricevuto %r). Riprova.",
+                        label,
+                        risposta,
+                    )
+                    continue
+                entry[key] = valore
+            else:
+                entry[key] = risposta
+            break
         modified = True
+        salva_prj_db(db)
     return modified
-
-
-def progetti_in_ordine_prima_comparsa(df, col_proj):
-    """Project Name unici nell'ordine di prima comparsa nel foglio dati."""
-    ordered = []
-    seen = set()
-    for val in df[col_proj]:
-        if pd.isna(val):
-            continue
-        name = str(val).strip()
-        if not name or name in seen:
-            continue
-        seen.add(name)
-        ordered.append(name)
-    return ordered
-
-
-def opa_number_per_progetto(df, col_proj, col_opa):
-    """Primo valore colonna OPA (B) incontrato per ogni Project Name."""
-    mapping = {}
-    for _, row in df.iterrows():
-        if pd.isna(row[col_proj]):
-            continue
-        name = str(row[col_proj]).strip()
-        if not name or name in mapping:
-            continue
-        mapping[name] = row[col_opa]
-    return mapping
 
 
 def escludi_progetti_ignorati(df, col_proj, progetti_ignorati):
@@ -1071,6 +1083,53 @@ def prepara_righe_progetti(df_src, df_dati_comp, df_per_calc, col_proj, col_role
     return rows_progetti
 
 
+def _metriche_rhproj_per_progetto(
+    proj,
+    df_dati_comp,
+    df_per_calc,
+    col_proj,
+    col_role_name,
+    col_actual,
+    config,
+    contratti_idx,
+    prj_db,
+):
+    """Campi C–K RHProj per Project Name (.prjDB + calcoli su tutte le righe dati del progetto)."""
+    completa_entry_prj_db(prj_db, proj)
+    meta = prj_db[proj]
+
+    df_p_full = df_dati_comp[df_dati_comp[col_proj] == proj]
+    df_p_calc = df_per_detrazione_giornate(
+        df_per_calc[df_per_calc[col_proj] == proj], col_role_name
+    )
+    pm_mask = df_p_calc["RifInterno PSA"].str.contains("@pm|@pc", case=False, na=False)
+    giorni_pm = float(df_p_calc.loc[pm_mask, col_actual].sum()) / 8.0
+
+    rif_val_raw = df_p_full.iloc[0]["Riferimento tabella 1"]
+    rif_val = str(rif_val_raw) if pd.notna(rif_val_raw) else ""
+
+    red_s = trova_valore_config(proj, contratti_idx, config, "DaysRedempted")
+    if red_s and "," in red_s:
+        try:
+            giorni_pm_red = float(red_s.split(",")[0].strip())
+        except ValueError:
+            giorni_pm_red = 0.0
+    else:
+        giorni_pm_red = 0.0
+
+    return {
+        "C": meta["opportunity"],
+        "D": meta["end_date"],
+        "E": giorni_pm_red,
+        "F": meta["days_redempted_consulting"],
+        "G": giorni_pm,
+        "H": meta["days_used_consulting"],
+        "I": "",
+        "J": "",
+        "K": rif_val,
+    }
+
+
 def prepara_righe_rhproj(
     df_dati_comp,
     df_per_calc,
@@ -1082,53 +1141,45 @@ def prepara_righe_rhproj(
     prj_db,
     col_opa_idx=1,
 ):
-    """Righe foglio RHProj: un Project Name per riga dati; B da col. B; C,D,F,H da .prjDB.json."""
+    """Una riga RHProj per ogni riga del tab dati con Project Name valorizzato."""
     col_opa = df_dati_comp.columns[col_opa_idx]
-    opa_map = opa_number_per_progetto(df_dati_comp, col_proj, col_opa)
-    db_modified = False
     rows_rhproj = []
+    metriche_cache = {}
 
-    for proj in progetti_in_ordine_prima_comparsa(df_dati_comp, col_proj):
-        if completa_entry_prj_db(prj_db, proj):
-            db_modified = True
-        meta = prj_db[proj]
-
-        df_p_full = df_dati_comp[df_dati_comp[col_proj] == proj]
-        df_p_calc = df_per_detrazione_giornate(
-            df_per_calc[df_per_calc[col_proj] == proj], col_role_name
-        )
-        pm_mask = df_p_calc["RifInterno PSA"].str.contains("@pm|@pc", case=False, na=False)
-        giorni_pm = float(df_p_calc.loc[pm_mask, col_actual].sum()) / 8.0
-
-        rif_val_raw = df_p_full.iloc[0]["Riferimento tabella 1"]
-        rif_val = str(rif_val_raw) if pd.notna(rif_val_raw) else ""
-
-        red_s = trova_valore_config(proj, contratti_idx, config, "DaysRedempted")
-        if red_s and "," in red_s:
-            try:
-                giorni_pm_red = float(red_s.split(",")[0].strip())
-            except ValueError:
-                giorni_pm_red = 0.0
-        else:
-            giorni_pm_red = 0.0
-
+    for _, row in df_dati_comp.iterrows():
+        if pd.isna(row[col_proj]):
+            continue
+        proj = str(row[col_proj]).strip()
+        if not proj:
+            continue
+        if proj not in metriche_cache:
+            metriche_cache[proj] = _metriche_rhproj_per_progetto(
+                proj,
+                df_dati_comp,
+                df_per_calc,
+                col_proj,
+                col_role_name,
+                col_actual,
+                config,
+                contratti_idx,
+                prj_db,
+            )
         rows_rhproj.append(
             {
                 "A": proj,
-                "B": opa_map.get(proj),
-                "C": meta["opportunity"],
-                "D": meta["end_date"],
-                "E": giorni_pm_red,
-                "F": meta["days_redempted_consulting"],
-                "G": giorni_pm,
-                "H": meta["days_used_consulting"],
-                "I": "",
-                "J": "",
-                "K": rif_val,
+                "B": row[col_opa],
+                **metriche_cache[proj],
             }
         )
 
-    if db_modified:
+    log.info(
+        "RHProj: %d righe (allineate alle righe dati con Project Name); "
+        "%d Project Name distinti, .prjDB aggiornato per ciascuno.",
+        len(rows_rhproj),
+        len(metriche_cache),
+    )
+
+    if prj_db and not os.path.exists(percorso_prj_db()):
         salva_prj_db(prj_db)
     return rows_rhproj
 
