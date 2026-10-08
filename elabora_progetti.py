@@ -1261,29 +1261,30 @@ def prepara_tabella_user(df, col_proj, col_actual, prj_db=None):
     )
     righe = []
     for _, row in gruppo.iterrows():
+        giornate = float(row["_giornate"])
+        if giornate == 0:
+            continue
         righe.append(
             {
                 "Risorsa": row[col_risorsa],
                 "progetto": row[col_proj],
                 "sotto-progetto": row[col_sotto],
-                "giornate": float(row["_giornate"]),
+                "giornate": giornate,
             }
         )
     return righe
 
 
-def formatta_foglio_user(ws, bold, center):
-    """Intestazioni tab User e allineamento colonne."""
+def formatta_foglio_user(ws, bold, left):
+    """Intestazioni tab User e allineamento colonne a sinistra."""
     for col_idx, titolo in enumerate(USER_COLONNE, start=1):
         cella = ws.cell(row=1, column=col_idx)
         cella.value = titolo
         cella.font = bold
-        cella.alignment = center
+        cella.alignment = left
     for row in range(2, ws.max_row + 1):
-        ws.cell(row=row, column=1).alignment = center
-        ws.cell(row=row, column=2).alignment = center
-        ws.cell(row=row, column=3).alignment = center
-        ws.cell(row=row, column=4).alignment = center
+        for col_idx in range(1, len(USER_COLONNE) + 1):
+            ws.cell(row=row, column=col_idx).alignment = left
 
 # --- SCRITTURA FOGLI BASE ---
 
@@ -3455,6 +3456,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
 
         bold = Font(bold=True)
         center = Alignment(horizontal='center', vertical='center')
+        left = Alignment(horizontal='left', vertical='center')
         right_align = Alignment(horizontal='right', vertical='center')
         red_thick = Side(style='thick', color='FF0000')
         green_fill = PatternFill(fill_type="solid", fgColor="C6EFCE")
@@ -3471,7 +3473,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
             center,
             col_a_header="Project Name",
         )
-        formatta_foglio_user(wb['User'], bold, center)
+        formatta_foglio_user(wb['User'], bold, left)
         formatta_tab_progetti(wb['progetti'], config, rows_progetti_tab, weeks_limit_active, bold, center)
         # Colonne K e L del sorgente contengono lo stato di schedulazione e commit/exclude
         col_status_k = df_dati_comp_full.columns[10]
