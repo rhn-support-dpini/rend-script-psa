@@ -5,7 +5,7 @@ Legge un file Excel di input (export da PSA/pianificazione) e produce un file
 Excel di output multi-foglio con:
   - dati     : dati sorgente arricchiti con colonne derivate
   - RHProj   : una riga per Project Name (da tab dati); metadati in .prjDB.json
-  - User     : giornate per Risorsa / progetto / sotto-progetto (da tab dati)
+  - User     : giornate lavorate e stimate per Risorsa / progetto / sotto-progetto
   - progetti : riepilogo contratti con giorni consuntivati vs. riscattati
   - Riepilogo Settimanale : pivot actual/estimated per attività e settimana
   - Dettaglio Ruoli       : pivot estimated con breakdown per ruolo/milestone
@@ -1229,7 +1229,13 @@ def prepara_righe_rhproj(
     return rows_rhproj
 
 
-USER_COLONNE = ["Risorsa", "progetto", "sotto-progetto", "giornate"]
+USER_COLONNE = [
+    "Risorsa",
+    "progetto",
+    "sotto-progetto",
+    "giornate lavorate/consuntivate",
+    "giornate previste/stimate",
+]
 
 
 def _colonna_risorsa_user(df):
@@ -1238,12 +1244,19 @@ def _colonna_risorsa_user(df):
     return "Nome risorsa"
 
 
-def prepara_tabella_user(df, col_proj, col_actual, prj_db=None):
-    """Aggrega giornate (ore consuntivate / 8) per risorsa, progetto e sotto-progetto."""
+def prepara_tabella_user(df, col_proj, col_actual, col_estimated, prj_db=None):
+    """Aggrega giornate consuntivate e stimate (/ 8) per risorsa, progetto e sotto-progetto."""
     col_risorsa = _colonna_risorsa_user(df)
     col_sotto = "Sotto progetto"
+    col_lavorate = USER_COLONNE[3]
+    col_stimate = USER_COLONNE[4]
     tmp = df.copy()
-    tmp["_giornate"] = pd.to_numeric(tmp[col_actual], errors="coerce").fillna(0.0) / 8.0
+    tmp["_giornate_lavorate"] = (
+        pd.to_numeric(tmp[col_actual], errors="coerce").fillna(0.0) / 8.0
+    )
+    tmp["_giornate_stimate"] = (
+        pd.to_numeric(tmp[col_estimated], errors="coerce").fillna(0.0) / 8.0
+    )
     mask_risorsa = tmp[col_risorsa].astype(str).str.strip().ne("") & tmp[col_risorsa].notna()
     tmp = tmp.loc[mask_risorsa]
     if prj_db is not None:
@@ -1254,22 +1267,26 @@ def prepara_tabella_user(df, col_proj, col_actual, prj_db=None):
     if tmp.empty:
         return []
     gruppo = (
-        tmp.groupby([col_risorsa, col_proj, col_sotto], dropna=False)["_giornate"]
+        tmp.groupby([col_risorsa, col_proj, col_sotto], dropna=False)[
+            ["_giornate_lavorate", "_giornate_stimate"]
+        ]
         .sum()
         .reset_index()
         .sort_values([col_risorsa, col_proj, col_sotto], kind="stable")
     )
     righe = []
     for _, row in gruppo.iterrows():
-        giornate = float(row["_giornate"])
-        if giornate == 0:
+        giornate_lavorate = float(row["_giornate_lavorate"])
+        giornate_stimate = float(row["_giornate_stimate"])
+        if giornate_lavorate == 0:
             continue
         righe.append(
             {
                 "Risorsa": row[col_risorsa],
                 "progetto": row[col_proj],
                 "sotto-progetto": row[col_sotto],
-                "giornate": giornate,
+                col_lavorate: giornate_lavorate,
+                col_stimate: giornate_stimate,
             }
         )
     return righe
@@ -3426,7 +3443,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
             prj_db,
         )
         rows_user = prepara_tabella_user(
-            df_dati_comp_full, col_proj, col_actual, prj_db
+            df_dati_comp_full, col_proj, col_actual, col_estimated, prj_db
         )
         log.info("Tab User: %d righe aggregate (Risorsa / progetto / sotto-progetto).", len(rows_user))
 
