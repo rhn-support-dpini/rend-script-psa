@@ -5,6 +5,7 @@ Legge un file Excel di input (export da PSA/pianificazione) e produce un file
 Excel di output multi-foglio con:
   - dati     : dati sorgente arricchiti con colonne derivate
   - RHProj   : una riga per Project Name (da tab dati); metadati in .prjDB.json
+  - User     : giornate per Risorsa / progetto / sotto-progetto (da tab dati)
   - progetti : riepilogo contratti con giorni consuntivati vs. riscattati
   - Riepilogo Settimanale : pivot actual/estimated per attività e settimana
   - Dettaglio Ruoli       : pivot estimated con breakdown per ruolo/milestone
@@ -1217,6 +1218,58 @@ def prepara_righe_rhproj(
         salva_prj_db(prj_db)
     return rows_rhproj
 
+
+USER_COLONNE = ["Risorsa", "progetto", "sotto-progetto", "giornate"]
+
+
+def _colonna_risorsa_user(df):
+    if "Resource: Full Name" in df.columns:
+        return "Resource: Full Name"
+    return "Nome risorsa"
+
+
+def prepara_tabella_user(df, col_proj, col_actual):
+    """Aggrega giornate (ore consuntivate / 8) per risorsa, progetto e sotto-progetto."""
+    col_risorsa = _colonna_risorsa_user(df)
+    col_sotto = "Sotto progetto"
+    tmp = df.copy()
+    tmp["_giornate"] = pd.to_numeric(tmp[col_actual], errors="coerce").fillna(0.0) / 8.0
+    mask_risorsa = tmp[col_risorsa].astype(str).str.strip().ne("") & tmp[col_risorsa].notna()
+    tmp = tmp.loc[mask_risorsa]
+    if tmp.empty:
+        return []
+    gruppo = (
+        tmp.groupby([col_risorsa, col_proj, col_sotto], dropna=False)["_giornate"]
+        .sum()
+        .reset_index()
+        .sort_values([col_risorsa, col_proj, col_sotto], kind="stable")
+    )
+    righe = []
+    for _, row in gruppo.iterrows():
+        righe.append(
+            {
+                "Risorsa": row[col_risorsa],
+                "progetto": row[col_proj],
+                "sotto-progetto": row[col_sotto],
+                "giornate": float(row["_giornate"]),
+            }
+        )
+    return righe
+
+
+def formatta_foglio_user(ws, bold, center):
+    """Intestazioni tab User e allineamento colonne."""
+    for col_idx, titolo in enumerate(USER_COLONNE, start=1):
+        cella = ws.cell(row=1, column=col_idx)
+        cella.value = titolo
+        cella.font = bold
+        cella.alignment = center
+    for row in range(2, ws.max_row + 1):
+        ws.cell(row=row, column=1).alignment = center
+        ws.cell(row=row, column=2).alignment = center
+        ws.cell(row=row, column=3).alignment = center
+        ws.cell(row=row, column=4).alignment = center
+
 # --- SCRITTURA FOGLI BASE ---
 
 def formatta_assegnazione_dati(ws, df_dati_out, idx_col_assegnazione=2):
@@ -1244,7 +1297,7 @@ def evidenzia_progetti_prj_ignore_dettaglio_ruoli(ws_dr, data_start_row, ultima_
             ws_dr.cell(row=r, column=c).fill = FILLS_GRIGIO_PRJ_IGNORE
 
 
-def scrivi_fogli_base(file_output, df_dati_comp, rows_progetti, rows_rhproj):
+def scrivi_fogli_base(file_output, df_dati_comp, rows_progetti, rows_rhproj, rows_user):
     """Scrive i fogli con dati grezzi nel file di output.
 
     I fogli Riepilogo Settimanale, Dettaglio Ruoli, Tentative e Tabella di Export vengono
@@ -1259,10 +1312,14 @@ def scrivi_fogli_base(file_output, df_dati_comp, rows_progetti, rows_rhproj):
         df_dati_comp:   DataFrame arricchito (senza la colonna temporanea sett_calc).
         rows_progetti:  lista di dict prodotta da prepara_righe_progetti.
         rows_rhproj:    lista di dict prodotta da prepara_righe_rhproj.
+        rows_user:      lista di dict prodotta da prepara_tabella_user.
     """
     with pd.ExcelWriter(file_output, engine='openpyxl') as writer:
         df_dati_comp.drop(columns=['sett_calc']).to_excel(writer, sheet_name='dati', index=False, startrow=0)
         pd.DataFrame(rows_rhproj).to_excel(writer, sheet_name='RHProj', index=False, startrow=10, header=False)
+        pd.DataFrame(rows_user, columns=USER_COLONNE).to_excel(
+            writer, sheet_name='User', index=False
+        )
         pd.DataFrame(rows_progetti).to_excel(writer, sheet_name='progetti', index=False, startrow=10, header=False)
         pd.DataFrame().to_excel(writer, sheet_name='Riepilogo Settimanale', index=False)
         pd.DataFrame().to_excel(writer, sheet_name='Dettaglio Ruoli', index=False)
@@ -3352,9 +3409,13 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
             col_actual,
             prj_db,
         )
+        rows_user = prepara_tabella_user(df_dati_comp_full, col_proj, col_actual)
+        log.info("Tab User: %d righe aggregate (Risorsa / progetto / sotto-progetto).", len(rows_user))
 
         log.info("2. Scrittura fogli base...")
-        scrivi_fogli_base(file_output, df_dati_comp_full, rows_progetti_tab, rows_rhproj)
+        scrivi_fogli_base(
+            file_output, df_dati_comp_full, rows_progetti_tab, rows_rhproj, rows_user
+        )
 
         log.info("3. Applicazione formattazione e dati mancanti...")
         wb = load_workbook(file_output)
@@ -3393,6 +3454,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
             center,
             col_a_header="Project Name",
         )
+        formatta_foglio_user(wb['User'], bold, center)
         formatta_tab_progetti(wb['progetti'], config, rows_progetti_tab, weeks_limit_active, bold, center)
         # Colonne K e L del sorgente contengono lo stato di schedulazione e commit/exclude
         col_status_k = df_dati_comp_full.columns[10]
@@ -3445,7 +3507,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
                     col_proj, col_period, col_estimated, file_output,
                     codici_ignorati=progetti_ignorati, progetti_ignorati=progetti_ignorati)
 
-        for sheet_name in ['dati', 'RHProj', 'progetti', 'Riepilogo Settimanale',
+        for sheet_name in ['dati', 'RHProj', 'User', 'progetti', 'Riepilogo Settimanale',
                             'Dettaglio Ruoli', 'Tabella di Export', 'Tentative', 'VERIFICA']:
             autofit_columns(wb[sheet_name])
 
