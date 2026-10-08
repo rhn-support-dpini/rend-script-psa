@@ -5,7 +5,7 @@ Legge un file Excel di input (export da PSA/pianificazione) e produce un file
 Excel di output multi-foglio con:
   - dati     : dati sorgente arricchiti con colonne derivate
   - RHProj   : una riga per Project Name (da tab dati); metadati in .prjDB.json
-  - User     : giornate lavorate e stimate per Risorsa / progetto / sotto-progetto
+  - User     : giornate lavorate e pianificate per Risorsa / progetto / sotto-progetto
   - progetti : riepilogo contratti con giorni consuntivati vs. riscattati
   - Riepilogo Settimanale : pivot actual/estimated per attività e settimana
   - Dettaglio Ruoli       : pivot estimated con breakdown per ruolo/milestone
@@ -1234,7 +1234,7 @@ USER_COLONNE = [
     "progetto",
     "sotto-progetto",
     "giornate lavorate/consuntivate",
-    "giornate previste/stimate",
+    "giornate pianificate",
 ]
 
 
@@ -1245,11 +1245,11 @@ def _colonna_risorsa_user(df):
 
 
 def prepara_tabella_user(df, col_proj, col_actual, col_estimated, prj_db=None):
-    """Aggrega giornate consuntivate e stimate (/ 8) per risorsa, progetto e sotto-progetto."""
+    """Aggrega giornate consuntivate (/ 8) e pianificate (stimate − consuntivate) per gruppo."""
     col_risorsa = _colonna_risorsa_user(df)
     col_sotto = "Sotto progetto"
     col_lavorate = USER_COLONNE[3]
-    col_stimate = USER_COLONNE[4]
+    col_pianificate = USER_COLONNE[4]
     tmp = df.copy()
     tmp["_giornate_lavorate"] = (
         pd.to_numeric(tmp[col_actual], errors="coerce").fillna(0.0) / 8.0
@@ -1286,7 +1286,7 @@ def prepara_tabella_user(df, col_proj, col_actual, col_estimated, prj_db=None):
                 "progetto": row[col_proj],
                 "sotto-progetto": row[col_sotto],
                 col_lavorate: giornate_lavorate,
-                col_stimate: giornate_stimate,
+                col_pianificate: giornate_stimate - giornate_lavorate,
             }
         )
     return righe
