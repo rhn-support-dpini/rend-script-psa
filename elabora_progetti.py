@@ -326,6 +326,16 @@ def rhproj_mostra_in_tabella(meta):
     return str(val).strip().lower() != "n"
 
 
+def prj_db_progetto_visibile(prj_db, project_name):
+    """True se il Project Name non è nascosto (display=n) in .prjDB.json."""
+    if not project_name:
+        return True
+    name = str(project_name).strip()
+    if not prj_db or name not in prj_db:
+        return True
+    return rhproj_mostra_in_tabella(prj_db[name])
+
+
 def progetto_completo_in_prj_db(db, project_name):
     """True se il Project Name ha in .prjDB tutti i campi richiesti."""
     if project_name not in db:
@@ -1228,7 +1238,7 @@ def _colonna_risorsa_user(df):
     return "Nome risorsa"
 
 
-def prepara_tabella_user(df, col_proj, col_actual):
+def prepara_tabella_user(df, col_proj, col_actual, prj_db=None):
     """Aggrega giornate (ore consuntivate / 8) per risorsa, progetto e sotto-progetto."""
     col_risorsa = _colonna_risorsa_user(df)
     col_sotto = "Sotto progetto"
@@ -1236,6 +1246,11 @@ def prepara_tabella_user(df, col_proj, col_actual):
     tmp["_giornate"] = pd.to_numeric(tmp[col_actual], errors="coerce").fillna(0.0) / 8.0
     mask_risorsa = tmp[col_risorsa].astype(str).str.strip().ne("") & tmp[col_risorsa].notna()
     tmp = tmp.loc[mask_risorsa]
+    if prj_db is not None:
+        mask_progetto = tmp[col_proj].apply(
+            lambda p: prj_db_progetto_visibile(prj_db, p)
+        )
+        tmp = tmp.loc[mask_progetto]
     if tmp.empty:
         return []
     gruppo = (
@@ -3409,7 +3424,9 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
             col_actual,
             prj_db,
         )
-        rows_user = prepara_tabella_user(df_dati_comp_full, col_proj, col_actual)
+        rows_user = prepara_tabella_user(
+            df_dati_comp_full, col_proj, col_actual, prj_db
+        )
         log.info("Tab User: %d righe aggregate (Risorsa / progetto / sotto-progetto).", len(rows_user))
 
         log.info("2. Scrittura fogli base...")
