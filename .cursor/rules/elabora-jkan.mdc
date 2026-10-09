@@ -38,8 +38,8 @@ Fogli: `data-all` (principale, tutte le card), `data-export` (export ridotto), `
 | U | Totale Lavorate (gg) | formula `=W/8` (merge card) |
 | V | Timeout (gg) | giornate da oggi al tag `# Timeout -` |
 | W | Totale Lavorate (hh) | formula `=N+P+R` |
-| W | TAG Temporali | testo del tag `#` della riga; giallo pastello `# Nota - <data> -`; rosso pastello `# NoteB - <data> -` |
-| X | Ore | ore per riga tag; rosso pastello se ultimo tag operativo (# Nota/# NoteB finali escluse) è # Waiting e ore ≥ 56 |
+| W | TAG Temporali | testo del tag `#` della riga; giallo pastello `# Nota - <data> -`; rosso pastello `# NotaB - <data> -` |
+| X | Ore | ore per riga tag; rosso pastello se ultimo tag operativo (# Nota/# NotaB finali escluse) è # Waiting e ore ≥ 56 |
 | Y–Z | Delta ore / Delta Giorni | solo Status Acronimi Done |
 
 Righe `#` in Description → sotto-righe col. TAG Temporali; totali hh/gg in `applica_totali_gruppo` per card (merge A–R + AA, bordo rosso pastello).
@@ -64,10 +64,10 @@ Colonna G (Giornate Stimate): valore dal tag `# Estimate` in Description, non da
 
 - `# Estimate` — escluso dall'espansione righe; valorizza solo col. G
 - `# Nota - <data> -` — riga in TAG Temporali; sfondo giallo pastello; testo dopo la data in grassetto; nessuna Ore
-- `# NoteB - <data> -` — come Nota; sfondo rosso pastello
+- `# NotaB - <data> -` — come Nota; sfondo rosso pastello
 - `# Inizio Attivita' - <data>` — valorizza col. J
 - `# Waiting -` / `# Working -` / `# Rework` / `# Fix` — (hh) da somma Ore (Y); (gg) formula `=hh/8`
-- `# Waiting` **aperto** (senza data fine) — solo come **ultimo** tag temporale (i `# Nota` / `# NoteB` finali non contano); altrimenti Warning e TAG Temporali rosso pastello
+- `# Waiting` **aperto** (senza data fine) — solo come **ultimo** tag temporale (i `# Nota` / `# NotaB` finali non contano); altrimenti Warning e TAG Temporali rosso pastello
 - Totale Lavorate (hh) = N+P+R (col. W); Totale Lavorate (gg) = `=W/8`
 - Tag con due date e opzionale `+Nh` — col. Y Ore; Totale Ore Lavorate = somma Y lavorate (no Waiting). Senza data fine (`- -`) solo sull'**ultimo** tag temporale della card.
 
