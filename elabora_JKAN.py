@@ -29,10 +29,10 @@ Output:
     U (Totale Lavorate (gg)): formula =W/8 (merge per card). V (Timeout (gg)): giorni solari dal tag "# Timeout - <data>" a oggi;
         errori → 999999; colori: ≤45 verde, 46–55 giallo, 56–60 rosso pastello, >60 rosso acceso.
     W (Totale Lavorate (hh)): formula =N+P+R.
-    W (TAG Temporali): testo del tag per riga (# Timeout e # Nota inclusi, senza ore in col. Ore);
-        sfondo giallo pastello per tag '# Nota - <data> -'; rosso pastello se segnalato nel log.
+    W (TAG Temporali): testo del tag per riga (# Timeout, # Nota e # NoteB inclusi, senza ore in col. Ore);
+        giallo pastello per '# Nota - <data> -'; rosso pastello per '# NoteB - <data> -' o segnalato nel log.
     Y (Ore): ore per riga tag (# Waiting/Working/Fix/Rework);
-        sfondo rosso pastello se ultimo tag operativo è # Waiting e ore ≥ 56 (# Nota finali escluse).
+        sfondo rosso pastello se ultimo tag operativo è # Waiting e ore ≥ 56 (# Nota/# NoteB finali escluse).
     Z (Delta ore): Ore Stimate (H) − Totale Lavorate (hh) (W), solo se Status è Acronimi Done.
     AA (Delta Giorni): Delta ore / 8, solo se Status è Acronimi Done.
     G (Giornate Stimate): valore numerico dal tag "# Estimate" in Description; sfondo grigio leggibile.
@@ -280,6 +280,12 @@ NOTA_TAG_RE = re.compile(
     re.IGNORECASE,
 )
 NOTA_RIGA_RE = re.compile(r"^#\s*Nota\b", re.IGNORECASE)
+NOTEB_TAG_RE = re.compile(
+    r"^#\s*NoteB\s*-\s*"
+    rf"(?P<data1>{TAG_ORE_DATE})\s*-\s*",
+    re.IGNORECASE,
+)
+NOTEB_RIGA_RE = re.compile(r"^#\s*NoteB\b", re.IGNORECASE)
 TAG_ORE_STRUCTURE_RE = re.compile(
     r"^#\s*(?P<tag>Waiting|Working|Fix|Rework)\s*-\s*"
     rf"(?P<data1>{TAG_ORE_DATE})\s*-\s*"
@@ -442,6 +448,12 @@ def is_tag_nota(tag):
     return bool(NOTA_TAG_RE.match(str(tag).strip()))
 
 
+def is_tag_noteb(tag):
+    if not tag:
+        return False
+    return bool(NOTEB_TAG_RE.match(str(tag).strip()))
+
+
 def is_riga_tag_nota(tag):
     """True per righe # Nota (anche se non rispettano il formato data completo)."""
     if not tag:
@@ -449,10 +461,22 @@ def is_riga_tag_nota(tag):
     return bool(NOTA_RIGA_RE.match(str(tag).strip()))
 
 
-def valore_cella_tag_nota(tag):
-    """Testo TAG Temporali per # Nota: parte dopo la data in grassetto."""
+def is_riga_tag_noteb(tag):
+    """True per righe # NoteB (anche se non rispettano il formato data completo)."""
+    if not tag:
+        return False
+    return bool(NOTEB_RIGA_RE.match(str(tag).strip()))
+
+
+def is_riga_tag_annotazione(tag):
+    """True per righe # Nota o # NoteB (anche formato data incompleto)."""
+    return is_riga_tag_nota(tag) or is_riga_tag_noteb(tag)
+
+
+def valore_cella_tag_annotazione(tag, tag_re):
+    """Testo TAG Temporali: parte dopo la data in grassetto."""
     testo = str(tag).strip()
-    match = NOTA_TAG_RE.match(testo)
+    match = tag_re.match(testo)
     if not match:
         return testo
     prefisso = testo[: match.end()]
@@ -460,6 +484,14 @@ def valore_cella_tag_nota(tag):
     if not suffisso:
         return testo
     return CellRichText(prefisso, TextBlock(InlineFont(b=True), suffisso))
+
+
+def valore_cella_tag_nota(tag):
+    return valore_cella_tag_annotazione(tag, NOTA_TAG_RE)
+
+
+def valore_cella_tag_noteb(tag):
+    return valore_cella_tag_annotazione(tag, NOTEB_TAG_RE)
 
 
 def estrai_tag_timeout(description):
@@ -523,18 +555,18 @@ def is_waiting_aperto(tag):
 
 
 def is_ultimo_tag_temporale_ignorando_note(tag_list, index):
-    """Ultimo tag operativo: i # Nota successivi (qualsiasi formato) non contano."""
+    """Ultimo tag operativo: i # Nota / # NoteB successivi (qualsiasi formato) non contano."""
     for j in range(index + 1, len(tag_list)):
-        if not is_riga_tag_nota(tag_list[j]):
+        if not is_riga_tag_annotazione(tag_list[j]):
             return False
     return True
 
 
 def ultima_riga_tag_operativo(ws, start, end):
-    """Indice ultima riga tag del gruppo, escludendo # Nota finali."""
+    """Indice ultima riga tag del gruppo, escludendo # Nota / # NoteB finali."""
     for row in range(end, start - 1, -1):
         tag = ws.cell(row=row, column=COL_TAG).value
-        if is_riga_tag_nota(tag):
+        if is_riga_tag_annotazione(tag):
             continue
         return row
     return None
@@ -542,7 +574,7 @@ def ultima_riga_tag_operativo(ws, start, end):
 
 def valida_waiting_aperto_ultimo(tag, tag_list, index, title=None):
     """
-    Un # Waiting aperto deve essere l'ultimo tag temporale della card (esclusi # Nota finali).
+    Un # Waiting aperto deve essere l'ultimo tag temporale della card (esclusi # Nota / # NoteB finali).
     In caso contrario: Warning su log e cella TAG Temporali in rosso pastello.
     """
     if not is_waiting_aperto(tag):
@@ -551,7 +583,7 @@ def valida_waiting_aperto_ultimo(tag, tag_list, index, title=None):
         return True
     log_warning_tag_errato(
         "tag # Waiting aperto ammesso solo come ultimo tag temporale della card "
-        "(eventuali # Nota finali non contano)",
+        "(eventuali # Nota / # NoteB finali non contano)",
         tag,
         title=title,
     )
@@ -1035,7 +1067,7 @@ def espandi_card_con_tag(card):
             nuova[PERCENT_STIMATO_LAVORATO_COL] = None
             nuova[TOTALE_LAVORATE_GG_COL] = None
             nuova[TOTALE_LAVORATE_HH_COL] = None
-            if is_tag_timeout(tag) or is_tag_nota(tag):
+            if is_tag_timeout(tag) or is_tag_nota(tag) or is_tag_noteb(tag):
                 nuova[ORE_COL] = None
             else:
                 nuova[ORE_COL] = ore_da_tag_temporale(
@@ -1440,6 +1472,16 @@ def applica_sfondo_tag_nota(ws, max_row):
             cella.value = valore_cella_tag_nota(tag)
 
 
+def applica_sfondo_tag_noteb(ws, max_row):
+    """Sfondo rosso pastello e commento in grassetto per tag '# NoteB - <data> -'."""
+    for row in range(2, max_row + 1):
+        tag = ws.cell(row=row, column=COL_TAG).value
+        if tag and is_tag_noteb(tag) and not is_tag_sintassi_errata(tag):
+            cella = ws.cell(row=row, column=COL_TAG)
+            cella.fill = PASTEL_RED_FILL
+            cella.value = valore_cella_tag_noteb(tag)
+
+
 def formatta_foglio_card(ws):
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
     middle = Alignment(vertical="center", wrap_text=True)
@@ -1534,6 +1576,7 @@ def formatta_foglio_card(ws):
 
     applica_sfondo_tag_sintassi_errata(ws, ws.max_row)
     applica_sfondo_tag_nota(ws, ws.max_row)
+    applica_sfondo_tag_noteb(ws, ws.max_row)
 
     return gruppi
 
