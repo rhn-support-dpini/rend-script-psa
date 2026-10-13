@@ -11,6 +11,7 @@ Excel di output multi-foglio con:
   - Dettaglio Ruoli       : pivot estimated con breakdown per ruolo/milestone
   - Tentative             : stati ≠ Scheduled/Commit più righe in aggregazioni miste K×L
   - Tabella di Export     : riepilogo giornate per codice interno (colonna A)
+  - Tabella di Export 2   : stessa struttura del tab Export (dati da valorizzare separatamente)
 
 Utilizzo:
     python elabora_progetti.py [cliente] [input] [output.xlsx]
@@ -1333,9 +1334,9 @@ def evidenzia_progetti_prj_ignore_dettaglio_ruoli(ws_dr, data_start_row, ultima_
 def scrivi_fogli_base(file_output, df_dati_comp, rows_progetti, rows_rhproj, rows_user):
     """Scrive i fogli con dati grezzi nel file di output.
 
-    I fogli Riepilogo Settimanale, Dettaglio Ruoli, Tentative e Tabella di Export vengono
-    creati vuoti qui; la formattazione e i dati vengono aggiunti nelle funzioni
-    successive tramite openpyxl diretto.
+    I fogli Riepilogo Settimanale, Dettaglio Ruoli, Tentative, Tabella di Export e
+    Tabella di Export 2 vengono creati vuoti qui; la formattazione e i dati vengono
+    aggiunti nelle funzioni successive tramite openpyxl diretto.
 
     Il foglio 'dati' parte dalla riga 4 (righe 1-3 riservate a metadati).
     'RHProj' e 'progetti' partono dalla riga 11 (righe 1-10 per intestazioni).
@@ -1358,6 +1359,7 @@ def scrivi_fogli_base(file_output, df_dati_comp, rows_progetti, rows_rhproj, row
         pd.DataFrame().to_excel(writer, sheet_name='Dettaglio Ruoli', index=False)
         pd.DataFrame().to_excel(writer, sheet_name='Tentative', index=False)
         pd.DataFrame().to_excel(writer, sheet_name='Tabella di Export', index=False)
+        pd.DataFrame().to_excel(writer, sheet_name='Tabella di Export 2', index=False)
 
 # --- UTILITÀ FORMATTAZIONE ---
 
@@ -2316,6 +2318,55 @@ def formatta_tabella_codice_interno(ws_e, config, df_per_calc, col_rif, col_role
             col_rif, col_actual,
         ),
     }
+
+
+def formatta_tabella_export_2_struttura(ws_e, config, fill_verde, fill_nero, font_bianco_bold, center,
+                                        codici_ignorati=None):
+    """Applica al foglio 'Tabella di Export 2' la stessa struttura di Tabella di Export.
+
+    Titolo, intestazioni (da cust.config), sfondo pastello e doppia tabella (originale +
+    copia arrotondata), con lo stesso numero di righe dati previste in config, senza
+    scrivere valori nelle celle dati (colonne A–N).
+    """
+    n_righe = sum(
+        1 for _ in iter_righe_codice_interno_config(config, codici_ignorati=codici_ignorati)
+    )
+
+    def scrivi_titolo(start_row):
+        ws_e.merge_cells(f"B{start_row}:M{start_row}")
+        ws_e[f'B{start_row}'] = f"Tabella di Export 2 {datetime.now().strftime('%d/%m/%Y')}"
+        ws_e[f'B{start_row}'].fill = fill_verde
+        ws_e[f'B{start_row}'].font = font_bianco_bold
+        ws_e[f'B{start_row}'].alignment = center
+
+    def scrivi_header(start_row):
+        header_vals = config_codice_interno_intestazioni(config).split(',')
+        for i in range(1, 14):
+            cella = ws_e.cell(row=start_row, column=i)
+            if i <= len(header_vals):
+                cella.value = header_vals[i - 1].strip()
+            cella.fill = fill_nero
+            cella.font = font_bianco_bold
+            cella.alignment = center
+
+    fill_pastello = PatternFill(fill_type="solid", fgColor="D9E1F2")
+    dup_start_pre = 3 + n_righe + 5
+
+    for r in range(1, dup_start_pre):
+        for c in range(1, 15):
+            ws_e.cell(row=r, column=c).fill = fill_pastello
+
+    for r in range(dup_start_pre, dup_start_pre + 2 + n_righe):
+        ws_e.cell(row=r, column=1).fill = fill_pastello
+        ws_e.cell(row=r, column=14).fill = fill_pastello
+
+    scrivi_titolo(1)
+    scrivi_header(2)
+
+    riga_fine = 3 + n_righe
+    dup_start = riga_fine + 5
+    scrivi_titolo(dup_start)
+    scrivi_header(dup_start + 1)
 
 # --- FOGLIO VERIFICA ---
 
@@ -3510,6 +3561,10 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
             fill_verde, fill_nero, font_bianco_bold, center, right_align,
             codici_ignorati=progetti_ignorati,
         )
+        formatta_tabella_export_2_struttura(
+            wb['Tabella di Export 2'], config, fill_verde, fill_nero, font_bianco_bold, center,
+            codici_ignorati=progetti_ignorati,
+        )
 
         scrivi_foglio_verifica(wb, {
             'header': [
@@ -3544,7 +3599,8 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
                     codici_ignorati=progetti_ignorati, progetti_ignorati=progetti_ignorati)
 
         for sheet_name in ['dati', 'RHProj', 'User', 'progetti', 'Riepilogo Settimanale',
-                            'Dettaglio Ruoli', 'Tabella di Export', 'Tentative', 'VERIFICA']:
+                            'Dettaglio Ruoli', 'Tabella di Export', 'Tabella di Export 2',
+                            'Tentative', 'VERIFICA']:
             autofit_columns(wb[sheet_name])
 
         wb.save(file_output)

@@ -1,6 +1,6 @@
 # PROJECT_STATE — rend-script-psa
 
-Ultimo aggiornamento: 2026-10-07 (sessione Cursor su branch `Cursor`).
+Ultimo aggiornamento: 2026-10-13 (sessione Cursor su branch `Cursor`).
 
 Documento di handoff per sessioni successive: cosa c’è nel repo, come funziona, cosa è stato toccato di recente, e cosa evitare.
 
@@ -29,6 +29,10 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 ---
 
 ## Implementato / modificato (cronologia recente)
+
+### Sessione 2026-10-13 — `elabora_progetti.py`
+
+- Nuovo foglio **`Tabella di Export 2`**: creato subito dopo `Tabella di Export` in `scrivi_fogli_base`; `formatta_tabella_export_2_struttura` replica titolo (con data), intestazioni da `cust.config`, sfondo pastello e doppia tabella con lo stesso numero di righe slot della Export, **senza** valorizzare le celle dati (popolamento da definire).
 
 ### Sessione 2026-10-07 — `elabora_JKAN.py`
 
