@@ -32,7 +32,7 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 
 ### Sessione 2026-10-13 — `elabora_progetti.py`
 
-- Nuovo foglio **`Tabella di Export 2`**: creato subito dopo `Tabella di Export` in `scrivi_fogli_base`; `formatta_tabella_export_2_struttura` replica titolo (con data), intestazioni da `cust.config`, sfondo pastello e doppia tabella con lo stesso numero di righe slot della Export, **senza** valorizzare le celle dati (popolamento da definire).
+- Nuovo foglio **`Tabella di Export 2`**: dopo `Tabella di Export`; struttura come Export. Col. A `RIGHE_TABELLA_EXPORT_2`; col. I `GG_ACQUISTATI_TABELLA_EXPORT_2` = 280, 94, 77 (prime tre righe; JBoss senza gg acquistati).
 
 ### Sessione 2026-10-07 — `elabora_JKAN.py`
 

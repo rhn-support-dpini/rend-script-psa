@@ -11,7 +11,7 @@ Excel di output multi-foglio con:
   - Dettaglio Ruoli       : pivot estimated con breakdown per ruolo/milestone
   - Tentative             : stati ≠ Scheduled/Commit più righe in aggregazioni miste K×L
   - Tabella di Export     : riepilogo giornate per codice interno (colonna A)
-  - Tabella di Export 2   : stessa struttura del tab Export (dati da valorizzare separatamente)
+  - Tabella di Export 2   : riepilogo sintetico (righe fisse in colonna A; J/K da valorizzare)
 
 Utilizzo:
     python elabora_progetti.py [cliente] [input] [output.xlsx]
@@ -127,6 +127,17 @@ def carica_config(nome_file):
     return config
 
 # --- Config tab "Tabella di Export" (chiavi CodiceInterno* in cust.config) ---
+
+RIGHE_TABELLA_EXPORT_2 = (
+    'Giornate Residenti CELLI',
+    'Giornate CNS',
+    'Giornate Patching',
+    'Progetto JBoss',
+)
+
+# Colonna I (gg/u acquistati), in ordine con RIGHE_TABELLA_EXPORT_2 (righe senza valore omesse).
+GG_ACQUISTATI_TABELLA_EXPORT_2 = (280, 94, 77)
+
 
 def config_codice_interno_titolo(config):
     """Titolo riga 1 del foglio (ex Export1)."""
@@ -2321,16 +2332,13 @@ def formatta_tabella_codice_interno(ws_e, config, df_per_calc, col_rif, col_role
 
 
 def formatta_tabella_export_2_struttura(ws_e, config, fill_verde, fill_nero, font_bianco_bold, center,
-                                        codici_ignorati=None):
-    """Applica al foglio 'Tabella di Export 2' la stessa struttura di Tabella di Export.
+                                        right_align):
+    """Formatta il foglio 'Tabella di Export 2' come Tabella di Export.
 
-    Titolo, intestazioni (da cust.config), sfondo pastello e doppia tabella (originale +
-    copia arrotondata), con lo stesso numero di righe dati previste in config, senza
-    scrivere valori nelle celle dati (colonne A–N).
+    Titolo, intestazioni (da cust.config), sfondo pastello e doppia tabella; colonna A da
+    ``RIGHE_TABELLA_EXPORT_2``, colonna I da ``GG_ACQUISTATI_TABELLA_EXPORT_2``.
     """
-    n_righe = sum(
-        1 for _ in iter_righe_codice_interno_config(config, codici_ignorati=codici_ignorati)
-    )
+    n_righe = len(RIGHE_TABELLA_EXPORT_2)
 
     def scrivi_titolo(start_row):
         ws_e.merge_cells(f"B{start_row}:M{start_row}")
@@ -2349,6 +2357,15 @@ def formatta_tabella_export_2_struttura(ws_e, config, fill_verde, fill_nero, fon
             cella.font = font_bianco_bold
             cella.alignment = center
 
+    def scrivi_righe(start_row, arrotonda=False):
+        for i, etichetta in enumerate(RIGHE_TABELLA_EXPORT_2):
+            r = start_row + i
+            ws_e.cell(row=r, column=1).value = etichetta
+            if i < len(GG_ACQUISTATI_TABELLA_EXPORT_2):
+                gg = GG_ACQUISTATI_TABELLA_EXPORT_2[i]
+                ws_e.cell(row=r, column=9).value = round(gg) if arrotonda else gg
+                ws_e.cell(row=r, column=9).alignment = right_align
+
     fill_pastello = PatternFill(fill_type="solid", fgColor="D9E1F2")
     dup_start_pre = 3 + n_righe + 5
 
@@ -2362,11 +2379,13 @@ def formatta_tabella_export_2_struttura(ws_e, config, fill_verde, fill_nero, fon
 
     scrivi_titolo(1)
     scrivi_header(2)
+    scrivi_righe(3)
 
     riga_fine = 3 + n_righe
     dup_start = riga_fine + 5
     scrivi_titolo(dup_start)
     scrivi_header(dup_start + 1)
+    scrivi_righe(dup_start + 2, arrotonda=True)
 
 # --- FOGLIO VERIFICA ---
 
@@ -3563,7 +3582,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
         )
         formatta_tabella_export_2_struttura(
             wb['Tabella di Export 2'], config, fill_verde, fill_nero, font_bianco_bold, center,
-            codici_ignorati=progetti_ignorati,
+            right_align,
         )
 
         scrivi_foglio_verifica(wb, {
