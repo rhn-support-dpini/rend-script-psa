@@ -530,10 +530,17 @@ def calcola_date_settimana(week_str):
     except Exception:
         return None
 
+COL_RIF_TABELLA_1 = "Riferimento tabella 1"
+COL_RIF_TABELLA_2 = "Riferimento tabella 2"
+COL_RIF_TABELLA_3 = "Riferimento tabella 3"
+
 COLONNE_ASSEGNAZIONE_DERIVATE = [
     "Nome risorsa", "RifInterno PSA", "Cliente", "Sotto progetto",
-    "Riferimento tabella 1", "Sotto Riferimento tabella 1", "Commento",
+    COL_RIF_TABELLA_1, COL_RIF_TABELLA_2, COL_RIF_TABELLA_3, "Commento",
 ]
+
+# Separatori ref-key nel 5° segmento assegnazione: @ (attuale) o & (legacy).
+_RIF_TAB_SEP_RE = re.compile(r'\s*[@&]\s*')
 FILLS_GRIGIO_ASSEGNAZIONE = PatternFill(fill_type='solid', fgColor='D9D9D9')
 FILLS_GRIGIO_PRJ_IGNORE = FILLS_GRIGIO_ASSEGNAZIONE
 
@@ -557,36 +564,51 @@ def assegnazione_conforme(val):
     return True
 
 
+def _to_int_riferimento_tabella(s):
+    try:
+        return int(float(s))
+    except (ValueError, TypeError):
+        return s
+
+
+def parse_segmenti_riferimento_tabella(ref_field):
+    """Estrae fino a tre codici numerici dal 5° segmento dell'assegnazione.
+
+    Formati supportati: ``6``, ``6@4``, ``6@4@9`` (accetta anche ``&`` al posto di ``@``).
+    """
+    if pd.isna(ref_field):
+        return '', '', ''
+    s = str(ref_field).strip()
+    if not s:
+        return '', '', ''
+    parts = [p.strip() for p in _RIF_TAB_SEP_RE.split(s) if p.strip()]
+    rif1 = _to_int_riferimento_tabella(parts[0]) if len(parts) >= 1 else ''
+    rif2 = _to_int_riferimento_tabella(parts[1]) if len(parts) >= 2 else ''
+    rif3 = _to_int_riferimento_tabella(parts[2]) if len(parts) >= 3 else ''
+    return rif1, rif2, rif3
+
+
 def splitta_assegnazione(val):
-    """Divide il campo assegnazione (colonna C del sorgente) in colonne R–X.
+    """Divide il campo assegnazione (colonna C del sorgente) in colonne derivate.
 
     Il formato atteso è: "Nome|RifInterno PSA|Cliente|Sottoprogetto|ref-key|Commento"
-    Il Commento può mancare (5 segmenti). Il ref-key può contenere due valori numerici
-    separati da '&' (es. "6&4"): il primo va in "Riferimento tabella 1", il secondo
-    in "Sotto Riferimento tabella 1". I riferimenti numerici sono convertiti in interi.
+    Il Commento può mancare (5 segmenti). Il ref-key può contenere uno o più valori numerici
+    separati da ``@`` (es. ``6@4`` o ``6@4@9``): vanno in Riferimento tabella 1/2/3.
 
     Args:
         val: stringa grezza della cella, o NaN.
 
     Returns:
-        Lista di esattamente 7 elementi (colonne Excel R–X nel foglio dati).
+        Lista di esattamente 8 elementi (stesso ordine di ``COLONNE_ASSEGNAZIONE_DERIVATE``).
     """
     parti = [p.strip() for p in str(val).split('|')] if pd.notna(val) else []
     while len(parti) < 6:
         parti.append("")
     parti = parti[:6]
 
-    def _to_int(s):
-        try:
-            return int(float(s))
-        except (ValueError, TypeError):
-            return s
+    rif1, rif2, rif3 = parse_segmenti_riferimento_tabella(parti[4])
 
-    rif_parts = [r.strip() for r in re.split(r'\s*&\s*', parti[4]) if r.strip()]
-    rif1 = _to_int(rif_parts[0]) if len(rif_parts) >= 1 else ''
-    rif2 = _to_int(rif_parts[1]) if len(rif_parts) >= 2 else ''
-
-    return [parti[0], parti[1], parti[2], parti[3], rif1, rif2, parti[5]]
+    return [parti[0], parti[1], parti[2], parti[3], rif1, rif2, rif3, parti[5]]
 
 
 def rif_impatta_somme_codice_interno(val):
@@ -606,7 +628,7 @@ def rif_impatta_somme_codice_interno(val):
         return True
 
 
-def df_per_somme_codice_interno(df_per_calc, col_rif="Riferimento tabella 1"):
+def df_per_somme_codice_interno(df_per_calc, col_rif=COL_RIF_TABELLA_1):
     """Sottoinsieme di df_per_calc usato per le somme del tab 'Tabella di Export'."""
     mask = df_per_calc[col_rif].apply(rif_impatta_somme_codice_interno)
     return df_per_calc.loc[mask]
@@ -736,7 +758,8 @@ def carica_dati(file_excel_input, config):
     vengono lette per indice: i valori di default sono compatibili con il formato
     PSA standard ma possono essere sovrascritta tramite config (ColIdxRuolo, ecc.).
 
-    Espande anche la colonna assegnazione (colonna C) nelle colonne derivate R–X
+    Espande anche la colonna assegnazione (colonna C) nelle colonne derivate (vedi
+    ``COLONNE_ASSEGNAZIONE_DERIVATE``)
     (Nome risorsa, RifInterno PSA, Cliente, Sottoprogetto, ref-key, Commento).
 
     Args:
@@ -828,7 +851,7 @@ def chiavi_buckets_kl_misti(df_dati_comp, col_proj, col_role_name, col_period,
         _k=df_dati_comp[col_status_k].map(_norm_val_stato_kl),
         _l=df_dati_comp[col_status_l].map(_norm_val_stato_kl),
     )
-    gcols = [col_proj, 'Sotto progetto', col_role_name, 'Riferimento tabella 1', col_period]
+    gcols = [col_proj, 'Sotto progetto', col_role_name, COL_RIF_TABELLA_1, col_period]
     mixed = set()
     for key, grp in tmp.groupby(gcols):
         pairs = {(a, b) for a, b in zip(grp['_k'], grp['_l'])}
@@ -845,7 +868,7 @@ def dataframe_foglio_tentative(df_dati_comp, col_proj, col_role_name, col_period
     sched_commit = (kn == 'scheduled') & (ln == 'commit')
     keys_mixed = chiavi_buckets_kl_misti(
         df_dati_comp, col_proj, col_role_name, col_period, col_status_k, col_status_l)
-    col_rif = 'Riferimento tabella 1'
+    col_rif = COL_RIF_TABELLA_1
 
     def bucket_key_series(df):
         return list(zip(
@@ -963,7 +986,7 @@ def calcola_pivot(df_dati_comp, col_period, col_actual, col_estimated,
         dove df_per_calc è il DataFrame filtrato usato per i calcoli.
     """
     col_sottoproj = "Sotto progetto"
-    col_rif = "Riferimento tabella 1"
+    col_rif = COL_RIF_TABELLA_1
 
     df_per_calc = df_dati_comp.copy()
     if weeks_limit_active:
@@ -1005,7 +1028,7 @@ def aggiungi_colonne_attivita_dettaglio_ruoli(pivot_df, df_per_calc, col_proj, c
 
 def _lookup_valori_aggregati_attivita(df_per_calc, col_proj, col_role_name, col_valore):
     """Valori distinti non vuoti per chiave attività, uniti con virgola e a capo."""
-    col_rif = 'Riferimento tabella 1'
+    col_rif = COL_RIF_TABELLA_1
     col_sotto = 'Sotto progetto'
 
     def _valori_univoci(series):
@@ -1020,7 +1043,7 @@ def _lookup_valori_aggregati_attivita(df_per_calc, col_proj, col_role_name, col_
 
 def _inserisci_colonna_dopo_milestone(pivot_role_est, df_per_calc, col_proj, col_role_name,
                                       col_hdr, col_valore):
-    col_rif = 'Riferimento tabella 1'
+    col_rif = COL_RIF_TABELLA_1
     col_sotto = 'Sotto progetto'
     lookup = _lookup_valori_aggregati_attivita(df_per_calc, col_proj, col_role_name, col_valore)
     valori = pivot_role_est.apply(
@@ -1051,6 +1074,30 @@ def aggiungi_colonna_commenti_dettaglio_ruoli(pivot_role_est, df_per_calc, col_p
     """
     return _inserisci_colonna_dopo_milestone(
         pivot_role_est, df_per_calc, col_proj, col_role_name, 'Commento', 'Commento')
+
+
+def _inserisci_colonna_dopo_riferimento_tabella1(pivot_df, df_per_calc, col_proj, col_role_name,
+                                                 col_hdr, col_valore_sorgente):
+    """Inserisce una colonna subito a destra di Riferimento tabella 1 (es. Riferimento Interno 3)."""
+    col_rif = COL_RIF_TABELLA_1
+    col_sotto = 'Sotto progetto'
+    lookup = _lookup_valori_aggregati_attivita(
+        df_per_calc, col_proj, col_role_name, col_valore_sorgente)
+    valori = pivot_df.apply(
+        lambda row: lookup.get(
+            (row[col_proj], row[col_sotto], row['Milestone'], row[col_rif]), ''), axis=1)
+    out = pivot_df.copy()
+    rif_loc = out.columns.get_loc(col_rif)
+    out.insert(rif_loc + 1, col_hdr, valori)
+    return out
+
+
+def aggiungi_colonna_riferimento_interno_3_dettaglio_ruoli(pivot_role_est, df_per_calc, col_proj,
+                                                           col_role_name):
+    """Colonna 'Riferimento Interno 3' a destra di Riferimento tabella 1 (solo Dettaglio Ruoli)."""
+    return _inserisci_colonna_dopo_riferimento_tabella1(
+        pivot_role_est, df_per_calc, col_proj, col_role_name,
+        'Riferimento Interno 3', COL_RIF_TABELLA_3)
 
 
 def filtra_pivot_senza_totale_zero(df):
@@ -1099,7 +1146,7 @@ def prepara_righe_progetti(df_src, df_dati_comp, df_per_calc, col_proj, col_role
         giorni_pm = float(df_p_calc.loc[pm_mask, col_actual].sum()) / 8.0
         giorni_cons = float(df_p_calc.loc[~pm_mask, col_actual].sum()) / 8.0
 
-        rif_val_raw = df_p_full.iloc[0]['Riferimento tabella 1']
+        rif_val_raw = df_p_full.iloc[0][COL_RIF_TABELLA_1]
         rif_val = str(rif_val_raw) if pd.notna(rif_val_raw) else ""
 
         red_s = trova_valore_config(proj, contratti_idx, config, "DaysRedempted")
@@ -1146,7 +1193,7 @@ def _metriche_rhproj_per_progetto(
     giorni_pm = float(df_p_calc.loc[pm_mask, col_actual].sum()) / 8.0
     giorni_cons = float(df_p_calc.loc[~pm_mask, col_actual].sum()) / 8.0
 
-    rif_val_raw = df_p_full.iloc[0]["Riferimento tabella 1"]
+    rif_val_raw = df_p_full.iloc[0][COL_RIF_TABELLA_1]
     rif_val = str(rif_val_raw) if pd.notna(rif_val_raw) else ""
 
     return {
@@ -1759,6 +1806,7 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
       somma dalla settimana corrente all'ultima settimana (prima di TOTALE RIGA)
     - Colonna "Commento" tra Milestone e Resource: Full Name
     - Colonna "Resource: Full Name" tra Commento e Riferimento Interno
+    - Colonna "Riferimento Interno 3" a destra di Riferimento Interno
     - Colonna extra "Actual Hours (Giornate)" a destra della tabella
     - Legenda colori in fondo alla tabella
 
@@ -1907,10 +1955,12 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
     r_next = write_pivot(ws_rs, r_next, pivot_estimated, f"ESTIMATED HOURS (GIORNATE) - {data_prod}",
                          wrap_text_cols=wrap_attivita, **rs_style)
 
-    pivot_role_display = pivot_role_est.rename(columns={'Riferimento tabella 1': 'Riferimento Interno'})
+    pivot_role_dr = aggiungi_colonna_riferimento_interno_3_dettaglio_ruoli(
+        pivot_role_est, df_per_calc, col_proj, col_role_name)
+    pivot_role_display = pivot_role_dr.rename(columns={COL_RIF_TABELLA_1: 'Riferimento Interno'})
     dr_next = write_pivot(ws_dr, 1, pivot_role_display,
                           f"DETTAGLIO RUOLI - ESTIMATED HOURS - {data_prod}",
-                          border_group=True, extra_center_cols={1, 5},
+                          border_group=True, extra_center_cols={1, 5, 7},
                           wrap_text_cols=wrap_attivita)
     ultima_riga_dr = dr_next - 5
 
@@ -1966,7 +2016,7 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
 
     data_start_row = 5
     ultima_riga_ws = ultima_riga_dr + 2
-    col_rif_src    = 'Riferimento tabella 1'
+    col_rif_src    = COL_RIF_TABELLA_1
 
     first_week_col = num_idx + 1
 
@@ -2160,8 +2210,9 @@ def formatta_foglio_tentative(ws_t, df_dati_comp, col_proj, col_role_name, col_p
         ('Assignment: Status', col_status_k),
         ('Assignment: Forecast Category', col_status_l),
         ('Sotto progetto', 'Sotto progetto'),
-        ('Riferimento tabella 1', 'Riferimento tabella 1'),
-        ('Sotto Riferimento tabella 1', 'Sotto Riferimento tabella 1'),
+        (COL_RIF_TABELLA_1, COL_RIF_TABELLA_1),
+        (COL_RIF_TABELLA_2, COL_RIF_TABELLA_2),
+        (COL_RIF_TABELLA_3, COL_RIF_TABELLA_3),
         ('Commento', 'Commento'),
     )
     headers = [t[0] for t in header_src]
@@ -2229,7 +2280,7 @@ def formatta_tabella_codice_interno(ws_e, config, df_per_calc, col_rif, col_role
     somme_rif = somme_giornate_dict(df_ci, col_rif, col_actual)
     somme_rif_billable = somme_giornate_dict(df_ci_billable, col_rif, col_actual)
 
-    col_sotto_rif = "Sotto Riferimento tabella 1"
+    col_sotto_rif = COL_RIF_TABELLA_2
     somme_sotto_rif = somme_giornate_dict(df_ci, col_sotto_rif, col_actual)
     somme_sotto_rif_billable = somme_giornate_dict(df_ci_billable, col_sotto_rif, col_actual)
     log.info("Riferimenti disponibili: %s | Sotto-rif: %s",
@@ -2597,12 +2648,12 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
     }
     somme_sotto_rif_html = {
         k: round(v, 2)
-        for k, v in somme_giornate_dict(df_ci, "Sotto Riferimento tabella 1", col_actual).items()
+        for k, v in somme_giornate_dict(df_ci, COL_RIF_TABELLA_2, col_actual).items()
     }
     somme_sotto_rif_billable_html = {
         k: round(v, 2)
         for k, v in somme_giornate_dict(
-            df_ci_billable, "Sotto Riferimento tabella 1", col_actual
+            df_ci_billable, COL_RIF_TABELLA_2, col_actual
         ).items()
     }
     hdr_exp = [h.strip() for h in config_codice_interno_intestazioni(config).split(',')]
@@ -2634,7 +2685,7 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
     else:
         df_exp = pd.DataFrame()
 
-    pv_ruoli = pivot_role_est.rename(columns={'Riferimento tabella 1': 'Riferimento'})
+    pv_ruoli = pivot_role_est.rename(columns={COL_RIF_TABELLA_1: 'Riferimento'})
     pivot_actual_riep = filtra_pivot_senza_totale_zero(pivot_actual)
 
     _oggi_h = datetime.now()
@@ -2727,7 +2778,7 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
             except Exception:
                 pass
 
-    col_sotto_rif_ts = "Sotto Riferimento tabella 1"
+    col_sotto_rif_ts = COL_RIF_TABELLA_2
     col_f_ci_hdr = hdr_exp[5].strip() if len(hdr_exp) > 5 else 'Ref. ISP'
     voci_cfg_html = []
     for _used_key, _codice, _v in iter_righe_codice_interno_config(config):
@@ -3494,7 +3545,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
             col_proj, col_role_name, weeks_limit_active, start_w, end_w
         )
 
-        col_rif = "Riferimento tabella 1"
+        col_rif = COL_RIF_TABELLA_1
         rows_progetti = prepara_righe_progetti(
             df_src, df_dati_comp, df_per_calc, col_proj, col_role_name,
             col_actual, config, contratti_idx)
