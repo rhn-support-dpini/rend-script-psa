@@ -32,7 +32,7 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 
 ### Sessione 2026-10-13 — `elabora_progetti.py`
 
-- Nuovo foglio **`Tabella di Export 2`**: dopo `Tabella di Export`; struttura come Export. Col. A `RIGHE_TABELLA_EXPORT_2`; col. I `GG_ACQUISTATI_TABELLA_EXPORT_2` = 280, 94, 77 (prime tre righe; JBoss senza gg acquistati).
+- Nuovo foglio **`Tabella di Export 2`**: col. A «Riferimento Tabella 3» (1–4); col. B etichette; gg acquistati/consumati; consumati = somma Actual Hours (÷8) per `Riferimento tabella 3` nel tab `dati`.
 - **Ref-key assegnazione**: parsing `6`, `6@4`, `6@4@9` (legacy `&`); colonne `Riferimento tabella 1/2/3` nel foglio `dati` (ex «Sotto Riferimento tabella 1» → tabella 2). Dettaglio Ruoli: colonna **Riferimento Interno 3** dopo Riferimento Interno.
 
 ### Sessione 2026-10-07 — `elabora_JKAN.py`

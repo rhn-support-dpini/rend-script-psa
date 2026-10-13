@@ -138,6 +138,15 @@ RIGHE_TABELLA_EXPORT_2 = (
 # Colonna I (gg/u acquistati), in ordine con RIGHE_TABELLA_EXPORT_2 (righe senza valore omesse).
 GG_ACQUISTATI_TABELLA_EXPORT_2 = (280, 94, 77)
 
+# Colonna A del foglio Export 2: Riferimento tabella 3 (match su COL_RIF_TABELLA_3 nel tab dati).
+RIFERIMENTO_TABELLA_3_EXPORT_2 = (1, 2, 3, 4)
+EXPORT2_HDR_RIF_TAB3 = 'Riferimento Tabella 3'
+# Colonne foglio Export 2 (+1 rispetto a Export 1 per la colonna Riferimento Tabella 3).
+_EXPORT2_COL = 1
+_EXPORT2_COL_GG_ACQUISTATI = 10
+_EXPORT2_COL_GG_CONSUMATI = 11
+_EXPORT2_LAST_COL = 15
+
 
 def config_codice_interno_titolo(config):
     """Titolo riga 1 del foglio (ex Export1)."""
@@ -2382,14 +2391,16 @@ def formatta_tabella_codice_interno(ws_e, config, df_per_calc, col_rif, col_role
     }
 
 
-def formatta_tabella_export_2_struttura(ws_e, config, fill_verde, fill_nero, font_bianco_bold, center,
-                                        right_align):
+def formatta_tabella_export_2_struttura(ws_e, config, df_per_calc, col_actual, fill_verde, fill_nero,
+                                        font_bianco_bold, center, right_align):
     """Formatta il foglio 'Tabella di Export 2' come Tabella di Export.
 
-    Titolo, intestazioni (da cust.config), sfondo pastello e doppia tabella; colonna A da
-    ``RIGHE_TABELLA_EXPORT_2``, colonna I da ``GG_ACQUISTATI_TABELLA_EXPORT_2``.
+    Colonna A: ``RIFERIMENTO_TABELLA_3_EXPORT_2``; colonna B etichette ``RIGHE_TABELLA_EXPORT_2``;
+    gg/u acquistati e consumati come Export 1 (consumati = somma Actual Hours ÷ 8 per
+    ``Riferimento tabella 3`` nel tab dati).
     """
     n_righe = len(RIGHE_TABELLA_EXPORT_2)
+    somme_rif_tab3 = somme_giornate_dict(df_per_calc, COL_RIF_TABELLA_3, col_actual)
 
     def scrivi_titolo(start_row):
         ws_e.merge_cells(f"B{start_row}:M{start_row}")
@@ -2399,9 +2410,14 @@ def formatta_tabella_export_2_struttura(ws_e, config, fill_verde, fill_nero, fon
         ws_e[f'B{start_row}'].alignment = center
 
     def scrivi_header(start_row):
+        c0 = ws_e.cell(row=start_row, column=_EXPORT2_COL)
+        c0.value = EXPORT2_HDR_RIF_TAB3
+        c0.fill = fill_nero
+        c0.font = font_bianco_bold
+        c0.alignment = center
         header_vals = config_codice_interno_intestazioni(config).split(',')
         for i in range(1, 14):
-            cella = ws_e.cell(row=start_row, column=i)
+            cella = ws_e.cell(row=start_row, column=_EXPORT2_COL + i)
             if i <= len(header_vals):
                 cella.value = header_vals[i - 1].strip()
             cella.fill = fill_nero
@@ -2411,22 +2427,39 @@ def formatta_tabella_export_2_struttura(ws_e, config, fill_verde, fill_nero, fon
     def scrivi_righe(start_row, arrotonda=False):
         for i, etichetta in enumerate(RIGHE_TABELLA_EXPORT_2):
             r = start_row + i
-            ws_e.cell(row=r, column=1).value = etichetta
+            rif3 = RIFERIMENTO_TABELLA_3_EXPORT_2[i]
+            ws_e.cell(row=r, column=_EXPORT2_COL).value = rif3
+            ws_e.cell(row=r, column=_EXPORT2_COL + 1).value = etichetta
             if i < len(GG_ACQUISTATI_TABELLA_EXPORT_2):
                 gg = GG_ACQUISTATI_TABELLA_EXPORT_2[i]
-                ws_e.cell(row=r, column=9).value = round(gg) if arrotonda else gg
-                ws_e.cell(row=r, column=9).alignment = right_align
+                ws_e.cell(row=r, column=_EXPORT2_COL_GG_ACQUISTATI).value = (
+                    round(gg) if arrotonda else gg
+                )
+                ws_e.cell(row=r, column=_EXPORT2_COL_GG_ACQUISTATI).alignment = right_align
+            gg_cons = lookup_somma_ref(somme_rif_tab3, norm_ref_key(rif3))
+            j_val = round(gg_cons) if arrotonda else round(gg_cons, 2)
+            ws_e.cell(row=r, column=_EXPORT2_COL_GG_CONSUMATI).value = j_val
+            ws_e.cell(row=r, column=_EXPORT2_COL_GG_CONSUMATI).alignment = right_align
+            if i < len(GG_ACQUISTATI_TABELLA_EXPORT_2):
+                try:
+                    i_num = float(str(
+                        ws_e.cell(row=r, column=_EXPORT2_COL_GG_ACQUISTATI).value or 0
+                    ).replace(',', '.'))
+                    k_val = round(i_num - gg_cons) if arrotonda else round(i_num - gg_cons, 2)
+                    ws_e.cell(row=r, column=_EXPORT2_COL_GG_CONSUMATI + 1).value = k_val
+                except (ValueError, TypeError):
+                    pass
 
     fill_pastello = PatternFill(fill_type="solid", fgColor="D9E1F2")
     dup_start_pre = 3 + n_righe + 5
 
     for r in range(1, dup_start_pre):
-        for c in range(1, 15):
+        for c in range(1, _EXPORT2_LAST_COL + 1):
             ws_e.cell(row=r, column=c).fill = fill_pastello
 
     for r in range(dup_start_pre, dup_start_pre + 2 + n_righe):
-        ws_e.cell(row=r, column=1).fill = fill_pastello
-        ws_e.cell(row=r, column=14).fill = fill_pastello
+        ws_e.cell(row=r, column=_EXPORT2_COL).fill = fill_pastello
+        ws_e.cell(row=r, column=_EXPORT2_LAST_COL).fill = fill_pastello
 
     scrivi_titolo(1)
     scrivi_header(2)
@@ -3632,8 +3665,8 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
             codici_ignorati=progetti_ignorati,
         )
         formatta_tabella_export_2_struttura(
-            wb['Tabella di Export 2'], config, fill_verde, fill_nero, font_bianco_bold, center,
-            right_align,
+            wb['Tabella di Export 2'], config, df_per_calc, col_actual,
+            fill_verde, fill_nero, font_bianco_bold, center, right_align,
         )
 
         scrivi_foglio_verifica(wb, {
