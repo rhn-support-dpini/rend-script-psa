@@ -2397,10 +2397,13 @@ def formatta_tabella_export_2_struttura(ws_e, config, df_per_calc, col_actual, f
 
     Colonna A: ``RIFERIMENTO_TABELLA_3_EXPORT_2``; colonna B etichette ``RIGHE_TABELLA_EXPORT_2``;
     gg/u acquistati e consumati come Export 1 (consumati = somma Actual Hours ÷ 8 per
-    ``Riferimento tabella 3`` nel tab dati).
+    ``Riferimento tabella 3`` nel tab dati, più le ore con ``Riferimento tabella 2``
+    valorizzato e ≠ 0 aggregate sulla stessa chiave colonna A).
     """
     n_righe = len(RIGHE_TABELLA_EXPORT_2)
     somme_rif_tab3 = somme_giornate_dict(df_per_calc, COL_RIF_TABELLA_3, col_actual)
+    df_rif_tab2 = df_per_somme_codice_interno(df_per_calc, COL_RIF_TABELLA_2)
+    somme_rif_tab2 = somme_giornate_dict(df_rif_tab2, COL_RIF_TABELLA_2, col_actual)
 
     def scrivi_titolo(start_row):
         ws_e.merge_cells(f"B{start_row}:M{start_row}")
@@ -2436,7 +2439,11 @@ def formatta_tabella_export_2_struttura(ws_e, config, df_per_calc, col_actual, f
                     round(gg) if arrotonda else gg
                 )
                 ws_e.cell(row=r, column=_EXPORT2_COL_GG_ACQUISTATI).alignment = right_align
-            gg_cons = lookup_somma_ref(somme_rif_tab3, norm_ref_key(rif3))
+            rif_key = norm_ref_key(rif3)
+            gg_cons = (
+                lookup_somma_ref(somme_rif_tab3, rif_key)
+                + lookup_somma_ref(somme_rif_tab2, rif_key)
+            )
             j_val = round(gg_cons) if arrotonda else round(gg_cons, 2)
             ws_e.cell(row=r, column=_EXPORT2_COL_GG_CONSUMATI).value = j_val
             ws_e.cell(row=r, column=_EXPORT2_COL_GG_CONSUMATI).alignment = right_align
