@@ -139,7 +139,7 @@ RIGHE_TABELLA_EXPORT_2 = (
 GG_ACQUISTATI_TABELLA_EXPORT_2 = (280, 94, 77)
 
 # Colonna A del foglio Export 2: Riferimento tabella 3 (match su COL_RIF_TABELLA_3 nel tab dati).
-RIFERIMENTO_TABELLA_3_EXPORT_2 = (1, 2, 3, 4)
+RIFERIMENTO_TABELLA_3_EXPORT_2 = (1, 5, 3, 12)
 EXPORT2_HDR_RIF_TAB3 = 'Riferimento Tabella 3'
 # Colonne foglio Export 2 (+1 rispetto a Export 1 per la colonna Riferimento Tabella 3).
 _EXPORT2_COL = 1
