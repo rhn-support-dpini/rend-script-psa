@@ -1087,7 +1087,7 @@ def aggiungi_colonna_commenti_dettaglio_ruoli(pivot_role_est, df_per_calc, col_p
 
 def _inserisci_colonna_dopo_riferimento_tabella1(pivot_df, df_per_calc, col_proj, col_role_name,
                                                  col_hdr, col_valore_sorgente):
-    """Inserisce una colonna subito a destra di Riferimento tabella 1 (es. Riferimento Interno 3)."""
+    """Inserisce una colonna subito a destra di Riferimento tabella 1 (es. Riferimento Tabella 2)."""
     col_rif = COL_RIF_TABELLA_1
     col_sotto = 'Sotto progetto'
     lookup = _lookup_valori_aggregati_attivita(
@@ -1101,12 +1101,20 @@ def _inserisci_colonna_dopo_riferimento_tabella1(pivot_df, df_per_calc, col_proj
     return out
 
 
-def aggiungi_colonna_riferimento_interno_3_dettaglio_ruoli(pivot_role_est, df_per_calc, col_proj,
-                                                           col_role_name):
-    """Colonna 'Riferimento Interno 3' a destra di Riferimento tabella 1 (solo Dettaglio Ruoli)."""
-    return _inserisci_colonna_dopo_riferimento_tabella1(
+HDR_RIF_TABELLA_1_DR = 'Riferimento Tabella 1'
+HDR_RIF_TABELLA_2_DR = 'Riferimento Tabella 2'
+HDR_RIF_TABELLA_3_DR = 'Riferimento Tabella 3'
+
+
+def prepara_pivot_dettaglio_ruoli(pivot_role_est, df_per_calc, col_proj, col_role_name):
+    """Colonne riferimento tabella 1–3 per foglio/HTML Dettaglio Ruoli (valori da tab dati)."""
+    pivot = _inserisci_colonna_dopo_riferimento_tabella1(
         pivot_role_est, df_per_calc, col_proj, col_role_name,
-        'Riferimento Interno 3', COL_RIF_TABELLA_3)
+        HDR_RIF_TABELLA_3_DR, COL_RIF_TABELLA_3)
+    pivot = _inserisci_colonna_dopo_riferimento_tabella1(
+        pivot, df_per_calc, col_proj, col_role_name,
+        HDR_RIF_TABELLA_2_DR, COL_RIF_TABELLA_2)
+    return pivot.rename(columns={COL_RIF_TABELLA_1: HDR_RIF_TABELLA_1_DR})
 
 
 def filtra_pivot_senza_totale_zero(df):
@@ -1814,8 +1822,8 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
     - Colonna "Somma da corrente" (azzurro pastello) dopo l'ultima settimana:
       somma dalla settimana corrente all'ultima settimana (prima di TOTALE RIGA)
     - Colonna "Commento" tra Milestone e Resource: Full Name
-    - Colonna "Resource: Full Name" tra Commento e Riferimento Interno
-    - Colonna "Riferimento Interno 3" a destra di Riferimento Interno
+    - Colonna "Resource: Full Name" tra Commento e Riferimento Tabella 1
+    - Colonne "Riferimento Tabella 2" e "Riferimento Tabella 3" (da tab dati)
     - Colonna extra "Actual Hours (Giornate)" a destra della tabella
     - Legenda colori in fondo alla tabella
 
@@ -1964,12 +1972,11 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
     r_next = write_pivot(ws_rs, r_next, pivot_estimated, f"ESTIMATED HOURS (GIORNATE) - {data_prod}",
                          wrap_text_cols=wrap_attivita, **rs_style)
 
-    pivot_role_dr = aggiungi_colonna_riferimento_interno_3_dettaglio_ruoli(
+    pivot_role_display = prepara_pivot_dettaglio_ruoli(
         pivot_role_est, df_per_calc, col_proj, col_role_name)
-    pivot_role_display = pivot_role_dr.rename(columns={COL_RIF_TABELLA_1: 'Riferimento Interno'})
     dr_next = write_pivot(ws_dr, 1, pivot_role_display,
                           f"DETTAGLIO RUOLI - ESTIMATED HOURS - {data_prod}",
-                          border_group=True, extra_center_cols={1, 5, 7},
+                          border_group=True, extra_center_cols={1, 5, 6, 7},
                           wrap_text_cols=wrap_attivita)
     ultima_riga_dr = dr_next - 5
 
@@ -2725,7 +2732,8 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
     else:
         df_exp = pd.DataFrame()
 
-    pv_ruoli = pivot_role_est.rename(columns={COL_RIF_TABELLA_1: 'Riferimento'})
+    pv_ruoli = prepara_pivot_dettaglio_ruoli(
+        pivot_role_est, df_per_calc, col_proj, col_role_name)
     pivot_actual_riep = filtra_pivot_senza_totale_zero(pivot_actual)
 
     _oggi_h = datetime.now()
