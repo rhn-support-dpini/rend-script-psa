@@ -1,13 +1,17 @@
 import os
 import re
 
-# Percorso della cartella su Google Drive
-DIR_PATH = os.path.expanduser(
-    "~/Library/CloudStorage/GoogleDrive-dpini@redhat.com/Il mio Drive/Customers/Miro/JBOSS-Barison-Mail"
+# Cartella export (default: JBOSS-Barison-Mail su Drive; override: EMAIL_DIR)
+DIR_PATH = os.environ.get(
+    "EMAIL_DIR",
+    os.path.expanduser(
+        "~/Library/CloudStorage/GoogleDrive-dpini@redhat.com/"
+        "Il mio Drive/Customers/Miro/JBOSS-Barison-Mail"
+    ),
 )
 
-# File di output locale
-OUTPUT_FILE = "email.lst"
+# File di output (override: EMAIL_LST)
+OUTPUT_FILE = os.environ.get("EMAIL_LST", "email.lst")
 
 
 def analizza_file_email(filepath):

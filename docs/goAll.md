@@ -18,7 +18,8 @@ Google Drive                          rend-script-psa/venv/Data/
 | Fase | Script ausiliario | Elaborazione Python | Rinomina post-successo |
 |------|-------------------|---------------------|------------------------|
 | 1–2 PSA | `copia_drive-PSA.sh` | `elabora_progetti.py` | `DvPFilter-` → *(rimosso)* |
-| 3–4 MIRO | `copia_drive-Miro.sh` | `elabora_JKAN.py` | prefisso `x-` |
+| 3–4 Email | copia da Drive (Parte_*.txt) | `estrai-mail.py` → `email.lst` | — |
+| 5–6 MIRO | `copia_drive-Miro.sh` | `elabora_JKAN.py` | prefisso `x-` |
 
 ---
 

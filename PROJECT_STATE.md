@@ -31,6 +31,11 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 
 ## Implementato / modificato (cronologia recente)
 
+### Sessione 2026-10-20 — `goAll` / email
+
+- **`goAll`**: prima di JKAN copia `Email_Esportate___JBOSS-Barison_Parte_*.txt` dalla radice Drive → `Data/Email` e `Customers/Miro/JBOSS-Barison-Mail`, poi `estrai-mail.py` (`EMAIL_DIR` / `EMAIL_LST` in `TARGET_DIR`).
+- **`estrai-mail.py`**: variabili d’ambiente `EMAIL_DIR` e `EMAIL_LST`.
+
 ### Sessione 2026-10-20 — `elabora_JKAN.py`
 
 - Report **HTML**: sezione «Email per acronimo e settimana» — barre impilate Chart.js (settimana ISO × conteggio email per acronimo); lettura da `venv/Data/Email` (export Apps Script) o `email.lst`; deduplica DATA+OGGETTO; acronimo da pattern `| CODE (` nel soggetto o match sui Title del board; top 12 acronimi + «Altri». Env: `EMAIL_DIR`, `EMAIL_LST`.

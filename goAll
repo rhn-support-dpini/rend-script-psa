@@ -9,14 +9,17 @@
 # 1. Copia PSA (copia_drive-PSA.sh) → venv/Data/
 # 2. Elabora nuovi DvPFilter-RHCC-All-Assignments-Full* con elabora_progetti.py
 #    (rinomina rimuovendo il prefisso DvPFilter-)
-# 3. Copia MIRO *-Intesa-JBOSS.csv (copia_drive-Miro.sh) → venv/Data/
-# 4. Elabora i file JKAN appena copiati con elabora_JKAN.py (rinomina con prefisso x-)
+# 3. Copia export email JBOSS-Barison (Parte_*.txt) → venv/Data/Email e JBOSS-Barison-Mail
+# 4. estrai-mail.py → email.lst in TARGET_DIR
+# 5. Copia MIRO *-Intesa-JBOSS.csv (copia_drive-Miro.sh) → venv/Data/
+# 6. Elabora i file JKAN appena copiati con elabora_JKAN.py (rinomina con prefisso x-)
 #
 # Variabili opzionali:
 #   TARGET_DIR       cartella dati (default: <script>/venv/Data)
 #   CLIENTE          filtro cliente per elabora_progetti.py (default: Intesa)
 #   DRIVE_DIR_PSA    cartella Drive export PSA (default: come copia_drive-PSA.sh)
 #   DRIVE_DIR_MIRO   cartella Drive export MIRO (default: come copia_drive-Miro.sh)
+#   DRIVE_GDRIVE_ROOT radice «Il mio Drive» (default: come sotto)
 
 set -euo pipefail
 
@@ -26,11 +29,15 @@ TARGET_DIR="${TARGET_DIR:-$VENV_DIR/Data}"
 CLIENTE="${CLIENTE:-Intesa}"
 PATTERN_PSA='DvPFilter-RHCC-All-Assignments-Full*'
 PATTERN_JKAN='*-Intesa-JBOSS.csv'
-DRIVE_DIR_PSA="${DRIVE_DIR_PSA:-$HOME/Library/CloudStorage/GoogleDrive-dpini@redhat.com/Il mio Drive/Customers/DvPFilter-RHCC-All-Assignments-Full}"
-DRIVE_DIR_MIRO="${DRIVE_DIR_MIRO:-$HOME/Library/CloudStorage/GoogleDrive-dpini@redhat.com/Il mio Drive/Customers/Miro}"
+DRIVE_GDRIVE_ROOT="${DRIVE_GDRIVE_ROOT:-$HOME/Library/CloudStorage/GoogleDrive-dpini@redhat.com/Il mio Drive}"
+DRIVE_DIR_PSA="${DRIVE_DIR_PSA:-$DRIVE_GDRIVE_ROOT/Customers/DvPFilter-RHCC-All-Assignments-Full}"
+DRIVE_DIR_MIRO="${DRIVE_DIR_MIRO:-$DRIVE_GDRIVE_ROOT/Customers/Miro}"
+DRIVE_DIR_EMAIL_BARISON="${DRIVE_DIR_EMAIL_BARISON:-$DRIVE_DIR_MIRO/JBOSS-Barison-Mail}"
+PATTERN_EMAIL='Email_Esportate___JBOSS-Barison_Parte_*.txt'
 
 mkdir -p "$VENV_DIR" "$TARGET_DIR"
 TARGET_DIR="$(cd "$TARGET_DIR" && pwd)"
+EMAIL_LOCAL_DIR="$TARGET_DIR/Email"
 
 if [ -x "$VENV_DIR/bin/python3" ]; then
     PYTHON="$VENV_DIR/bin/python3"
@@ -110,7 +117,7 @@ file_gia_presente_jkan() {
 
 # --- 1/4 Copia PSA ---
 
-echo "=== 1/4 Copia PSA (copia_drive-PSA.sh) → $TARGET_DIR ==="
+echo "=== 1/6 Copia PSA (copia_drive-PSA.sh) → $TARGET_DIR ==="
 DRIVE_DIR="$DRIVE_DIR_PSA" LOCAL_DIR="$TARGET_DIR" "$SCRIPT_DIR/copia_drive-PSA.sh"
 
 if [ ! -d "$TARGET_DIR" ]; then
@@ -121,7 +128,7 @@ fi
 # --- 2/4 Elaborazione PSA ---
 
 echo ""
-echo "=== 2/4 Elaborazione file PSA appena copiati ==="
+echo "=== 2/6 Elaborazione file PSA appena copiati ==="
 
 processed_psa=0
 skipped_psa=0
@@ -185,16 +192,73 @@ if [ "$skipped_psa" -gt 0 ]; then
     echo "Saltati $skipped_psa file PSA con nome non valido."
 fi
 
-# --- 3/4 Copia MIRO JKAN ---
+# --- 3/6 Copia export email JBOSS-Barison ---
 
 echo ""
-echo "=== 3/4 Copia MIRO (copia_drive-Miro.sh) → $TARGET_DIR ==="
+echo "=== 3/6 Copia export email JBOSS-Barison → $EMAIL_LOCAL_DIR ==="
+mkdir -p "$EMAIL_LOCAL_DIR"
+copiati_email=0
+
+if [ ! -d "$DRIVE_GDRIVE_ROOT" ]; then
+    echo "Cartella Drive non disponibile, salto copia email: $DRIVE_GDRIVE_ROOT"
+else
+    shopt -s nullglob
+    EMAIL_FILES=("$DRIVE_GDRIVE_ROOT"/$PATTERN_EMAIL)
+    if [ "${#EMAIL_FILES[@]}" -eq 0 ]; then
+        echo "Nessun file $PATTERN_EMAIL in $DRIVE_GDRIVE_ROOT, salto copia email."
+    else
+        if [ ! -d "$DRIVE_DIR_EMAIL_BARISON" ]; then
+            echo "Attenzione: cartella JBOSS-Barison-Mail assente, copia solo in locale:"
+            echo "  $DRIVE_DIR_EMAIL_BARISON"
+        fi
+        for SRC_EMAIL in "${EMAIL_FILES[@]}"; do
+            BASE_EMAIL=$(basename "$SRC_EMAIL")
+            rsync -a "$SRC_EMAIL" "$EMAIL_LOCAL_DIR/"
+            echo "Copiato in Data/Email: $BASE_EMAIL"
+            if [ -d "$DRIVE_DIR_EMAIL_BARISON" ]; then
+                rsync -a "$SRC_EMAIL" "$DRIVE_DIR_EMAIL_BARISON/"
+                echo "Copiato in JBOSS-Barison-Mail: $BASE_EMAIL"
+            fi
+            copiati_email=$((copiati_email + 1))
+        done
+    fi
+    shopt -u nullglob
+fi
+
+if [ "$copiati_email" -gt 0 ]; then
+    echo "File email copiati: $copiati_email"
+fi
+
+# --- 4/6 estrai-mail.py ---
+
+echo ""
+echo "=== 4/6 Estrazione indice email (estrai-mail.py) ==="
+if [ -d "$EMAIL_LOCAL_DIR" ] && [ -n "$(ls -A "$EMAIL_LOCAL_DIR" 2>/dev/null)" ]; then
+    (
+        cd "$SCRIPT_DIR"
+        EMAIL_DIR="$EMAIL_LOCAL_DIR" EMAIL_LST="$TARGET_DIR/email.lst" \
+            "$PYTHON" estrai-mail.py
+    ) || echo "Attenzione: estrai-mail.py terminato con errore (si prosegue con JKAN)."
+elif [ -d "$DRIVE_DIR_EMAIL_BARISON" ]; then
+    (
+        cd "$SCRIPT_DIR"
+        EMAIL_DIR="$DRIVE_DIR_EMAIL_BARISON" EMAIL_LST="$TARGET_DIR/email.lst" \
+            "$PYTHON" estrai-mail.py
+    ) || echo "Attenzione: estrai-mail.py terminato con errore (si prosegue con JKAN)."
+else
+    echo "Nessuna cartella email disponibile, salto estrai-mail.py."
+fi
+
+# --- 5/6 Copia MIRO JKAN ---
+
+echo ""
+echo "=== 5/6 Copia MIRO (copia_drive-Miro.sh) → $TARGET_DIR ==="
 DRIVE_DIR="$DRIVE_DIR_MIRO" LOCAL_DIR="$TARGET_DIR" "$SCRIPT_DIR/copia_drive-Miro.sh"
 
-# --- 4/4 Elaborazione JKAN ---
+# --- 6/6 Elaborazione JKAN ---
 
 echo ""
-echo "=== 4/4 Elaborazione file JKAN appena copiati ==="
+echo "=== 6/6 Elaborazione file JKAN appena copiati ==="
 
 processed_jkan=0
 
