@@ -66,7 +66,9 @@ VENV_DIR = os.path.join(SCRIPT_DIR, "venv")
 DATA_DIR = os.path.join(VENV_DIR, "Data")
 EMAIL_EXPORT_SUBDIR = "Email"
 EMAIL_LST_FILENAME = "email.lst"
+EMAIL_ADDR_ESCLUSIONE_FILES = ("ignora.addr", "other.addr")
 EMAIL_EXPORT_BLOCK_DELIM = "=================================================="
+EMAIL_MITTENTE_IN_TESTO_RE = re.compile(r"[\w.+-]+@[\w.-]+\.\w+", re.IGNORECASE)
 EMAIL_CHART_ACRONIMI_PER_GRAFICO = 10
 EMAIL_CHART_NUM_GRAFICI = 3
 EMAIL_CHART_PALETTE = [
@@ -2442,6 +2444,54 @@ def percorso_file_email_lst():
     return os.path.join(SCRIPT_DIR, EMAIL_LST_FILENAME)
 
 
+def percorso_file_lista_addr(nome_file):
+    """ignora.addr / other.addr: script/, Data/, cwd."""
+    if os.path.isabs(nome_file):
+        return os.path.normpath(nome_file)
+    for base in (SCRIPT_DIR, DATA_DIR, os.getcwd()):
+        path = os.path.join(base, nome_file)
+        if os.path.isfile(path):
+            return path
+    return os.path.join(SCRIPT_DIR, nome_file)
+
+
+def _carica_indirizzi_esclusione_mittente():
+    """Indirizzi (o frammenti) da ignora.addr e other.addr — lowercase."""
+    esclusi = set()
+    percorsi = []
+    for nome in EMAIL_ADDR_ESCLUSIONE_FILES:
+        path = percorso_file_lista_addr(nome)
+        percorsi.append(path)
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                for riga in f:
+                    riga = riga.split("#", 1)[0].strip()
+                    if riga:
+                        esclusi.add(riga.lower())
+        except OSError as err:
+            print(f"Avviso: impossibile leggere {path}: {err}")
+    return esclusi, percorsi
+
+
+def _mittente_escluso_da_liste(mittente, esclusi):
+    """True se il mittente compare in ignora.addr / other.addr."""
+    if not esclusi or not mittente:
+        return False
+    testo = mittente.lower()
+    email_trovate = [
+        e.lower() for e in EMAIL_MITTENTE_IN_TESTO_RE.findall(mittente)
+    ]
+    for regola in esclusi:
+        if regola in testo:
+            return True
+        for email in email_trovate:
+            if email == regola or email.endswith(regola):
+                return True
+    return False
+
+
 def _parse_data_email_export(testo_data):
     """Data da riga DATA: export Apps Script (es. Thu Aug 06 2026 …)."""
     if not testo_data or testo_data.strip() in ("", "N/D"):
@@ -2487,14 +2537,16 @@ def _record_email_da_blocco_export(blocco):
     """DA/DATA/OGGETTO da un blocco singolo dell'export Apps Script."""
     data_match = re.search(r"^DATA:\s*(.*)$", blocco, re.MULTILINE)
     oggetto_match = re.search(r"^OGGETTO:\s*(.*)$", blocco, re.MULTILINE)
+    da_match = re.search(r"^DA:\s*(.*)$", blocco, re.MULTILINE)
     if not data_match or not oggetto_match:
         return None
     data_raw = data_match.group(1).strip()
     oggetto = oggetto_match.group(1).strip()
+    mittente = da_match.group(1).strip() if da_match else ""
     giorno = _parse_data_email_export(data_raw)
     if not giorno:
         return None
-    return giorno, data_raw, oggetto
+    return giorno, data_raw, oggetto, mittente
 
 
 def _iter_record_email_export_file(filepath):
@@ -2511,24 +2563,26 @@ def _iter_record_email_export_file(filepath):
 
 
 def _record_email_da_riga_lst(riga):
-    """DATA e OGGETTO da una riga di email.lst."""
+    """DATA, OGGETTO e DA da una riga di email.lst."""
     riga = riga.strip()
     if not riga:
         return None
     data_match = re.search(r"DATA:\s*([^|]+)", riga)
+    da_match = re.search(r"DA:\s*([^|]+)", riga)
     oggetto_match = re.search(r"OGGETTO:\s*(.+)$", riga)
     if not data_match or not oggetto_match:
         return None
     data_raw = data_match.group(1).strip()
     oggetto = oggetto_match.group(1).strip()
+    mittente = da_match.group(1).strip() if da_match else ""
     giorno = _parse_data_email_export(data_raw)
     if not giorno:
         return None
-    return giorno, data_raw, oggetto
+    return giorno, data_raw, oggetto, mittente
 
 
 def _carica_record_email_deduplicati():
-    """Record (giorno, data_raw, oggetto) da venv/Data/Email o email.lst."""
+    """Record (giorno, oggetto, mittente) da venv/Data/Email o email.lst."""
     visti = set()
     record = []
     fonte = None
@@ -2542,12 +2596,14 @@ def _carica_record_email_deduplicati():
             full = os.path.join(cartella, nome)
             if not os.path.isfile(full):
                 continue
-            for giorno, data_raw, oggetto in _iter_record_email_export_file(full):
+            for giorno, data_raw, oggetto, mittente in _iter_record_email_export_file(
+                full
+            ):
                 chiave = (data_raw, oggetto)
                 if chiave in visti:
                     continue
                 visti.add(chiave)
-                record.append((giorno, oggetto))
+                record.append((giorno, oggetto, mittente))
     else:
         lst_path = percorso_file_email_lst()
         if os.path.isfile(lst_path):
@@ -2557,12 +2613,12 @@ def _carica_record_email_deduplicati():
                     parsed = _record_email_da_riga_lst(riga)
                     if not parsed:
                         continue
-                    giorno, data_raw, oggetto = parsed
+                    giorno, data_raw, oggetto, mittente = parsed
                     chiave = (data_raw, oggetto)
                     if chiave in visti:
                         continue
                     visti.add(chiave)
-                    record.append((giorno, oggetto))
+                    record.append((giorno, oggetto, mittente))
 
     return record, fonte
 
@@ -2592,32 +2648,27 @@ def _datasets_email_settimana(per_settimana, labels, acronimi, color_offset=0):
     return datasets
 
 
-def _dati_grafico_email_settimana(riepilogo_acronimi):
-    """Conteggi email per settimana ISO e acronimo (barre impilate per Chart.js)."""
-    record, fonte = _carica_record_email_deduplicati()
-    if not record:
-        msg = (
-            "Nessun dato email: copiare gli export in "
-            f"{EMAIL_EXPORT_SUBDIR}/ sotto Data/ o generare email.lst "
-            "(variabili EMAIL_DIR / EMAIL_LST)."
-        )
-        return {
-            "available": False,
-            "message": msg,
-            "labels": [],
-            "charts": [],
-        }
-
-    acronimi_noti = _acronimi_noti_da_riepilogo(riepilogo_acronimi)
+def _aggrega_email_per_settimana(record, acronimi_noti, esclusi_mittente=None):
+    """Conteggi per settimana/acronimo; opzionale filtro mittenti in .addr."""
     per_settimana = defaultdict(Counter)
     senza_acronimo = 0
-    for giorno, oggetto in record:
+    scartati_mittente = 0
+    for giorno, oggetto, mittente in record:
+        if esclusi_mittente is not None and _mittente_escluso_da_liste(
+            mittente, esclusi_mittente
+        ):
+            scartati_mittente += 1
+            continue
         acronimo = _acronimo_da_oggetto_email(oggetto, acronimi_noti)
         if not acronimo:
             senza_acronimo += 1
             continue
         per_settimana[_etichetta_settimana_iso(giorno)][acronimo] += 1
+    return per_settimana, senza_acronimo, scartati_mittente
 
+
+def _pannelli_email_da_aggregato(per_settimana, senza_acronimo):
+    """Tre grafici Chart.js (10 acronimi) da conteggi settimana/acronimo."""
     if not per_settimana:
         return {
             "available": False,
@@ -2634,12 +2685,8 @@ def _dati_grafico_email_settimana(riepilogo_acronimi):
     for settimana in labels:
         totali_acronimo.update(per_settimana[settimana])
 
-    classificati = [
-        nome for nome, _ in totali_acronimo.most_common()
-    ]
-    max_visibili = (
-        EMAIL_CHART_ACRONIMI_PER_GRAFICO * EMAIL_CHART_NUM_GRAFICI
-    )
+    classificati = [nome for nome, _ in totali_acronimo.most_common()]
+    max_visibili = EMAIL_CHART_ACRONIMI_PER_GRAFICO * EMAIL_CHART_NUM_GRAFICI
     oltre_limite = max(0, len(classificati) - max_visibili)
 
     charts = []
@@ -2677,8 +2724,55 @@ def _dati_grafico_email_settimana(riepilogo_acronimi):
         "n_acronimi_grafico": sum(len(c["acronimi"]) for c in charts),
         "oltre_limite_grafici": oltre_limite,
         "skipped": senza_acronimo,
-        "source": fonte or "",
     }
+
+
+def _dati_grafico_email_settimana(riepilogo_acronimi):
+    """Conteggi email per settimana ISO: tutti i mittenti + filtro .addr."""
+    record, fonte = _carica_record_email_deduplicati()
+    vuoto_filtrato = {
+        "available": False,
+        "message": "",
+        "labels": [],
+        "charts": [],
+    }
+    if not record:
+        msg = (
+            "Nessun dato email: copiare gli export in "
+            f"{EMAIL_EXPORT_SUBDIR}/ sotto Data/ o generare email.lst "
+            "(variabili EMAIL_DIR / EMAIL_LST)."
+        )
+        return {
+            "available": False,
+            "message": msg,
+            "labels": [],
+            "charts": [],
+            "filtered": {**vuoto_filtrato, "message": msg},
+        }
+
+    acronimi_noti = _acronimi_noti_da_riepilogo(riepilogo_acronimi)
+    esclusi, addr_paths = _carica_indirizzi_esclusione_mittente()
+
+    per_tutti, skip_tutti, _ = _aggrega_email_per_settimana(
+        record, acronimi_noti, esclusi_mittente=None
+    )
+    principale = _pannelli_email_da_aggregato(per_tutti, skip_tutti)
+    principale["source"] = fonte or ""
+
+    per_filtrati, skip_filt, scartati_mittente = _aggrega_email_per_settimana(
+        record, acronimi_noti, esclusi_mittente=esclusi
+    )
+    filtrato = _pannelli_email_da_aggregato(per_filtrati, skip_filt)
+    filtrato["scartati_mittente"] = scartati_mittente
+    filtrato["n_regole_esclusione"] = len(esclusi)
+    filtrato["addr_files"] = addr_paths
+
+    if not principale.get("available"):
+        principale["filtered"] = filtrato
+        return principale
+
+    principale["filtered"] = filtrato
+    return principale
 
 
 def _html_nota_grafico_email(dati_email):
@@ -2710,19 +2804,60 @@ def _html_nota_grafico_email(dati_email):
     )
 
 
-def _html_grafici_email_settimana(dati_email):
-    """Tre canvas Chart.js per i pannelli email."""
+def _html_nota_grafico_email_filtrato(dati_email):
+    """Nota per i grafici senza mittenti in ignora.addr / other.addr."""
+    filtrato = dati_email.get("filtered") or {}
     if not dati_email.get("available"):
         return ""
+    if not filtrato.get("available"):
+        return (
+            f'<p class="sub"><em>{html.escape(filtrato.get("message", ""))}</em></p>'
+        )
+    skipped = int(filtrato.get("skipped") or 0)
+    extra = (
+        f" · {skipped} messaggi senza acronimo nel soggetto"
+        if skipped
+        else ""
+    )
+    oltre = int(filtrato.get("oltre_limite_grafici") or 0)
+    limite_txt = (
+        f" · <b>{oltre}</b> acronimi oltre i "
+        f"{EMAIL_CHART_NUM_GRAFICI}×{EMAIL_CHART_ACRONIMI_PER_GRAFICO} mostrati"
+        if oltre
+        else ""
+    )
+    scartati = int(filtrato.get("scartati_mittente") or 0)
+    regole = int(filtrato.get("n_regole_esclusione") or 0)
+    files = ", ".join(
+        html.escape(os.path.basename(p))
+        for p in (filtrato.get("addr_files") or [])
+    )
+    return (
+        f'<p class="sub">Stessa ripartizione (10 acronimi × 3 grafici), ma contano solo '
+        f"le email il cui mittente <b>non</b> compare in "
+        f"<code>ignora.addr</code> né in <code>other.addr</code> "
+        f"({regole} regole caricate da {files}). "
+        f"Messaggi esclusi per mittente: <b>{scartati}</b>. "
+        f'Totale mappate: <b>{filtrato["total"]}</b> su '
+        f'<b>{filtrato["n_acronimi"]}</b> acronimi'
+        f"{limite_txt}{extra}.</p>"
+    )
+
+
+def _html_grafici_email_settimana(bundle, canvas_prefix):
+    """Tre canvas Chart.js per un bundle email (tutti o filtrati)."""
+    if not bundle or not bundle.get("available"):
+        return ""
     blocks = []
-    for chart in dati_email.get("charts", []):
+    for chart in bundle.get("charts", []):
         idx = chart["index"]
         titolo = html.escape(chart.get("title", f"Parte {idx}"))
+        canvas_id = f"{canvas_prefix}-{idx}"
         blocks.append(
             f'    <div class="chart-card chart-card-full">\n'
             f"      <h3>{titolo}</h3>\n"
             f'      <div class="chart-wrap-lg">'
-            f'<canvas id="chart-email-weekly-{idx}"></canvas></div>\n'
+            f'<canvas id="{canvas_id}"></canvas></div>\n'
             f"    </div>"
         )
     return "\n".join(blocks)
@@ -3009,7 +3144,13 @@ def genera_html_jkan(
     dati["email_weekly"] = dati_email
     chart_json = json.dumps(dati, ensure_ascii=False)
     nota_email_html = _html_nota_grafico_email(dati_email)
-    email_chart_html = _html_grafici_email_settimana(dati_email)
+    email_chart_html = _html_grafici_email_settimana(
+        dati_email, "chart-email-weekly"
+    )
+    nota_email_filtrata_html = _html_nota_grafico_email_filtrato(dati_email)
+    email_chart_filtrata_html = _html_grafici_email_settimana(
+        dati_email.get("filtered"), "chart-email-weekly-excl"
+    )
     kpi_stima_html = _html_kpi_stima_ore(dati["stima"]["summary"])
     burndown_forecast_html = _html_burndown_forecast(dati["burndown"]["forecast"])
     griglia_html = _html_griglia_colonne_kanban()
@@ -3103,6 +3244,7 @@ def genera_html_jkan(
       background: #fafbfc;
     }}
     .chart-card h3 {{ margin: 0 0 .5rem; font-size: .95rem; font-weight: 600; }}
+    .email-subsection {{ margin: 1.5rem 0 .5rem; font-size: 1rem; font-weight: 600; }}
     .chart-card-full {{ margin-top: 1rem; }}
     .chart-card-full .sub {{ margin: 0 0 .75rem; }}
     .chart-wrap-ratio-all {{ position: relative; width: 100%; min-height: 360px; }}
@@ -3236,6 +3378,9 @@ def genera_html_jkan(
     <h2>Email per acronimo e settimana</h2>
 {nota_email_html}
 {email_chart_html}
+    <h3 class="email-subsection">Esclusi mittenti (ignora.addr / other.addr)</h3>
+{nota_email_filtrata_html}
+{email_chart_filtrata_html}
   </section>
 
   <section id="tabella">
@@ -3471,8 +3616,10 @@ def genera_html_jkan(
     options: baseOpts
   }});
 
-  if (D.email_weekly && D.email_weekly.available) {{
-    const E = D.email_weekly;
+  function renderEmailWeeklyBundle(bundle, canvasPrefix) {{
+    if (!bundle || !bundle.available) {{
+      return;
+    }}
     const emailChartOpts = Object.assign({{}}, baseOpts, {{
       plugins: {{ legend: {{ position: "bottom" }} }},
       scales: {{
@@ -3489,12 +3636,16 @@ def genera_html_jkan(
         }}
       }}
     }});
-    (E.charts || []).forEach(function(ch) {{
-      const stackId = "email-" + ch.index;
-      new Chart(document.getElementById("chart-email-weekly-" + ch.index), {{
+    (bundle.charts || []).forEach(function(ch) {{
+      const stackId = canvasPrefix + "-" + ch.index;
+      const canvas = document.getElementById(canvasPrefix + "-" + ch.index);
+      if (!canvas) {{
+        return;
+      }}
+      new Chart(canvas, {{
         type: "bar",
         data: {{
-          labels: E.labels,
+          labels: bundle.labels,
           datasets: (ch.datasets || []).map(function(ds) {{
             return Object.assign({{}}, ds, {{ stack: stackId }});
           }})
@@ -3502,6 +3653,11 @@ def genera_html_jkan(
         options: emailChartOpts
       }});
     }});
+  }}
+
+  if (D.email_weekly) {{
+    renderEmailWeeklyBundle(D.email_weekly, "chart-email-weekly");
+    renderEmailWeeklyBundle(D.email_weekly.filtered, "chart-email-weekly-excl");
   }}
 
   (function() {{
