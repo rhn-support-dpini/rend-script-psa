@@ -67,7 +67,8 @@ DATA_DIR = os.path.join(VENV_DIR, "Data")
 EMAIL_EXPORT_SUBDIR = "Email"
 EMAIL_LST_FILENAME = "email.lst"
 EMAIL_EXPORT_BLOCK_DELIM = "=================================================="
-EMAIL_CHART_MAX_SERIES = 12
+EMAIL_CHART_ACRONIMI_PER_GRAFICO = 10
+EMAIL_CHART_NUM_GRAFICI = 3
 EMAIL_CHART_PALETTE = [
     "#1a56db",
     "#10b981",
@@ -2571,6 +2572,26 @@ def _etichetta_settimana_iso(giorno):
     return f"{anno}-W{settimana:02d}"
 
 
+def _datasets_email_settimana(per_settimana, labels, acronimi, color_offset=0):
+    """Serie Chart.js impilate per un elenco di acronimi."""
+    datasets = []
+    for idx, nome in enumerate(acronimi):
+        colore = EMAIL_CHART_PALETTE[
+            (color_offset + idx) % len(EMAIL_CHART_PALETTE)
+        ]
+        valori = [
+            per_settimana[settimana].get(nome, 0) for settimana in labels
+        ]
+        datasets.append(
+            {
+                "label": nome,
+                "data": valori,
+                "backgroundColor": colore,
+            }
+        )
+    return datasets
+
+
 def _dati_grafico_email_settimana(riepilogo_acronimi):
     """Conteggi email per settimana ISO e acronimo (barre impilate per Chart.js)."""
     record, fonte = _carica_record_email_deduplicati()
@@ -2584,7 +2605,7 @@ def _dati_grafico_email_settimana(riepilogo_acronimi):
             "available": False,
             "message": msg,
             "labels": [],
-            "datasets": [],
+            "charts": [],
         }
 
     acronimi_noti = _acronimi_noti_da_riepilogo(riepilogo_acronimi)
@@ -2605,7 +2626,7 @@ def _dati_grafico_email_settimana(riepilogo_acronimi):
                 f"({senza_acronimo} messaggi senza match)."
             ),
             "labels": [],
-            "datasets": [],
+            "charts": [],
         }
 
     labels = sorted(per_settimana.keys())
@@ -2613,31 +2634,36 @@ def _dati_grafico_email_settimana(riepilogo_acronimi):
     for settimana in labels:
         totali_acronimo.update(per_settimana[settimana])
 
-    top = [
-        nome
-        for nome, _ in totali_acronimo.most_common(EMAIL_CHART_MAX_SERIES)
+    classificati = [
+        nome for nome, _ in totali_acronimo.most_common()
     ]
-    top_set = set(top)
-    serie = top + (["Altri"] if len(totali_acronimo) > len(top) else [])
+    max_visibili = (
+        EMAIL_CHART_ACRONIMI_PER_GRAFICO * EMAIL_CHART_NUM_GRAFICI
+    )
+    oltre_limite = max(0, len(classificati) - max_visibili)
 
-    datasets = []
-    for idx, nome_serie in enumerate(serie):
-        colore = EMAIL_CHART_PALETTE[idx % len(EMAIL_CHART_PALETTE)]
-        valori = []
-        for settimana in labels:
-            conteggio = per_settimana[settimana]
-            if nome_serie == "Altri":
-                altri = sum(
-                    n for acr, n in conteggio.items() if acr not in top_set
-                )
-                valori.append(altri)
-            else:
-                valori.append(conteggio.get(nome_serie, 0))
-        datasets.append(
+    charts = []
+    for parte in range(EMAIL_CHART_NUM_GRAFICI):
+        inizio = parte * EMAIL_CHART_ACRONIMI_PER_GRAFICO
+        acronimi = classificati[
+            inizio : inizio + EMAIL_CHART_ACRONIMI_PER_GRAFICO
+        ]
+        if not acronimi:
+            continue
+        charts.append(
             {
-                "label": nome_serie,
-                "data": valori,
-                "backgroundColor": colore,
+                "index": parte + 1,
+                "title": (
+                    f"Parte {parte + 1} — acronimi "
+                    f"{inizio + 1}–{inizio + len(acronimi)} per volume"
+                ),
+                "acronimi": acronimi,
+                "datasets": _datasets_email_settimana(
+                    per_settimana,
+                    labels,
+                    acronimi,
+                    color_offset=inizio,
+                ),
             }
         )
 
@@ -2645,9 +2671,11 @@ def _dati_grafico_email_settimana(riepilogo_acronimi):
     return {
         "available": True,
         "labels": labels,
-        "datasets": datasets,
+        "charts": charts,
         "total": totale_mappate,
         "n_acronimi": len(totali_acronimo),
+        "n_acronimi_grafico": sum(len(c["acronimi"]) for c in charts),
+        "oltre_limite_grafici": oltre_limite,
         "skipped": senza_acronimo,
         "source": fonte or "",
     }
@@ -2664,14 +2692,40 @@ def _html_nota_grafico_email(dati_email):
         if skipped
         else ""
     )
+    oltre = int(dati_email.get("oltre_limite_grafici") or 0)
+    limite_txt = (
+        f" · <b>{oltre}</b> acronimi oltre i "
+        f"{EMAIL_CHART_NUM_GRAFICI}×{EMAIL_CHART_ACRONIMI_PER_GRAFICO} mostrati"
+        if oltre
+        else ""
+    )
     return (
-        f'<p class="sub">Una barra per settimana ISO (es. 2026-W32); altezza = numero di '
-        f"email sul thread dell'acronimo. Deduplica per DATA+OGGETTO. Fonte: "
+        f'<p class="sub">Tre grafici con al massimo '
+        f"<b>{EMAIL_CHART_ACRONIMI_PER_GRAFICO}</b> acronimi ciascuno (ordinati per "
+        f"volume email). Una barra per settimana ISO; deduplica DATA+OGGETTO. Fonte: "
         f'<code>{html.escape(str(dati_email.get("source", "")))}</code>. '
         f'Totale mappate: <b>{dati_email["total"]}</b> su '
         f'<b>{dati_email["n_acronimi"]}</b> acronimi'
-        f"{extra}.</p>"
+        f"{limite_txt}{extra}.</p>"
     )
+
+
+def _html_grafici_email_settimana(dati_email):
+    """Tre canvas Chart.js per i pannelli email."""
+    if not dati_email.get("available"):
+        return ""
+    blocks = []
+    for chart in dati_email.get("charts", []):
+        idx = chart["index"]
+        titolo = html.escape(chart.get("title", f"Parte {idx}"))
+        blocks.append(
+            f'    <div class="chart-card chart-card-full">\n'
+            f"      <h3>{titolo}</h3>\n"
+            f'      <div class="chart-wrap-lg">'
+            f'<canvas id="chart-email-weekly-{idx}"></canvas></div>\n'
+            f"    </div>"
+        )
+    return "\n".join(blocks)
 
 
 def _dati_grafici_jkan(df):
@@ -2955,11 +3009,7 @@ def genera_html_jkan(
     dati["email_weekly"] = dati_email
     chart_json = json.dumps(dati, ensure_ascii=False)
     nota_email_html = _html_nota_grafico_email(dati_email)
-    email_chart_html = (
-        '<div class="chart-wrap-lg"><canvas id="chart-email-weekly"></canvas></div>'
-        if dati_email.get("available")
-        else ""
-    )
+    email_chart_html = _html_grafici_email_settimana(dati_email)
     kpi_stima_html = _html_kpi_stima_ore(dati["stima"]["summary"])
     burndown_forecast_html = _html_burndown_forecast(dati["burndown"]["forecast"])
     griglia_html = _html_griglia_colonne_kanban()
@@ -3423,30 +3473,34 @@ def genera_html_jkan(
 
   if (D.email_weekly && D.email_weekly.available) {{
     const E = D.email_weekly;
-    new Chart(document.getElementById("chart-email-weekly"), {{
-      type: "bar",
-      data: {{
-        labels: E.labels,
-        datasets: (E.datasets || []).map(function(ds) {{
-          return Object.assign({{}}, ds, {{ stack: "email" }});
-        }})
-      }},
-      options: Object.assign({{}}, baseOpts, {{
-        plugins: {{ legend: {{ position: "bottom" }} }},
-        scales: {{
-          x: {{
-            stacked: true,
-            title: {{ display: true, text: "Settimana ISO" }},
-            ticks: {{ maxRotation: 45, autoSkip: true }}
-          }},
-          y: {{
-            stacked: true,
-            beginAtZero: true,
-            ticks: {{ precision: 0 }},
-            title: {{ display: true, text: "N. email" }}
-          }}
+    const emailChartOpts = Object.assign({{}}, baseOpts, {{
+      plugins: {{ legend: {{ position: "bottom" }} }},
+      scales: {{
+        x: {{
+          stacked: true,
+          title: {{ display: true, text: "Settimana ISO" }},
+          ticks: {{ maxRotation: 45, autoSkip: true }}
+        }},
+        y: {{
+          stacked: true,
+          beginAtZero: true,
+          ticks: {{ precision: 0 }},
+          title: {{ display: true, text: "N. email" }}
         }}
-      }})
+      }}
+    }});
+    (E.charts || []).forEach(function(ch) {{
+      const stackId = "email-" + ch.index;
+      new Chart(document.getElementById("chart-email-weekly-" + ch.index), {{
+        type: "bar",
+        data: {{
+          labels: E.labels,
+          datasets: (ch.datasets || []).map(function(ds) {{
+            return Object.assign({{}}, ds, {{ stack: stackId }});
+          }})
+        }},
+        options: emailChartOpts
+      }});
     }});
   }}
 
