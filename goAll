@@ -25,7 +25,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/venv"
-TARGET_DIR="${TARGET_DIR:-$VENV_DIR/Data}"
+LAUNCH_DIR="$(pwd)"
+# Dati in ./Data rispetto alla cwd se lanci da venv/, altrimenti venv/Data/
+if [ -z "${TARGET_DIR:-}" ]; then
+    if [ "$LAUNCH_DIR" = "$VENV_DIR" ]; then
+        TARGET_DIR="$LAUNCH_DIR/Data"
+    else
+        TARGET_DIR="$VENV_DIR/Data"
+    fi
+fi
 CLIENTE="${CLIENTE:-Intesa}"
 PATTERN_PSA='DvPFilter-RHCC-All-Assignments-Full*'
 PATTERN_JKAN='*-Intesa-JBOSS.csv'
@@ -40,6 +48,47 @@ PATTERN_EMAIL='Email_Esportate___JBOSS-Barison_Parte_*.txt'
 mkdir -p "$VENV_DIR" "$TARGET_DIR"
 TARGET_DIR="$(cd "$TARGET_DIR" && pwd)"
 EMAIL_LOCAL_DIR="$TARGET_DIR/Email"
+CWD_EMAIL_DIR="$LAUNCH_DIR/Data/Email"
+
+email_dir_canonical() {
+    mkdir -p "$1"
+    (cd "$1" && pwd -P)
+}
+
+copia_email_in_destinazioni() {
+    local src="$1"
+    local base
+    base=$(basename "$src")
+    rsync -a "$src" "$EMAIL_LOCAL_DIR/"
+    echo "Copiato in $EMAIL_LOCAL_DIR/: $base"
+    local canon_primary canon_cwd
+    canon_primary=$(email_dir_canonical "$EMAIL_LOCAL_DIR")
+    canon_cwd=$(email_dir_canonical "$CWD_EMAIL_DIR")
+    if [ "$canon_primary" != "$canon_cwd" ]; then
+        rsync -a "$src" "$CWD_EMAIL_DIR/"
+        echo "Copiato in $CWD_EMAIL_DIR/: $base"
+    fi
+    if [ -d "$DRIVE_DIR_EMAIL_BARISON" ]; then
+        rsync -a "$src" "$DRIVE_DIR_EMAIL_BARISON/"
+        echo "Copiato in JBOSS-Barison-Mail: $base"
+    fi
+}
+
+raccogli_file_email_drive() {
+    # Output: popola array globale EMAIL_FILES
+    EMAIL_FILES=()
+    shopt -s nullglob
+    if [ -d "$DRIVE_GDRIVE_ROOT" ]; then
+        EMAIL_FILES+=( "$DRIVE_GDRIVE_ROOT"/$PATTERN_EMAIL )
+    fi
+    if [ "${#EMAIL_FILES[@]}" -eq 0 ] && [ -d "$DRIVE_DIR_EMAIL_BARISON" ]; then
+        EMAIL_FILES+=( "$DRIVE_DIR_EMAIL_BARISON"/$PATTERN_EMAIL )
+        if [ "${#EMAIL_FILES[@]}" -gt 0 ]; then
+            echo "Nessun file in root Drive; uso $DRIVE_DIR_EMAIL_BARISON"
+        fi
+    fi
+    shopt -u nullglob
+}
 
 if [ -x "$VENV_DIR/bin/python3" ]; then
     PYTHON="$VENV_DIR/bin/python3"
@@ -117,8 +166,15 @@ file_gia_presente_jkan() {
     printf '%s\n' "$BEFORE_LIST_JKAN" | grep -Fxq "$name"
 }
 
-# --- 1/4 Copia PSA ---
+# --- 1/6 Copia PSA ---
 
+echo "Directory di lancio: $LAUNCH_DIR"
+echo "Directory dati (TARGET_DIR): $TARGET_DIR"
+echo "Email locali (primaria): $EMAIL_LOCAL_DIR"
+if [ "$(email_dir_canonical "$EMAIL_LOCAL_DIR")" != "$(email_dir_canonical "$CWD_EMAIL_DIR")" ]; then
+    echo "Email anche in (./Data/Email dalla cwd): $CWD_EMAIL_DIR"
+fi
+echo ""
 echo "=== 1/6 Copia PSA (copia_drive-PSA.sh) → $TARGET_DIR ==="
 DRIVE_DIR="$DRIVE_DIR_PSA" LOCAL_DIR="$TARGET_DIR" "$SCRIPT_DIR/copia_drive-PSA.sh"
 
@@ -197,38 +253,37 @@ fi
 # --- 3/6 Copia export email JBOSS-Barison ---
 
 echo ""
-echo "=== 3/6 Copia export email JBOSS-Barison → $EMAIL_LOCAL_DIR ==="
-mkdir -p "$EMAIL_LOCAL_DIR"
+echo "=== 3/6 Copia export email JBOSS-Barison ==="
+mkdir -p "$EMAIL_LOCAL_DIR" "$CWD_EMAIL_DIR"
 copiati_email=0
 
-if [ ! -d "$DRIVE_GDRIVE_ROOT" ]; then
-    echo "Cartella Drive non disponibile, salto copia email: $DRIVE_GDRIVE_ROOT"
+if [ ! -d "$DRIVE_GDRIVE_ROOT" ] && [ ! -d "$DRIVE_DIR_EMAIL_BARISON" ]; then
+    echo "Drive non disponibile, salto copia email."
+    echo "  Root attesa: $DRIVE_GDRIVE_ROOT"
+    echo "  Alternativa: $DRIVE_DIR_EMAIL_BARISON"
 else
-    shopt -s nullglob
-    EMAIL_FILES=( "$DRIVE_GDRIVE_ROOT"/$PATTERN_EMAIL )
+    raccogli_file_email_drive
     if [ "${#EMAIL_FILES[@]}" -eq 0 ]; then
-        echo "Nessun file $PATTERN_EMAIL in $DRIVE_GDRIVE_ROOT, salto copia email."
+        echo "Nessun file $PATTERN_EMAIL trovato su Drive (root né JBOSS-Barison-Mail)."
     else
         if [ ! -d "$DRIVE_DIR_EMAIL_BARISON" ]; then
             echo "Attenzione: cartella JBOSS-Barison-Mail assente, copia solo in locale:"
             echo "  $DRIVE_DIR_EMAIL_BARISON"
         fi
         for SRC_EMAIL in "${EMAIL_FILES[@]}"; do
-            BASE_EMAIL=$(basename "$SRC_EMAIL")
-            rsync -a "$SRC_EMAIL" "$EMAIL_LOCAL_DIR/"
-            echo "Copiato in Data/Email: $BASE_EMAIL"
-            if [ -d "$DRIVE_DIR_EMAIL_BARISON" ]; then
-                rsync -a "$SRC_EMAIL" "$DRIVE_DIR_EMAIL_BARISON/"
-                echo "Copiato in JBOSS-Barison-Mail: $BASE_EMAIL"
-            fi
+            copia_email_in_destinazioni "$SRC_EMAIL"
             copiati_email=$((copiati_email + 1))
         done
     fi
-    shopt -u nullglob
 fi
 
 if [ "$copiati_email" -gt 0 ]; then
     echo "File email copiati: $copiati_email"
+else
+    echo "Nessun file email copiato in $EMAIL_LOCAL_DIR"
+    if [ "$(email_dir_canonical "$EMAIL_LOCAL_DIR")" != "$(email_dir_canonical "$CWD_EMAIL_DIR")" ]; then
+        echo "  (né in $CWD_EMAIL_DIR)"
+    fi
 fi
 
 # --- 4/6 estrai-mail.py ---
