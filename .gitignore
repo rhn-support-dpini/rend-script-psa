@@ -8,6 +8,7 @@
 !elabora_progetti.py
 !elabora_JKAN.py
 !elabora_Ass.py
+!estrai-mail.py
 !.cursor/
 !.cursor/rules/
 !.cursor/rules/**

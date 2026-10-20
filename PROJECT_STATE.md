@@ -16,6 +16,7 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 | `elabora_progetti.py` | Export PSA → Excel multi-foglio + HTML |
 | `elabora_JKAN.py` | Export MIRO Kanban → Excel + `dbJKAN.csv` + report HTML Scrum/Kanban |
 | `elabora_Ass.py` | Export RHCC assignments → Excel semplificato |
+| `estrai-mail.py` | Estrae DA/DATA/OGGETTO da export mail Apps Script su Drive → `email.lst` |
 | `copia_drive-PSA.sh` / `copia_drive-Miro.sh` | Copia incrementale da Drive |
 | `script.config` / `cust.config` | Indici colonne input e parametri report PSA |
 | `.prjIgnore` | Codici progetto esclusi dalla **Tabella di Export** (non dai calcoli) |
