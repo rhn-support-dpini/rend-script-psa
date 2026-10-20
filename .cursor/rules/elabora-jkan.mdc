@@ -58,7 +58,7 @@ Colonna G (Giornate Stimate): valore dal tag `# Estimate` in Description, non da
 - Scope tracciato = somma delle sei colonne; target progetto = 30 card (`SCOPE_TOTALE_CARD`).
 - Done = solo colonna Acronimi done. WIP = in progress + waiting for fab. + Fab test in progress.
 - Status mappati con `classifica_colonna_kanban()` **solo dal campo Status MIRO** (nessuna inferenza da Description o tag).
-- Report HTML: omonimo del `.xlsx` prodotto; KPI riepilogo acronimi; CFD, burnup, WIP, velocità; Chart.js via CDN.
+- Report HTML: omonimo del `.xlsx` prodotto; KPI riepilogo acronimi; CFD, burnup, WIP, velocità; barre impilate email per settimana ISO e acronimo (fonte `venv/Data/Email` o `email.lst`, env `EMAIL_DIR` / `EMAIL_LST`); Chart.js via CDN.
 
 ## Tag temporali (prefissi esatti)
 

@@ -1,6 +1,6 @@
 # PROJECT_STATE — rend-script-psa
 
-Ultimo aggiornamento: 2026-10-13 (sessione Cursor su branch `Cursor`).
+Ultimo aggiornamento: 2026-10-20 (sessione Cursor su branch `Cursor`).
 
 Documento di handoff per sessioni successive: cosa c’è nel repo, come funziona, cosa è stato toccato di recente, e cosa evitare.
 
@@ -30,6 +30,10 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 ---
 
 ## Implementato / modificato (cronologia recente)
+
+### Sessione 2026-10-20 — `elabora_JKAN.py`
+
+- Report **HTML**: sezione «Email per acronimo e settimana» — barre impilate Chart.js (settimana ISO × conteggio email per acronimo); lettura da `venv/Data/Email` (export Apps Script) o `email.lst`; deduplica DATA+OGGETTO; acronimo da pattern `| CODE (` nel soggetto o match sui Title del board; top 12 acronimi + «Altri». Env: `EMAIL_DIR`, `EMAIL_LST`.
 
 ### Sessione 2026-10-13 — `elabora_progetti.py`
 

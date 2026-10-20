@@ -17,7 +17,8 @@ Output:
     File .xlsx con stesso nome e percorso del CSV di input.
     Fogli: data-all (tutte le card), data-export (export ridotto), time-Waiting, stat.
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
-    <input>.html — report Scrum/Kanban (stesso percorso del .xlsx prodotto).
+    <input>.html — report Scrum/Kanban (stesso percorso del .xlsx prodotto);
+        include grafico email per acronimo/settimana se presenti venv/Data/Email o email.lst.
     Le righe Description con prefisso "#" generano sotto-righe da colonna W (TAG Temporali);
     A–R (+ Description in AA) sono merge verticali per Title, con bordo rosso pastello per card.
     K (InizioLavorazione(gg)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
@@ -50,7 +51,7 @@ import math
 import os
 import re
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -63,6 +64,31 @@ from openpyxl.utils import get_column_letter
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 VENV_DIR = os.path.join(SCRIPT_DIR, "venv")
 DATA_DIR = os.path.join(VENV_DIR, "Data")
+EMAIL_EXPORT_SUBDIR = "Email"
+EMAIL_LST_FILENAME = "email.lst"
+EMAIL_EXPORT_BLOCK_DELIM = "=================================================="
+EMAIL_CHART_MAX_SERIES = 12
+EMAIL_CHART_PALETTE = [
+    "#1a56db",
+    "#10b981",
+    "#f59e0b",
+    "#8b5cf6",
+    "#ef4444",
+    "#06b6d4",
+    "#ec4899",
+    "#84cc16",
+    "#6366f1",
+    "#14b8a6",
+    "#f97316",
+    "#64748b",
+]
+EMAIL_OGGETTO_ACRONIMO_PIPE_RE = re.compile(
+    r"\|\s*([A-Z0-9][A-Z0-9\-]*)\s*\(",
+    re.IGNORECASE,
+)
+EMAIL_DATA_HEAD_RE = re.compile(
+    r"^([A-Za-z]{3}\s+[A-Za-z]{3}\s+\d{1,2}\s+\d{4})"
+)
 DB_JKAN_CSV = os.path.join(SCRIPT_DIR, "dbJKAN.csv")
 DATA_IN_FILENAME_RE = re.compile(r"(\d{4})[-/](\d{2})[-/](\d{2})")
 SCOPE_TOTALE_CARD = 30
@@ -2391,6 +2417,263 @@ def _html_burndown_forecast(forecast):
     )
 
 
+def percorso_cartella_email_export():
+    """Cartella export Apps Script (.txt); EMAIL_DIR se impostata."""
+    env_dir = os.environ.get("EMAIL_DIR")
+    if env_dir and os.path.isdir(env_dir):
+        return os.path.normpath(env_dir)
+    for base in (DATA_DIR, SCRIPT_DIR, os.getcwd()):
+        path = os.path.join(base, EMAIL_EXPORT_SUBDIR)
+        if os.path.isdir(path):
+            return path
+    return None
+
+
+def percorso_file_email_lst():
+    """Lista compatta prodotta da estrai-mail.py; EMAIL_LST se impostata."""
+    env_lst = os.environ.get("EMAIL_LST")
+    if env_lst and os.path.isfile(env_lst):
+        return os.path.normpath(env_lst)
+    for base in (DATA_DIR, SCRIPT_DIR):
+        path = os.path.join(base, EMAIL_LST_FILENAME)
+        if os.path.isfile(path):
+            return path
+    return os.path.join(SCRIPT_DIR, EMAIL_LST_FILENAME)
+
+
+def _parse_data_email_export(testo_data):
+    """Data da riga DATA: export Apps Script (es. Thu Aug 06 2026 …)."""
+    if not testo_data or testo_data.strip() in ("", "N/D"):
+        return None
+    testo = testo_data.strip()
+    match = EMAIL_DATA_HEAD_RE.match(testo)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%a %b %d %Y").date()
+    except ValueError:
+        return None
+
+
+def _acronimi_noti_da_riepilogo(riepilogo_acronimi):
+    """Codici acronimo (prima riga Title) per match nel soggetto mail."""
+    if not riepilogo_acronimi:
+        return []
+    titoli = riepilogo_acronimi.get("acronimi_tutti_board") or []
+    codici = []
+    for title in titoli:
+        nome = _nome_acronimo_da_title(title)
+        if nome and not nome.startswith("("):
+            codici.append(nome.upper())
+    return sorted(set(codici))
+
+
+def _acronimo_da_oggetto_email(oggetto, acronimi_noti):
+    """Estrae l'acronimo dal soggetto (pattern baseline | CODE ( …) o match board)."""
+    if not oggetto:
+        return None
+    match = EMAIL_OGGETTO_ACRONIMO_PIPE_RE.search(oggetto)
+    if match:
+        return match.group(1).upper()
+    upper = oggetto.upper()
+    for codice in sorted(acronimi_noti, key=len, reverse=True):
+        if codice in upper:
+            return codice
+    return None
+
+
+def _record_email_da_blocco_export(blocco):
+    """DA/DATA/OGGETTO da un blocco singolo dell'export Apps Script."""
+    data_match = re.search(r"^DATA:\s*(.*)$", blocco, re.MULTILINE)
+    oggetto_match = re.search(r"^OGGETTO:\s*(.*)$", blocco, re.MULTILINE)
+    if not data_match or not oggetto_match:
+        return None
+    data_raw = data_match.group(1).strip()
+    oggetto = oggetto_match.group(1).strip()
+    giorno = _parse_data_email_export(data_raw)
+    if not giorno:
+        return None
+    return giorno, data_raw, oggetto
+
+
+def _iter_record_email_export_file(filepath):
+    try:
+        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+            contenuto = f.read()
+    except OSError as err:
+        print(f"Avviso: impossibile leggere email da {filepath}: {err}")
+        return
+    for blocco in contenuto.split(EMAIL_EXPORT_BLOCK_DELIM):
+        record = _record_email_da_blocco_export(blocco)
+        if record:
+            yield record
+
+
+def _record_email_da_riga_lst(riga):
+    """DATA e OGGETTO da una riga di email.lst."""
+    riga = riga.strip()
+    if not riga:
+        return None
+    data_match = re.search(r"DATA:\s*([^|]+)", riga)
+    oggetto_match = re.search(r"OGGETTO:\s*(.+)$", riga)
+    if not data_match or not oggetto_match:
+        return None
+    data_raw = data_match.group(1).strip()
+    oggetto = oggetto_match.group(1).strip()
+    giorno = _parse_data_email_export(data_raw)
+    if not giorno:
+        return None
+    return giorno, data_raw, oggetto
+
+
+def _carica_record_email_deduplicati():
+    """Record (giorno, data_raw, oggetto) da venv/Data/Email o email.lst."""
+    visti = set()
+    record = []
+    fonte = None
+
+    cartella = percorso_cartella_email_export()
+    if cartella:
+        fonte = cartella
+        for nome in sorted(os.listdir(cartella)):
+            if nome.startswith(".") or nome.startswith("._"):
+                continue
+            full = os.path.join(cartella, nome)
+            if not os.path.isfile(full):
+                continue
+            for giorno, data_raw, oggetto in _iter_record_email_export_file(full):
+                chiave = (data_raw, oggetto)
+                if chiave in visti:
+                    continue
+                visti.add(chiave)
+                record.append((giorno, oggetto))
+    else:
+        lst_path = percorso_file_email_lst()
+        if os.path.isfile(lst_path):
+            fonte = lst_path
+            with open(lst_path, "r", encoding="utf-8", errors="ignore") as f:
+                for riga in f:
+                    parsed = _record_email_da_riga_lst(riga)
+                    if not parsed:
+                        continue
+                    giorno, data_raw, oggetto = parsed
+                    chiave = (data_raw, oggetto)
+                    if chiave in visti:
+                        continue
+                    visti.add(chiave)
+                    record.append((giorno, oggetto))
+
+    return record, fonte
+
+
+def _etichetta_settimana_iso(giorno):
+    anno, settimana, _ = giorno.isocalendar()
+    return f"{anno}-W{settimana:02d}"
+
+
+def _dati_grafico_email_settimana(riepilogo_acronimi):
+    """Conteggi email per settimana ISO e acronimo (barre impilate per Chart.js)."""
+    record, fonte = _carica_record_email_deduplicati()
+    if not record:
+        msg = (
+            "Nessun dato email: copiare gli export in "
+            f"{EMAIL_EXPORT_SUBDIR}/ sotto Data/ o generare email.lst "
+            "(variabili EMAIL_DIR / EMAIL_LST)."
+        )
+        return {
+            "available": False,
+            "message": msg,
+            "labels": [],
+            "datasets": [],
+        }
+
+    acronimi_noti = _acronimi_noti_da_riepilogo(riepilogo_acronimi)
+    per_settimana = defaultdict(Counter)
+    senza_acronimo = 0
+    for giorno, oggetto in record:
+        acronimo = _acronimo_da_oggetto_email(oggetto, acronimi_noti)
+        if not acronimo:
+            senza_acronimo += 1
+            continue
+        per_settimana[_etichetta_settimana_iso(giorno)][acronimo] += 1
+
+    if not per_settimana:
+        return {
+            "available": False,
+            "message": (
+                "Email lette ma nessun acronimo riconosciuto nel soggetto "
+                f"({senza_acronimo} messaggi senza match)."
+            ),
+            "labels": [],
+            "datasets": [],
+        }
+
+    labels = sorted(per_settimana.keys())
+    totali_acronimo = Counter()
+    for settimana in labels:
+        totali_acronimo.update(per_settimana[settimana])
+
+    top = [
+        nome
+        for nome, _ in totali_acronimo.most_common(EMAIL_CHART_MAX_SERIES)
+    ]
+    top_set = set(top)
+    serie = top + (["Altri"] if len(totali_acronimo) > len(top) else [])
+
+    datasets = []
+    for idx, nome_serie in enumerate(serie):
+        colore = EMAIL_CHART_PALETTE[idx % len(EMAIL_CHART_PALETTE)]
+        valori = []
+        for settimana in labels:
+            conteggio = per_settimana[settimana]
+            if nome_serie == "Altri":
+                altri = sum(
+                    n for acr, n in conteggio.items() if acr not in top_set
+                )
+                valori.append(altri)
+            else:
+                valori.append(conteggio.get(nome_serie, 0))
+        datasets.append(
+            {
+                "label": nome_serie,
+                "data": valori,
+                "backgroundColor": colore,
+            }
+        )
+
+    totale_mappate = sum(totali_acronimo.values())
+    return {
+        "available": True,
+        "labels": labels,
+        "datasets": datasets,
+        "total": totale_mappate,
+        "n_acronimi": len(totali_acronimo),
+        "skipped": senza_acronimo,
+        "source": fonte or "",
+    }
+
+
+def _html_nota_grafico_email(dati_email):
+    if not dati_email.get("available"):
+        return (
+            f'<p class="sub"><em>{html.escape(dati_email.get("message", ""))}</em></p>'
+        )
+    skipped = int(dati_email.get("skipped") or 0)
+    extra = (
+        f" · {skipped} messaggi senza acronimo nel soggetto"
+        if skipped
+        else ""
+    )
+    return (
+        f'<p class="sub">Una barra per settimana ISO (es. 2026-W32); altezza = numero di '
+        f"email sul thread dell'acronimo. Deduplica per DATA+OGGETTO. Fonte: "
+        f'<code>{html.escape(str(dati_email.get("source", "")))}</code>. '
+        f'Totale mappate: <b>{dati_email["total"]}</b> su '
+        f'<b>{dati_email["n_acronimi"]}</b> acronimi'
+        f"{extra}.</p>"
+    )
+
+
 def _dati_grafici_jkan(df):
     dates, weeks = _etichette_asse_tempo(df)
     n = len(df)
@@ -2668,7 +2951,15 @@ def genera_html_jkan(
 
     dati = _dati_grafici_jkan(df)
     dati["stima"] = _dati_stima_ore_grafici(riepilogo_stima or [])
+    dati_email = _dati_grafico_email_settimana(riepilogo_acronimi)
+    dati["email_weekly"] = dati_email
     chart_json = json.dumps(dati, ensure_ascii=False)
+    nota_email_html = _html_nota_grafico_email(dati_email)
+    email_chart_html = (
+        '<div class="chart-wrap-lg"><canvas id="chart-email-weekly"></canvas></div>'
+        if dati_email.get("available")
+        else ""
+    )
     kpi_stima_html = _html_kpi_stima_ore(dati["stima"]["summary"])
     burndown_forecast_html = _html_burndown_forecast(dati["burndown"]["forecast"])
     griglia_html = _html_griglia_colonne_kanban()
@@ -2889,6 +3180,12 @@ def genera_html_jkan(
     <h2>Velocità — throughput per snapshot</h2>
     <p class="sub">Incremento di Acronimi Done rispetto allo snapshot precedente.</p>
     <div class="chart-wrap"><canvas id="chart-velocity"></canvas></div>
+  </section>
+
+  <section id="email-settimana">
+    <h2>Email per acronimo e settimana</h2>
+{nota_email_html}
+{email_chart_html}
   </section>
 
   <section id="tabella">
@@ -3123,6 +3420,35 @@ def genera_html_jkan(
     }},
     options: baseOpts
   }});
+
+  if (D.email_weekly && D.email_weekly.available) {{
+    const E = D.email_weekly;
+    new Chart(document.getElementById("chart-email-weekly"), {{
+      type: "bar",
+      data: {{
+        labels: E.labels,
+        datasets: (E.datasets || []).map(function(ds) {{
+          return Object.assign({{}}, ds, {{ stack: "email" }});
+        }})
+      }},
+      options: Object.assign({{}}, baseOpts, {{
+        plugins: {{ legend: {{ position: "bottom" }} }},
+        scales: {{
+          x: {{
+            stacked: true,
+            title: {{ display: true, text: "Settimana ISO" }},
+            ticks: {{ maxRotation: 45, autoSkip: true }}
+          }},
+          y: {{
+            stacked: true,
+            beginAtZero: true,
+            ticks: {{ precision: 0 }},
+            title: {{ display: true, text: "N. email" }}
+          }}
+        }}
+      }})
+    }});
+  }}
 
   (function() {{
     const S = D.stima || {{}};
