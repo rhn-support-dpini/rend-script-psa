@@ -29,7 +29,9 @@ TARGET_DIR="${TARGET_DIR:-$VENV_DIR/Data}"
 CLIENTE="${CLIENTE:-Intesa}"
 PATTERN_PSA='DvPFilter-RHCC-All-Assignments-Full*'
 PATTERN_JKAN='*-Intesa-JBOSS.csv'
-DRIVE_GDRIVE_ROOT="${DRIVE_GDRIVE_ROOT:-$HOME/Library/CloudStorage/GoogleDrive-dpini@redhat.com/Il mio Drive}"
+# Radice Drive: «Il mio Drive» — spazi gestiti con variabile quotata (in shell: Il\ mio\ Drive a mano)
+GDRIVE_IL_MIO_DRIVE="$HOME/Library/CloudStorage/GoogleDrive-dpini@redhat.com/Il mio Drive"
+DRIVE_GDRIVE_ROOT="${DRIVE_GDRIVE_ROOT:-$GDRIVE_IL_MIO_DRIVE}"
 DRIVE_DIR_PSA="${DRIVE_DIR_PSA:-$DRIVE_GDRIVE_ROOT/Customers/DvPFilter-RHCC-All-Assignments-Full}"
 DRIVE_DIR_MIRO="${DRIVE_DIR_MIRO:-$DRIVE_GDRIVE_ROOT/Customers/Miro}"
 DRIVE_DIR_EMAIL_BARISON="${DRIVE_DIR_EMAIL_BARISON:-$DRIVE_DIR_MIRO/JBOSS-Barison-Mail}"
@@ -203,7 +205,7 @@ if [ ! -d "$DRIVE_GDRIVE_ROOT" ]; then
     echo "Cartella Drive non disponibile, salto copia email: $DRIVE_GDRIVE_ROOT"
 else
     shopt -s nullglob
-    EMAIL_FILES=("$DRIVE_GDRIVE_ROOT"/$PATTERN_EMAIL)
+    EMAIL_FILES=( "$DRIVE_GDRIVE_ROOT"/$PATTERN_EMAIL )
     if [ "${#EMAIL_FILES[@]}" -eq 0 ]; then
         echo "Nessun file $PATTERN_EMAIL in $DRIVE_GDRIVE_ROOT, salto copia email."
     else

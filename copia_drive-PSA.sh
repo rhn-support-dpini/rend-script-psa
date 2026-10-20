@@ -6,7 +6,8 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-DRIVE_DIR="${DRIVE_DIR:-$HOME/Library/CloudStorage/GoogleDrive-dpini@redhat.com/Il mio Drive/Customers/DvPFilter-RHCC-All-Assignments-Full}"
+GDRIVE_PSA="$HOME/Library/CloudStorage/GoogleDrive-dpini@redhat.com/Il mio Drive/Customers/DvPFilter-RHCC-All-Assignments-Full"
+DRIVE_DIR="${DRIVE_DIR:-$GDRIVE_PSA}"
 LOCAL_DIR="${LOCAL_DIR:-$SCRIPT_DIR/Data}"
 
 if [ ! -d "$DRIVE_DIR" ]; then

@@ -6,7 +6,8 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-DRIVE_DIR="${DRIVE_DIR:-$HOME/Library/CloudStorage/GoogleDrive-dpini@redhat.com/Il mio Drive/Customers/Miro}"
+GDRIVE_MIRO="$HOME/Library/CloudStorage/GoogleDrive-dpini@redhat.com/Il mio Drive/Customers/Miro"
+DRIVE_DIR="${DRIVE_DIR:-$GDRIVE_MIRO}"
 LOCAL_DIR="${LOCAL_DIR:-$SCRIPT_DIR/Data}"
 
 if [ ! -d "$DRIVE_DIR" ]; then
