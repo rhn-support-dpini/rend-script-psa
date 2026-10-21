@@ -570,11 +570,11 @@ def _activity_span_per_acronimo_grafico(acronimo, finestre, labels):
     finestra = finestre.get(acronimo) if finestre else None
     if not finestra:
         return None
-    return _span_settimane_grafico_email(
-        finestra.get("inizio"),
-        finestra.get("done"),
-        labels,
-    )
+    inizio = finestra.get("inizio")
+    done = finestra.get("done")
+    if done is None and inizio is not None:
+        done = date.today()
+    return _span_settimane_grafico_email(inizio, done, labels)
 
 
 def giorni_da_inizio_attivita(description, data_oggi=None):
@@ -3294,7 +3294,8 @@ def _html_nota_email_mittente_acronimo(dati):
         f"DATA+OGGETTO. Fonte: "
         f'<code>{html.escape(str(dati.get("source", "")))}</code>. '
         f"Linea rossa orizzontale: da <b># Inizio Attività</b> a <b># Done</b> "
-        f"(date in col. TAG Temporali del foglio data-all). "
+        f"(date in col. TAG Temporali del foglio data-all; se <b># Done</b> "
+        f"manca, la linea arriva alla settimana corrente). "
         f"Totale nel periodo: <b>{dati.get('total', 0)}</b> email su "
         f"<b>{dati.get('n_acronimi', 0)}</b> acronimi.</p>"
     )
