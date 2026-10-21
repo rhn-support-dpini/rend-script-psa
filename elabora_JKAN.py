@@ -3559,6 +3559,39 @@ def _html_kpi_acronimi(riepilogo):
     )
 
 
+JKAN_HTML_INDICE_SEZIONI = (
+    ("acronimi-scope", "Riepilogo acronimi"),
+    ("stima-ore", "Bontà stima (ore stimate vs lavorate)"),
+    ("cfd", "Cumulative Flow Diagram (CFD)"),
+    ("columns-all", "Evoluzione colonne Kanban — vista comparata"),
+    ("columns-grid", "Evoluzione per colonna Kanban"),
+    ("scrum-pipeline", "Pipeline Scrum"),
+    ("burnup", "Burnup — Acronimi Done vs scope"),
+    ("burndown", "Burndown — card rimanenti"),
+    ("stacked", "Distribuzione card per colonna"),
+    ("wip", "WIP — lavoro in corso"),
+    ("velocity", "Velocità — throughput per snapshot"),
+    ("email-settimana", "Email per acronimo e settimana"),
+    ("email-mittente-acronimo", "Email per mittente e acronimo"),
+    ("tabella", "Storico dbJKAN.csv"),
+)
+
+
+def _html_indice_sezioni_jkan():
+    """Indice con link alle sezioni del report HTML."""
+    righe = "\n".join(
+        f'      <li><a href="#{html.escape(sezione_id)}">'
+        f"{html.escape(etichetta)}</a></li>"
+        for sezione_id, etichetta in JKAN_HTML_INDICE_SEZIONI
+    )
+    return f"""  <nav class="page-index" aria-label="Indice contenuti">
+    <p class="page-index-heading">Indice</p>
+    <ul>
+{righe}
+    </ul>
+  </nav>"""
+
+
 def _js_griglia_colonne_kanban():
     """JavaScript: grafici linea per singola colonna Kanban."""
     blocks = []
@@ -3659,6 +3692,7 @@ def genera_html_jkan(
             "<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>"
         )
     tabella_html = "\n".join(tabella_rows)
+    indice_html = _html_indice_sezioni_jkan()
 
     html = f"""<!DOCTYPE html>
 <html lang="it">
@@ -3702,7 +3736,24 @@ def genera_html_jkan(
       background: var(--card); border: 1px solid var(--border);
       border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.25rem;
     }}
+    section {{ scroll-margin-top: .75rem; }}
     section h2 {{ margin: 0 0 .75rem; font-size: 1.1rem; }}
+    .page-index {{
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 8px; padding: .75rem 1rem 1rem; margin: 0 0 1.25rem;
+    }}
+    .page-index-heading {{
+      margin: 0 0 .5rem; font-size: .95rem; font-weight: 600;
+    }}
+    .page-index ul {{
+      margin: 0; padding: 0; list-style: none;
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: .35rem .75rem;
+    }}
+    .page-index a {{
+      color: var(--accent); text-decoration: none; font-size: .9rem;
+    }}
+    .page-index a:hover {{ text-decoration: underline; }}
     .chart-wrap {{ position: relative; height: 340px; }}
     .chart-wrap-lg {{ position: relative; height: 400px; }}
     .chart-grid {{
@@ -3728,6 +3779,7 @@ def genera_html_jkan(
 <body>
 <main>
   <h1>JKAN — Report Scrum Kanban</h1>
+{indice_html}
   <p class="sub">Generato il {now_str} · ultimo snapshot: {ultima}</p>
 
   <div class="kpis">
