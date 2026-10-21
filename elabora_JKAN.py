@@ -25,20 +25,21 @@ Output:
     Le righe Description con prefisso "#" generano sotto-righe da colonna W (TAG Temporali);
     A–R (+ Description in AA) sono merge verticali per Title, con bordo rosso pastello per card.
     K (InizioLavorazione(gg)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
-    L (Totale Waiting (hh)): somma ore (col. Y) per tag "# Waiting -" in col. X.
+    L (Totale Waiting (hh)): somma col. Delta ore (Y) per tag "# Waiting -".
     M (Totale Waiting (gg)): formula =L/8.
-    N (Totale Working (hh)): somma ore (col. Y) per tag "# Working -" in col. X.
-    O (Totale Working (gg)): formula =N/8. P–S Rework/Fix (hh da Ore, gg = formula hh/8).
+    N (Totale Working (hh)): somma col. Y per tag "# Working -".
+    O (Totale Working (gg)): formula =N/8. P–S Rework/Fix (hh da col. Y, gg = formula hh/8).
     T (% Stimato / Lavorato (gg)): (Totale Lavorate (hh) / Ore Stimate) × 100; fasce colore.
     U (Totale Lavorate (gg)): formula =W/8 (merge per card). V (Timeout (gg)): giorni solari dal tag "# Timeout - <data>" a oggi;
         errori → 999999; colori: ≤45 verde, 46–55 giallo, 56–60 rosso pastello, >60 rosso acceso.
     W (Totale Lavorate (hh)): formula =N+P+R.
-    W (TAG Temporali): testo del tag per riga (# Timeout, # Nota e # NotaB inclusi, senza ore in col. Ore);
+    W (TAG Temporali): testo del tag per riga (# Timeout, # Nota e # NotaB inclusi, senza ore in col. Y);
         giallo pastello per '# Nota - <data> -'; rosso pastello per '# NotaB - <data> -' o segnalato nel log.
-    Y (Ore): ore per riga tag (# Waiting/Working/Fix/Rework);
+    X (Delta Giorni): formula = Delta ore (Y) / 8 per riga tag.
+    Y (Delta ore): ore per riga tag (# Waiting/Working/Fix/Rework);
         sfondo rosso pastello se ultimo tag operativo è # Waiting e ore ≥ 56 (# Nota/# NotaB finali escluse).
-    Z (Delta ore): Ore Stimate (H) − Totale Lavorate (hh) (W), solo se Status è Acronimi Done.
-    AA (Delta Giorni): Delta ore / 8, solo se Status è Acronimi Done.
+    Z (Delta ore): Ore Stimate (H) − Totale Lavorate (hh) (V), solo se Status è Acronimi Done.
+    AA (Delta Giorni): Delta ore (card) / 8, solo se Status è Acronimi Done.
     G (Giornate Stimate): valore numerico dal tag "# Estimate" in Description; sfondo grigio leggibile.
     H (Ore Stimate): Giornate Stimate (col. G) × 8; sfondo acqua marina pastello.
     Colonna W (Totale Lavorate (hh)): sfondo acqua marina pastello.
@@ -167,10 +168,12 @@ TIMEOUT_VALORE_ERRATO = 999999
 ORE_WAITING_EVIDENZIA_MIN = 56
 TOTALE_LAVORATE_GG_COL = "Totale Lavorate (gg)"
 TOTALE_LAVORATE_HH_COL = "Totale Lavorate (hh)"
-ORE_COL = "Ore"
+ORE_COL = "Delta ore"
+DELTA_GIORNI_RIGA_COL = "Delta Giorni__riga"
 TAG_TEMPORALI_COL = "TAG Temporali"
-DELTA_ORE_COL = "Delta ore"
-DELTA_GIORNI_COL = "Delta Giorni"
+DELTA_ORE_COL = "Delta ore__card"
+DELTA_GIORNI_COL = "Delta Giorni__card"
+DELTA_GIORNI_TAG_HEADER = "Delta Giorni"
 INIZIO_LAVORAZIONE_COL = "InizioLavorazione(gg)"
 TOTALE_WAITING_HH_COL = "Totale Waiting (hh)"
 TOTALE_WAITING_COL = "Totale Waiting (gg)"
@@ -224,6 +227,7 @@ CENTER_COLS = {
     24,
     25,
     26,
+    27,
 }
 COL_STATUS = 2  # B — Status MIRO
 COL_GIORNATE_STIMATE = 6  # F — giorni da tag # Estimate
@@ -244,11 +248,12 @@ COL_GIORNI = 20  # T — Totale Lavorate (gg)
 COL_TIMEOUT = 21  # U — Timeout (gg)
 COL_TOTALE_ORE = 22  # V — Totale Lavorate (hh)
 COL_TAG = 23  # W — TAG Temporali
-COL_ORE = 24  # X — Ore
-COL_DELTA_ORE = 25  # Y
-COL_DELTA_GIORNI = 26  # Z
-COL_DESCRIPTION = 27  # AA — Description (ultima colonna)
-COL_LAST = 27
+COL_DELTA_GIORNI_TAG = 24  # X — Delta Giorni (= Delta ore / 8) per riga tag
+COL_ORE = 25  # Y — Delta ore (ore per riga tag)
+COL_DELTA_ORE = 26  # Z — Delta ore (card, Acronimi Done)
+COL_DELTA_GIORNI = 27  # AA — Delta Giorni (card, Acronimi Done)
+COL_DESCRIPTION = 28  # AB — Description (ultima colonna)
+COL_LAST = 28
 PASTEL_RED_BORDER = Side(style="medium", color="E8A0A0")
 PASTEL_GREEN_FILL = PatternFill(fill_type="solid", fgColor="D9EAD3")
 PASTEL_RED_FILL = PatternFill(fill_type="solid", fgColor="FFEBEE")
@@ -1228,6 +1233,7 @@ def espandi_card_con_tag(card):
             nuova[PERCENT_STIMATO_LAVORATO_COL] = None
             nuova[TOTALE_LAVORATE_GG_COL] = None
             nuova[TOTALE_LAVORATE_HH_COL] = None
+            nuova[DELTA_GIORNI_RIGA_COL] = None
             nuova[ORE_COL] = None
             nuova[TAG_TEMPORALI_COL] = ""
             righe.append(nuova)
@@ -1252,6 +1258,7 @@ def espandi_card_con_tag(card):
             nuova[PERCENT_STIMATO_LAVORATO_COL] = None
             nuova[TOTALE_LAVORATE_GG_COL] = None
             nuova[TOTALE_LAVORATE_HH_COL] = None
+            nuova[DELTA_GIORNI_RIGA_COL] = None
             if is_tag_timeout(tag) or is_tag_nota(tag) or is_tag_notab(tag):
                 nuova[ORE_COL] = None
             else:
@@ -1291,6 +1298,7 @@ def colonne_output():
         TIMEOUT_COL,
         TOTALE_LAVORATE_HH_COL,
         TAG_TEMPORALI_COL,
+        DELTA_GIORNI_RIGA_COL,
         ORE_COL,
         DELTA_ORE_COL,
         DELTA_GIORNI_COL,
@@ -1482,8 +1490,19 @@ def applica_delta_gruppo(ws, start, end):
     cella_delta_giorni.alignment = center
 
 
+def applica_formule_delta_giorni_tag_righe(ws, max_row):
+    """Col. X: Delta Giorni per riga tag = Delta ore (col. Y) / 8."""
+    for row in range(2, max_row + 1):
+        imposta_formula_centrata(
+            ws,
+            row,
+            COL_DELTA_GIORNI_TAG,
+            formula_hh_div_8(COL_ORE, row),
+        )
+
+
 def applica_sfondo_ore_waiting_lungo(ws, start, end):
-    """Sfondo rosso pastello su col. Ore se ultimo tag operativo è # Waiting e ore ≥ soglia."""
+    """Sfondo rosso pastello su col. Delta ore se ultimo tag operativo è # Waiting e ore ≥ soglia."""
     row = ultima_riga_tag_operativo(ws, start, end)
     if row is None:
         return
@@ -2112,10 +2131,12 @@ def formatta_foglio_dati(ws):
     ws.cell(row=1, column=COL_TOTALE_ORE).value = TOTALE_LAVORATE_HH_COL
     ws.cell(row=1, column=COL_TIMEOUT).value = TIMEOUT_COL
     ws.cell(row=1, column=COL_TAG).value = TAG_TEMPORALI_COL
+    ws.cell(row=1, column=COL_DELTA_GIORNI_TAG).value = DELTA_GIORNI_TAG_HEADER
     ws.cell(row=1, column=COL_ORE).value = ORE_COL
-    ws.cell(row=1, column=COL_DELTA_ORE).value = DELTA_ORE_COL
-    ws.cell(row=1, column=COL_DELTA_GIORNI).value = DELTA_GIORNI_COL
+    ws.cell(row=1, column=COL_DELTA_ORE).value = "Delta ore"
+    ws.cell(row=1, column=COL_DELTA_GIORNI).value = "Delta Giorni"
     gruppi = formatta_foglio_card(ws)
+    applica_formule_delta_giorni_tag_righe(ws, ws.max_row)
     aggiungi_footer_data(ws, gruppi)
     applica_sfondo_colonna_grigio(ws, COL_GIORNATE_STIMATE, ws.max_row)
     applica_sfondo_colonna_grigio(ws, COL_GIORNI, ws.max_row)

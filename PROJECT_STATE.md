@@ -42,6 +42,10 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 - `percorso_file_lista_addr`: ricerca liste esclusione anche in `EMAIL_DIR` e cartella export email.
 - **`goAll`**: `EMAIL_DIR` / `EMAIL_LST` passati a `elabora_JKAN.py` all’elaborazione di un CSV JKAN nuovo.
 
+### Sessione 2026-10-21 — `elabora_JKAN.py` (colonne `data-all`)
+
+- Foglio **`data-all`**: nuova col. **X «Delta Giorni»** (`=Y/8` per riga tag); ex col. **Ore** rinominata **«Delta ore»** (col. Y); delta a livello card in **Z–AA**; **Description** in **AB** (`COL_LAST` = 28). Chiavi pandas `Delta Giorni__riga`, `Delta ore__card`, `Delta Giorni__card` per evitare nomi duplicati.
+
 ### Sessione 2026-10-20 — `elabora_JKAN.py`
 
 - Report **HTML**: sezione «Email per acronimo e settimana» — barre impilate Chart.js (settimana ISO × conteggio email per acronimo); lettura da `venv/Data/Email` (export Apps Script) o `email.lst`; deduplica DATA+OGGETTO; acronimo da pattern `| CODE (` nel soggetto o match sui Title del board; top 12 acronimi + «Altri». Env: `EMAIL_DIR`, `EMAIL_LST`.
