@@ -166,6 +166,16 @@ file_gia_presente_jkan() {
     printf '%s\n' "$BEFORE_LIST_JKAN" | grep -Fxq "$name"
 }
 
+# Elabora un CSV JKAN in TARGET_DIR (email da EMAIL_LOCAL_DIR / email.lst).
+esegui_elabora_jkan() {
+    local filename="$1"
+    (
+        cd "$TARGET_DIR"
+        EMAIL_DIR="$EMAIL_LOCAL_DIR" EMAIL_LST="$TARGET_DIR/email.lst" \
+            "$PYTHON" "$SCRIPT_DIR/elabora_JKAN.py" "$filename"
+    )
+}
+
 # --- 1/6 Copia PSA ---
 
 echo "Directory di lancio: $LAUNCH_DIR"
@@ -341,10 +351,7 @@ for FILEPATH in "$TARGET_DIR"/$PATTERN_JKAN; do
 
     BASE_NOEXT="${FILENAME%.csv}"
 
-    if (
-        cd "$TARGET_DIR"
-        "$PYTHON" "$SCRIPT_DIR/elabora_JKAN.py" "$FILENAME"
-    ); then
+    if esegui_elabora_jkan "$FILENAME"; then
         RESULT_XLSX="$TARGET_DIR/${BASE_NOEXT}.xlsx"
         RESULT_HTML="$TARGET_DIR/${BASE_NOEXT}.html"
         echo "Output Excel: $RESULT_XLSX"

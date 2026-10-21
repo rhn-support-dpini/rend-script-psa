@@ -2095,12 +2095,15 @@ def scrivi_excel(card, output_path, df_storico=None, riepilogo_acronimi=None):
     riepilogo = riepilogo_da_gruppi(ws_data, gruppi)
     crea_foglio_stat(wb, riepilogo)
     riepilogo_stima = riepilogo_stima_ore_da_gruppi(ws_data, gruppi)
+    n_grafici_email = 0
     if riepilogo_acronimi is not None:
-        crea_foglio_email_mittenti_excel(wb, riepilogo_acronimi)
+        n_grafici_email = crea_foglio_email_mittenti_excel(wb, riepilogo_acronimi)
     if df_storico is not None:
         crea_foglio_storico_excel(wb, df_storico)
     wb.save(output_path)
-    return riepilogo_stima
+    if riepilogo_acronimi is None:
+        n_grafici_email = 0
+    return riepilogo_stima, n_grafici_email
 
 
 def estrai_data_da_nome_file(path):
@@ -2435,7 +2438,7 @@ def percorso_cartella_email_export():
     env_dir = os.environ.get("EMAIL_DIR")
     if env_dir and os.path.isdir(env_dir):
         return os.path.normpath(env_dir)
-    for base in (DATA_DIR, SCRIPT_DIR, os.getcwd()):
+    for base in (os.getcwd(), DATA_DIR, SCRIPT_DIR):
         path = os.path.join(base, EMAIL_EXPORT_SUBDIR)
         if os.path.isdir(path):
             return path
@@ -2447,7 +2450,7 @@ def percorso_file_email_lst():
     env_lst = os.environ.get("EMAIL_LST")
     if env_lst and os.path.isfile(env_lst):
         return os.path.normpath(env_lst)
-    for base in (DATA_DIR, SCRIPT_DIR):
+    for base in (os.getcwd(), DATA_DIR, SCRIPT_DIR):
         path = os.path.join(base, EMAIL_LST_FILENAME)
         if os.path.isfile(path):
             return path
@@ -2708,6 +2711,8 @@ def _aggrega_email_mittenti_per_acronimo_excel(riepilogo_acronimi):
 
 def crea_foglio_email_mittenti_excel(wb, riepilogo_acronimi):
     """Un grafico a colonne per acronimo: distribuzione email per mittente."""
+    if EMAIL_MITTENTI_SHEET in wb.sheetnames:
+        del wb[EMAIL_MITTENTI_SHEET]
     ws = wb.create_sheet(EMAIL_MITTENTI_SHEET)
     finestra = (
         f"{EMAIL_EXCEL_WEEK_START_YEAR}-W{EMAIL_EXCEL_WEEK_START_WEEK:02d}"
@@ -2729,12 +2734,13 @@ def crea_foglio_email_mittenti_excel(wb, riepilogo_acronimi):
                 "o generare email.lst."
             )
         ws.cell(row=3, column=1).value = msg
-        return
+        return 0
 
     if fonte:
         ws.cell(row=2, column=1).value = f"Fonte: {fonte}"
     cursor = 4
     periodo_titolo = finestra.replace(" … ", " — ")
+    n_grafici = 0
 
     for acronimo, righe in serie:
         header_row = cursor
@@ -2770,11 +2776,15 @@ def crea_foglio_email_mittenti_excel(wb, riepilogo_acronimi):
         chart.width = 22
         chart.height = max(8, min(16, 4 + len(righe) * 0.35))
         ws.add_chart(chart, f"D{header_row}")
+        n_grafici += 1
         cursor = last_row + 22
+    return n_grafici
 
 
 def crea_foglio_storico_excel(wb, df_storico):
     """Tabella dbJKAN.csv nel workbook (ultimo foglio)."""
+    if STORICO_SHEET in wb.sheetnames:
+        del wb[STORICO_SHEET]
     ws = wb.create_sheet(STORICO_SHEET)
     if df_storico is None or df_storico.empty:
         ws.cell(row=1, column=1).value = "Nessuno storico in dbJKAN.csv"
@@ -4091,7 +4101,7 @@ def elabora(input_csv):
     conteggi, non_mappate = conteggio_per_colonna_kanban(card)
     df_storico = aggiorna_db_jkan(data_snapshot, conteggi)
     riepilogo_acronimi = riepilogo_acronimi_scope(card)
-    riepilogo_stima = scrivi_excel(
+    riepilogo_stima, n_grafici_email = scrivi_excel(
         card,
         output_path,
         df_storico=df_storico,
@@ -4111,6 +4121,10 @@ def elabora(input_csv):
     print(f"Righe output: {righe_output}")
     print(f"Input: {input_path}")
     print(f"Output Excel: {output_path}")
+    print(
+        f"Foglio Excel «{EMAIL_MITTENTI_SHEET}»: {n_grafici_email} grafico/i "
+        f"(mittente per acronimo; non nel report HTML)."
+    )
     print(f"Output HTML: {html_path}")
     print(f"Snapshot {data_snapshot.isoformat()}: {dict(conteggi)}")
     if non_mappate:

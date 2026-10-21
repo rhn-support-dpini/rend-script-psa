@@ -40,6 +40,7 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 
 - Foglio **`email-mittenti`**: un grafico a colonne per acronimo con distribuzione email per mittente (periodo **2026-W12** … settimana ISO corrente), esclusi mittenti in `ignora.addr` / `other.addr`; tabella dati affiancata; posizionato prima del foglio **`storico`** (dump `dbJKAN.csv` + colonna Totale).
 - `percorso_file_lista_addr`: ricerca liste esclusione anche in `EMAIL_DIR` e cartella export email.
+- **`goAll`**: `EMAIL_DIR` / `EMAIL_LST` passati a `elabora_JKAN.py` all’elaborazione di un CSV JKAN nuovo.
 
 ### Sessione 2026-10-20 — `elabora_JKAN.py`
 
