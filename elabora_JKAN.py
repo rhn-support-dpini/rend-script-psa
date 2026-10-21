@@ -566,6 +566,30 @@ def _span_settimane_grafico_email(inizio, done, labels):
     }
 
 
+def _colore_linea_fase_attivita_email(status):
+    """
+    Colore linea Inizio→Done (grafici email) in base allo Status MIRO (col. B).
+    Verde: Acronimi Done; giallo: Fab./Test in progress; nero: in progress / backlog;
+    rosso: waiting for fab.
+    """
+    testo = normalizza_testo(status, compatta_spazi=True).lower()
+    if not testo:
+        return "#64748b", "64748B"
+    if re.search(r"\bacronimi\s*done\b", testo) or testo == "done":
+        return "#16a34a", "16A34A"
+    if re.search(r"fab\s*test\s*in\s*progress", testo) or re.search(
+        r"test\s*in\s*progress", testo
+    ):
+        return "#eab308", "EAB308"
+    if is_attesa_test_o_fab(status) or re.search(
+        r"waiting\s*(for\s*)?fab", testo
+    ):
+        return "#dc2626", "DC2626"
+    if re.search(r"\bin\s*progress\b", testo) or re.search(r"\bbacklog\b", testo):
+        return "#000000", "000000"
+    return "#64748b", "64748B"
+
+
 def _activity_span_per_acronimo_grafico(acronimo, finestre, labels):
     finestra = finestre.get(acronimo) if finestre else None
     if not finestra:
@@ -574,7 +598,14 @@ def _activity_span_per_acronimo_grafico(acronimo, finestre, labels):
     done = finestra.get("done")
     if done is None and inizio is not None:
         done = date.today()
-    return _span_settimane_grafico_email(inizio, done, labels)
+    span = _span_settimane_grafico_email(inizio, done, labels)
+    if span:
+        html_col, excel_col = _colore_linea_fase_attivita_email(
+            finestra.get("status")
+        )
+        span["line_color"] = html_col
+        span["line_color_excel"] = excel_col
+    return span
 
 
 def giorni_da_inizio_attivita(description, data_oggi=None):
@@ -2935,7 +2966,8 @@ def crea_foglio_email_mittenti_excel(
             line_chart.set_categories(cats_ref)
             if line_chart.series:
                 serie_linea = line_chart.series[0]
-                serie_linea.graphicalProperties.line.solidFill = "DC2626"
+                colore_linea = (span or {}).get("line_color_excel", "64748B")
+                serie_linea.graphicalProperties.line.solidFill = colore_linea
                 serie_linea.graphicalProperties.line.width = 28575
                 serie_linea.marker.symbol = "none"
             chart += line_chart
@@ -3293,9 +3325,12 @@ def _html_nota_email_mittente_acronimo(dati):
         f"<code>ignora.addr</code> e <code>other.addr</code>; deduplica "
         f"DATA+OGGETTO. Fonte: "
         f'<code>{html.escape(str(dati.get("source", "")))}</code>. '
-        f"Linea rossa orizzontale: da <b># Inizio Attività</b> a <b># Done</b> "
-        f"(date in col. TAG Temporali del foglio data-all; se <b># Done</b> "
-        f"manca, la linea arriva alla settimana corrente). "
+        f"Linea orizzontale Inizio Attività→Done (col. TAG Temporali; senza "
+        f"<b># Done</b>, fino alla settimana corrente), colore per Status (col. B): "
+        f"<span style=\"color:#16a34a\">■</span> Acronimi Done, "
+        f"<span style=\"color:#eab308\">■</span> Test in progress, "
+        f"<span style=\"color:#000\">■</span> in progress / backlog, "
+        f"<span style=\"color:#dc2626\">■</span> waiting for fab. "
         f"Totale nel periodo: <b>{dati.get('total', 0)}</b> email su "
         f"<b>{dati.get('n_acronimi', 0)}</b> acronimi.</p>"
     )
@@ -4206,7 +4241,7 @@ def genera_html_jkan(
       const y = area.top + (area.bottom - area.top) * 0.9;
       const ctx = chart.ctx;
       ctx.save();
-      ctx.strokeStyle = "#dc2626";
+      ctx.strokeStyle = (span && span.line_color) ? span.line_color : "#64748b";
       ctx.lineWidth = 4;
       ctx.beginPath();
       ctx.moveTo(x0, y);
