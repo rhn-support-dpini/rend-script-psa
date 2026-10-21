@@ -1,6 +1,6 @@
 # PROJECT_STATE — rend-script-psa
 
-Ultimo aggiornamento: 2026-10-20 (sessione Cursor su branch `Cursor`).
+Ultimo aggiornamento: 2026-10-21 (sessione Cursor su branch `Cursor`).
 
 Documento di handoff per sessioni successive: cosa c’è nel repo, come funziona, cosa è stato toccato di recente, e cosa evitare.
 
@@ -35,6 +35,11 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 
 - **`goAll`**: prima di JKAN copia `Email_Esportate___JBOSS-Barison_Parte_*.txt` dalla radice Drive → `Data/Email` e `Customers/Miro/JBOSS-Barison-Mail`, poi `estrai-mail.py` (`EMAIL_DIR` / `EMAIL_LST` in `TARGET_DIR`).
 - **`estrai-mail.py`**: variabili d’ambiente `EMAIL_DIR` e `EMAIL_LST`.
+
+### Sessione 2026-10-21 — `elabora_JKAN.py` (Excel email)
+
+- Foglio **`email-mittenti`**: un grafico a colonne per acronimo con distribuzione email per mittente (periodo **2026-W12** … settimana ISO corrente), esclusi mittenti in `ignora.addr` / `other.addr`; tabella dati affiancata; posizionato prima del foglio **`storico`** (dump `dbJKAN.csv` + colonna Totale).
+- `percorso_file_lista_addr`: ricerca liste esclusione anche in `EMAIL_DIR` e cartella export email.
 
 ### Sessione 2026-10-20 — `elabora_JKAN.py`
 

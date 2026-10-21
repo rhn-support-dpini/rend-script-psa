@@ -16,7 +16,7 @@ Il nome file input deve contenere una data `yyyy-mm-dd` o `yyyy/mm/dd`.
 
 ## Output Excel
 
-Fogli: `data-all` (principale, tutte le card), `data-export` (export ridotto), `time-Waiting`, `stat`.
+Fogli: `data-all` (principale, tutte le card), `data-export` (export ridotto), `time-Waiting`, `stat`, `email-mittenti` (grafici Excel mail/mittente per acronimo, 2026-W12 … settimana corrente, esclusi `ignora.addr`/`other.addr`), `storico` (tabella `dbJKAN.csv`).
 
 ### Colonne foglio `data-all`
 

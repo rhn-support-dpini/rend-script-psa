@@ -15,7 +15,8 @@ Parametri:
 
 Output:
     File .xlsx con stesso nome e percorso del CSV di input.
-    Fogli: data-all (tutte le card), data-export (export ridotto), time-Waiting, stat.
+    Fogli: data-all, data-export, time-Waiting, stat, email-mittenti (grafici
+        mail/mittente per acronimo), storico (dbJKAN.csv).
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
     <input>.html — report Scrum/Kanban (stesso percorso del .xlsx prodotto);
         include grafico email per acronimo/settimana se presenti venv/Data/Email o email.lst.
@@ -52,13 +53,14 @@ import os
 import re
 import sys
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 from openpyxl import load_workbook
+from openpyxl.chart import BarChart, Reference
 from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.cell.text import InlineFont
-from openpyxl.styles import Alignment, Border, PatternFill, Side
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -71,6 +73,10 @@ EMAIL_EXPORT_BLOCK_DELIM = "=================================================="
 EMAIL_MITTENTE_IN_TESTO_RE = re.compile(r"[\w.+-]+@[\w.-]+\.\w+", re.IGNORECASE)
 EMAIL_CHART_ACRONIMI_PER_GRAFICO = 10
 EMAIL_CHART_NUM_GRAFICI = 3
+EMAIL_EXCEL_WEEK_START_YEAR = 2026
+EMAIL_EXCEL_WEEK_START_WEEK = 12
+EMAIL_MITTENTI_SHEET = "email-mittenti"
+STORICO_SHEET = "storico"
 EMAIL_CHART_PALETTE = [
     "#1a56db",
     "#10b981",
@@ -2071,7 +2077,7 @@ def crea_foglio_time_waiting(wb, ws_data, gruppi):
         ws.cell(row=idx, column=3).alignment = left
 
 
-def scrivi_excel(card, output_path):
+def scrivi_excel(card, output_path, df_storico=None, riepilogo_acronimi=None):
     reset_tag_sintassi_errata()
     righe_all = ordina_righe_data_all(espandi_card_con_tag(card))
     df_all = pd.DataFrame(righe_all, columns=colonne_output())
@@ -2089,6 +2095,10 @@ def scrivi_excel(card, output_path):
     riepilogo = riepilogo_da_gruppi(ws_data, gruppi)
     crea_foglio_stat(wb, riepilogo)
     riepilogo_stima = riepilogo_stima_ore_da_gruppi(ws_data, gruppi)
+    if riepilogo_acronimi is not None:
+        crea_foglio_email_mittenti_excel(wb, riepilogo_acronimi)
+    if df_storico is not None:
+        crea_foglio_storico_excel(wb, df_storico)
     wb.save(output_path)
     return riepilogo_stima
 
@@ -2445,10 +2455,22 @@ def percorso_file_email_lst():
 
 
 def percorso_file_lista_addr(nome_file):
-    """ignora.addr / other.addr: script/, Data/, cwd."""
+    """ignora.addr / other.addr: EMAIL_DIR, cartella export, script/, Data/, cwd."""
     if os.path.isabs(nome_file):
         return os.path.normpath(nome_file)
-    for base in (SCRIPT_DIR, DATA_DIR, os.getcwd()):
+    bases = []
+    env_dir = os.environ.get("EMAIL_DIR")
+    if env_dir:
+        bases.append(env_dir)
+    cartella_export = percorso_cartella_email_export()
+    if cartella_export:
+        bases.append(cartella_export)
+    bases.extend((SCRIPT_DIR, DATA_DIR, os.getcwd()))
+    visti = set()
+    for base in bases:
+        if base in visti:
+            continue
+        visti.add(base)
         path = os.path.join(base, nome_file)
         if os.path.isfile(path):
             return path
@@ -2626,6 +2648,158 @@ def _carica_record_email_deduplicati():
 def _etichetta_settimana_iso(giorno):
     anno, settimana, _ = giorno.isocalendar()
     return f"{anno}-W{settimana:02d}"
+
+
+def _etichetta_settimana_corrente():
+    return _etichetta_settimana_iso(date.today())
+
+
+def _giorno_in_finestra_email_grafici_excel(giorno):
+    """True se il giorno cade tra 2026-W12 e la settimana ISO corrente."""
+    if giorno is None:
+        return False
+    y, w, _ = giorno.isocalendar()
+    chiave = (y, w)
+    if chiave < (EMAIL_EXCEL_WEEK_START_YEAR, EMAIL_EXCEL_WEEK_START_WEEK):
+        return False
+    ty, tw, _ = date.today().isocalendar()
+    return chiave <= (ty, tw)
+
+
+def _mittente_display_per_grafico(mittente):
+    """Etichetta breve per asse categorie (preferisce l'indirizzo email)."""
+    emails = EMAIL_MITTENTE_IN_TESTO_RE.findall(mittente or "")
+    if emails:
+        return emails[0]
+    testo = (mittente or "").strip()
+    if not testo:
+        return "(sconosciuto)"
+    return testo if len(testo) <= 80 else testo[:77] + "..."
+
+
+def _aggrega_email_mittenti_per_acronimo_excel(riepilogo_acronimi):
+    """
+    Conteggi mittente per acronimo (2026-W12 … settimana corrente),
+    esclusi ignora.addr / other.addr.
+    """
+    record, fonte = _carica_record_email_deduplicati()
+    acronimi_noti = _acronimi_noti_da_riepilogo(riepilogo_acronimi)
+    esclusi, _ = _carica_indirizzi_esclusione_mittente()
+    per_acronimo = defaultdict(Counter)
+    for giorno, oggetto, mittente in record:
+        if not _giorno_in_finestra_email_grafici_excel(giorno):
+            continue
+        if _mittente_escluso_da_liste(mittente, esclusi):
+            continue
+        acronimo = _acronimo_da_oggetto_email(oggetto, acronimi_noti)
+        if not acronimo:
+            continue
+        etichetta = _mittente_display_per_grafico(mittente)
+        per_acronimo[acronimo][etichetta] += 1
+
+    serie = []
+    for acronimo in sorted(per_acronimo.keys()):
+        righe = sorted(
+            per_acronimo[acronimo].items(), key=lambda x: (-x[1], x[0])
+        )
+        serie.append((acronimo, righe))
+    return serie, fonte
+
+
+def crea_foglio_email_mittenti_excel(wb, riepilogo_acronimi):
+    """Un grafico a colonne per acronimo: distribuzione email per mittente."""
+    ws = wb.create_sheet(EMAIL_MITTENTI_SHEET)
+    finestra = (
+        f"{EMAIL_EXCEL_WEEK_START_YEAR}-W{EMAIL_EXCEL_WEEK_START_WEEK:02d}"
+        f" … {_etichetta_settimana_corrente()}"
+    )
+    ws.cell(row=1, column=1).value = (
+        f"Email per mittente (esclusi ignora.addr / other.addr) — {finestra}"
+    )
+    ws.cell(row=1, column=1).font = Font(bold=True)
+
+    serie, fonte = _aggrega_email_mittenti_per_acronimo_excel(riepilogo_acronimi)
+    if not serie:
+        msg = "Nessun dato email nel periodo indicato."
+        if fonte:
+            msg += f" Fonte letta: {fonte}."
+        else:
+            msg += (
+                f" Copiare export in {EMAIL_EXPORT_SUBDIR}/ sotto Data/ "
+                "o generare email.lst."
+            )
+        ws.cell(row=3, column=1).value = msg
+        return
+
+    if fonte:
+        ws.cell(row=2, column=1).value = f"Fonte: {fonte}"
+    cursor = 4
+    periodo_titolo = finestra.replace(" … ", " — ")
+
+    for acronimo, righe in serie:
+        header_row = cursor
+        ws.cell(row=header_row, column=1).value = "Mittente"
+        ws.cell(row=header_row, column=2).value = "N. email"
+        for offset, (mittente, conteggio) in enumerate(righe, start=1):
+            r = header_row + offset
+            ws.cell(row=r, column=1).value = mittente
+            ws.cell(row=r, column=2).value = conteggio
+        last_row = header_row + len(righe)
+
+        chart = BarChart()
+        chart.type = "col"
+        chart.style = 10
+        chart.title = f"{acronimo} — email per mittente ({periodo_titolo})"
+        chart.y_axis.title = "N. email"
+        chart.x_axis.title = "Mittente"
+        chart.legend = None
+        data_ref = Reference(
+            ws,
+            min_col=2,
+            min_row=header_row,
+            max_row=last_row,
+        )
+        cats_ref = Reference(
+            ws,
+            min_col=1,
+            min_row=header_row + 1,
+            max_row=last_row,
+        )
+        chart.add_data(data_ref, titles_from_data=True)
+        chart.set_categories(cats_ref)
+        chart.width = 22
+        chart.height = max(8, min(16, 4 + len(righe) * 0.35))
+        ws.add_chart(chart, f"D{header_row}")
+        cursor = last_row + 22
+
+
+def crea_foglio_storico_excel(wb, df_storico):
+    """Tabella dbJKAN.csv nel workbook (ultimo foglio)."""
+    ws = wb.create_sheet(STORICO_SHEET)
+    if df_storico is None or df_storico.empty:
+        ws.cell(row=1, column=1).value = "Nessuno storico in dbJKAN.csv"
+        return
+
+    export = df_storico.copy()
+    if pd.api.types.is_datetime64_any_dtype(export["data"]):
+        export["data"] = export["data"].dt.strftime("%Y-%m-%d")
+    colonne = list(export.columns)
+    for col_idx, nome in enumerate(colonne, start=1):
+        ws.cell(row=1, column=col_idx).value = nome
+    for row_idx, row in enumerate(export.itertuples(index=False), start=2):
+        for col_idx, val in enumerate(row, start=1):
+            ws.cell(row=row_idx, column=col_idx).value = val
+    totale_col = len(colonne) + 1
+    ws.cell(row=1, column=totale_col).value = "Totale"
+    for row_idx in range(2, 2 + len(export)):
+        lettere = [
+            get_column_letter(i)
+            for i in range(2, len(colonne) + 1)
+        ]
+        if lettere:
+            ws.cell(row=row_idx, column=totale_col).value = (
+                f"=SUM({lettere[0]}{row_idx}:{lettere[-1]}{row_idx})"
+            )
 
 
 def _datasets_email_settimana(per_settimana, labels, acronimi, color_offset=0):
@@ -3913,12 +4087,16 @@ def elabora(input_csv):
             f"Nessuna card Kanban trovata nel file {input_path}"
         )
 
-    riepilogo_stima = scrivi_excel(card, output_path)
-
     data_snapshot = estrai_data_da_nome_file(input_path)
     conteggi, non_mappate = conteggio_per_colonna_kanban(card)
     df_storico = aggiorna_db_jkan(data_snapshot, conteggi)
     riepilogo_acronimi = riepilogo_acronimi_scope(card)
+    riepilogo_stima = scrivi_excel(
+        card,
+        output_path,
+        df_storico=df_storico,
+        riepilogo_acronimi=riepilogo_acronimi,
+    )
     genera_html_jkan(
         df_storico,
         html_path,
