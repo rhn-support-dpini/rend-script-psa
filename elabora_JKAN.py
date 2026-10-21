@@ -59,7 +59,7 @@ from datetime import date, datetime, timedelta
 
 import pandas as pd
 from openpyxl import load_workbook
-from openpyxl.chart import BarChart, Reference
+from openpyxl.chart import BarChart, LineChart, Reference
 from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.cell.text import InlineFont
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -277,6 +277,7 @@ INIZIO_ATTIVITA_TAG_RE = re.compile(
     r"^#\s*Inizio\s+Attivit[aà]'?\s*-\s*",
     re.IGNORECASE,
 )
+DONE_TAG_RE = re.compile(r"^#\s*Done\b", re.IGNORECASE)
 WAITING_TAG_RE = re.compile(
     r"^#\s*Waiting\s*-\s*",
     re.IGNORECASE,
@@ -458,6 +459,122 @@ def is_tag_inizio_attivita(tag):
     if not tag:
         return False
     return bool(INIZIO_ATTIVITA_TAG_RE.match(str(tag).strip()))
+
+
+def is_tag_done_temporale(tag):
+    """True per righe TAG Temporali '# Done …' (non lo Status MIRO)."""
+    if not tag:
+        return False
+    return bool(DONE_TAG_RE.match(str(tag).strip()))
+
+
+def _data_prima_in_tag_temporale(tag):
+    date = estrai_date_da_tag(tag)
+    return date[0] if date else None
+
+
+def _finestra_attivita_da_tag_righe(tag_righe):
+    """Date da '# Inizio Attività' e '# Done' tra i testi TAG Temporali."""
+    inizio = None
+    done = None
+    for tag in tag_righe:
+        if not tag:
+            continue
+        testo = str(tag).strip()
+        if is_tag_inizio_attivita(testo):
+            data = _data_prima_in_tag_temporale(testo)
+            if data:
+                inizio = data
+        if is_tag_done_temporale(testo):
+            data = _data_prima_in_tag_temporale(testo)
+            if data:
+                done = data
+    return inizio, done
+
+
+def finestre_attivita_da_foglio_data_all(ws, gruppi, riepilogo_acronimi):
+    """
+    Per acronimo: Status (col. B), titolo card (col. A), date Inizio/Done (col. W).
+    """
+    acronimi_noti = _acronimi_noti_da_riepilogo(riepilogo_acronimi)
+    finestre = {}
+    for start, end in gruppi:
+        title = ws.cell(row=start, column=1).value
+        codice = _acronimo_da_oggetto_email(normalizza_testo(title) or "", acronimi_noti)
+        if not codice:
+            continue
+        tag_righe = [
+            ws.cell(row=row, column=COL_TAG).value
+            for row in range(start, end + 1)
+        ]
+        inizio, done = _finestra_attivita_da_tag_righe(tag_righe)
+        precedente = finestre.get(codice, {})
+        titolo_card = _nome_acronimo_da_title(normalizza_testo(title) or "")
+        if titolo_card and not titolo_card.startswith("("):
+            precedente["titolo"] = titolo_card
+        status = normalizza_testo(ws.cell(row=start, column=COL_STATUS).value)
+        if status:
+            precedente["status"] = status
+        if inizio is not None:
+            precedente["inizio"] = inizio
+        if done is not None:
+            precedente["done"] = done
+        finestre[codice] = precedente
+    return finestre
+
+
+def _etichetta_acronimo_grafico_email(acronimo, metadati):
+    """Nome acronimo + [Status] da data-all (es. X1DD0-X1PR0 [Acronimi Done])."""
+    info = (metadati or {}).get(acronimo, {})
+    nome = info.get("titolo") or acronimo
+    status = info.get("status")
+    if status:
+        return f"{nome} [{status}]"
+    return nome
+
+
+def _span_settimane_grafico_email(inizio, done, labels):
+    """Indici settimana ISO (labels) per segmento Inizio attività → Done."""
+    if not labels:
+        return None
+
+    def indice(data):
+        if data is None:
+            return None
+        etichetta = _etichetta_settimana_iso(data)
+        if etichetta in labels:
+            return labels.index(etichetta)
+        return None
+
+    i0 = indice(inizio)
+    i1 = indice(done)
+    if i0 is None and i1 is None:
+        return None
+    if i0 is None:
+        i0 = i1
+    if i1 is None:
+        i1 = i0
+    if i0 > i1:
+        i0, i1 = i1, i0
+    return {
+        "start_index": i0,
+        "end_index": i1,
+        "week_start": labels[i0],
+        "week_end": labels[i1],
+        "inizio": inizio.isoformat() if inizio else None,
+        "done": done.isoformat() if done else None,
+    }
+
+
+def _activity_span_per_acronimo_grafico(acronimo, finestre, labels):
+    finestra = finestre.get(acronimo) if finestre else None
+    if not finestra:
+        return None
+    return _span_settimane_grafico_email(
+        finestra.get("inizio"),
+        finestra.get("done"),
+        labels,
+    )
 
 
 def giorni_da_inizio_attivita(description, data_oggi=None):
@@ -2097,15 +2214,24 @@ def scrivi_excel(card, output_path, df_storico=None, riepilogo_acronimi=None):
     riepilogo = riepilogo_da_gruppi(ws_data, gruppi)
     crea_foglio_stat(wb, riepilogo)
     riepilogo_stima = riepilogo_stima_ore_da_gruppi(ws_data, gruppi)
+    finestre_attivita = {}
     n_grafici_email = 0
     if riepilogo_acronimi is not None:
-        n_grafici_email = crea_foglio_email_mittenti_excel(wb, riepilogo_acronimi)
+        finestre_attivita = finestre_attivita_da_foglio_data_all(
+            ws_data, gruppi, riepilogo_acronimi
+        )
+        n_grafici_email = crea_foglio_email_mittenti_excel(
+            wb,
+            riepilogo_acronimi,
+            finestre_attivita=finestre_attivita,
+        )
     if df_storico is not None:
         crea_foglio_storico_excel(wb, df_storico)
     wb.save(output_path)
     if riepilogo_acronimi is None:
         n_grafici_email = 0
-    return riepilogo_stima, n_grafici_email
+        finestre_attivita = {}
+    return riepilogo_stima, n_grafici_email, finestre_attivita
 
 
 def estrai_data_da_nome_file(path):
@@ -2715,7 +2841,9 @@ def _aggrega_email_settimane_per_acronimo_finestra(riepilogo_acronimi):
     return serie, fonte, settimane
 
 
-def crea_foglio_email_mittenti_excel(wb, riepilogo_acronimi):
+def crea_foglio_email_mittenti_excel(
+    wb, riepilogo_acronimi, finestre_attivita=None, settimane_labels=None
+):
     """Un grafico a colonne per acronimo: email totali per settimana ISO."""
     if EMAIL_MITTENTI_SHEET in wb.sheetnames:
         del wb[EMAIL_MITTENTI_SHEET]
@@ -2730,9 +2858,10 @@ def crea_foglio_email_mittenti_excel(wb, riepilogo_acronimi):
     )
     ws.cell(row=1, column=1).font = Font(bold=True)
 
-    serie, fonte, _ = _aggrega_email_settimane_per_acronimo_finestra(
+    serie, fonte, settimane_agg = _aggrega_email_settimane_per_acronimo_finestra(
         riepilogo_acronimi
     )
+    settimane = settimane_labels or settimane_agg
     if not serie:
         msg = "Nessun dato email nel periodo indicato."
         if fonte:
@@ -2755,16 +2884,27 @@ def crea_foglio_email_mittenti_excel(wb, riepilogo_acronimi):
         header_row = cursor
         ws.cell(row=header_row, column=1).value = "Settimana"
         ws.cell(row=header_row, column=2).value = "N. email"
+        ws.cell(row=header_row, column=3).value = "Fase Inizio→Done"
+        ymax = max((conteggio for _, conteggio in righe), default=0)
+        span = _activity_span_per_acronimo_grafico(
+            acronimo, finestre_attivita, settimane
+        )
+        line_y = max(ymax, 1) * 1.08
         for offset, (settimana, conteggio) in enumerate(righe, start=1):
             r = header_row + offset
             ws.cell(row=r, column=1).value = settimana
             ws.cell(row=r, column=2).value = conteggio
+            if span and span["start_index"] <= (offset - 1) <= span["end_index"]:
+                ws.cell(row=r, column=3).value = line_y
         last_row = header_row + len(righe)
 
         chart = BarChart()
         chart.type = "col"
         chart.style = 10
-        chart.title = f"{acronimo} — email per settimana ({periodo_titolo})"
+        etichetta = _etichetta_acronimo_grafico_email(
+            acronimo, finestre_attivita
+        )
+        chart.title = f"{etichetta} — email per settimana ({periodo_titolo})"
         chart.y_axis.title = "N. email"
         chart.x_axis.title = "Settimana ISO"
         chart.legend = None
@@ -2782,6 +2922,23 @@ def crea_foglio_email_mittenti_excel(wb, riepilogo_acronimi):
         )
         chart.add_data(data_ref, titles_from_data=True)
         chart.set_categories(cats_ref)
+        if span:
+            line_chart = LineChart()
+            line_chart.legend = None
+            line_ref = Reference(
+                ws,
+                min_col=3,
+                min_row=header_row,
+                max_row=last_row,
+            )
+            line_chart.add_data(line_ref, titles_from_data=True)
+            line_chart.set_categories(cats_ref)
+            if line_chart.series:
+                serie_linea = line_chart.series[0]
+                serie_linea.graphicalProperties.line.solidFill = "DC2626"
+                serie_linea.graphicalProperties.line.width = 28575
+                serie_linea.marker.symbol = "none"
+            chart += line_chart
         chart.width = 22
         chart.height = max(8, min(16, 4 + len(righe) * 0.35))
         ws.add_chart(chart, f"D{header_row}")
@@ -3063,7 +3220,9 @@ def _etichetta_finestra_email_mittente():
     )
 
 
-def _dati_grafico_email_mittente_acronimo_html(riepilogo_acronimi):
+def _dati_grafico_email_mittente_acronimo_html(
+    riepilogo_acronimi, finestre_attivita=None
+):
     """Chart.js: un grafico per acronimo, settimane in ascisse (W12, esclusi .addr)."""
     periodo = _etichetta_finestra_email_mittente()
     serie, fonte, settimane = _aggrega_email_settimane_per_acronimo_finestra(
@@ -3094,12 +3253,20 @@ def _dati_grafico_email_mittente_acronimo_html(riepilogo_acronimi):
     for acronimo, righe in serie:
         valori = [conteggio for _, conteggio in righe]
         totale += sum(valori)
+        meta = (finestre_attivita or {}).get(acronimo, {})
         charts.append(
             {
                 "acronimo": acronimo,
                 "labels": settimane,
                 "data": valori,
                 "total": sum(valori),
+                "status": meta.get("status") or "",
+                "titolo": _etichetta_acronimo_grafico_email(
+                    acronimo, finestre_attivita
+                ),
+                "activity_span": _activity_span_per_acronimo_grafico(
+                    acronimo, finestre_attivita, settimane
+                ),
             }
         )
     return {
@@ -3126,6 +3293,8 @@ def _html_nota_email_mittente_acronimo(dati):
         f"<code>ignora.addr</code> e <code>other.addr</code>; deduplica "
         f"DATA+OGGETTO. Fonte: "
         f'<code>{html.escape(str(dati.get("source", "")))}</code>. '
+        f"Linea rossa orizzontale: da <b># Inizio Attività</b> a <b># Done</b> "
+        f"(date in col. TAG Temporali del foglio data-all). "
         f"Totale nel periodo: <b>{dati.get('total', 0)}</b> email su "
         f"<b>{dati.get('n_acronimi', 0)}</b> acronimi.</p>"
     )
@@ -3137,12 +3306,14 @@ def _html_grafici_email_mittente_acronimo(dati):
         return ""
     blocks = []
     for idx, chart in enumerate(dati.get("charts", [])):
-        acr = html.escape(chart.get("acronimo", ""))
+        etichetta = html.escape(
+            chart.get("titolo") or chart.get("acronimo", "")
+        )
         tot = int(chart.get("total") or 0)
         canvas_id = f"chart-email-mittente-{idx}"
         blocks.append(
             f'    <div class="chart-card chart-card-full">\n'
-            f"      <h3>{acr} — {tot} email nel periodo</h3>\n"
+            f"      <h3>{etichetta} — {tot} email nel periodo</h3>\n"
             f'      <div class="chart-wrap-lg">'
             f'<canvas id="{canvas_id}"></canvas></div>\n'
             f"    </div>"
@@ -3420,6 +3591,7 @@ def genera_html_jkan(
     data_ultimo_snapshot=None,
     riepilogo_acronimi=None,
     riepilogo_stima=None,
+    finestre_attivita=None,
 ):
     """Genera report HTML Scrum/Kanban con burnup, burndown, CFD ed evoluzione colonne."""
     if df.empty:
@@ -3430,7 +3602,8 @@ def genera_html_jkan(
     dati_email = _dati_grafico_email_settimana(riepilogo_acronimi)
     dati["email_weekly"] = dati_email
     dati_email_mittente = _dati_grafico_email_mittente_acronimo_html(
-        riepilogo_acronimi
+        riepilogo_acronimi,
+        finestre_attivita=finestre_attivita,
     )
     dati["email_mittente_acronimo"] = dati_email_mittente
     chart_json = json.dumps(dati, ensure_ascii=False)
@@ -3963,6 +4136,36 @@ def genera_html_jkan(
     renderEmailWeeklyBundle(D.email_weekly.filtered, "chart-email-weekly-excl");
   }}
 
+  const activitySpanPlugin = {{
+    id: "activitySpanLine",
+    afterDatasetsDraw: function(chart) {{
+      const span = chart.options.plugins && chart.options.plugins.activitySpan;
+      if (!span || span.start_index == null || span.end_index == null) {{
+        return;
+      }}
+      const xScale = chart.scales.x;
+      const area = chart.chartArea;
+      if (!xScale || !area) {{
+        return;
+      }}
+      const x0 = xScale.getPixelForValue(span.start_index);
+      const x1 = xScale.getPixelForValue(span.end_index);
+      const y = area.top + (area.bottom - area.top) * 0.9;
+      const ctx = chart.ctx;
+      ctx.save();
+      ctx.strokeStyle = "#dc2626";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(x0, y);
+      ctx.lineTo(x1, y);
+      ctx.stroke();
+      ctx.restore();
+    }}
+  }};
+  if (typeof Chart !== "undefined" && Chart.register) {{
+    Chart.register(activitySpanPlugin);
+  }}
+
   function renderEmailMittentePerAcronimo(bundle) {{
     if (!bundle || !bundle.available) {{
       return;
@@ -3987,6 +4190,11 @@ def genera_html_jkan(
         return;
       }}
       const weekLabels = ch.labels || bundle.labels || [];
+      const chartOpts = Object.assign({{}}, settimanaOpts, {{
+        plugins: Object.assign({{}}, settimanaOpts.plugins, {{
+          activitySpan: ch.activity_span || null
+        }})
+      }});
       new Chart(canvas, {{
         type: "bar",
         data: {{
@@ -3997,7 +4205,7 @@ def genera_html_jkan(
             backgroundColor: "#1a56db"
           }}]
         }},
-        options: settimanaOpts
+        options: chartOpts
       }});
     }});
   }}
@@ -4263,7 +4471,7 @@ def elabora(input_csv):
     conteggi, non_mappate = conteggio_per_colonna_kanban(card)
     df_storico = aggiorna_db_jkan(data_snapshot, conteggi)
     riepilogo_acronimi = riepilogo_acronimi_scope(card)
-    riepilogo_stima, n_grafici_email = scrivi_excel(
+    riepilogo_stima, n_grafici_email, finestre_attivita = scrivi_excel(
         card,
         output_path,
         df_storico=df_storico,
@@ -4275,6 +4483,7 @@ def elabora(input_csv):
         data_ultimo_snapshot=data_snapshot,
         riepilogo_acronimi=riepilogo_acronimi,
         riepilogo_stima=riepilogo_stima,
+        finestre_attivita=finestre_attivita,
     )
 
     righe_output = len(espandi_card_con_tag(card))
@@ -4285,7 +4494,10 @@ def elabora(input_csv):
     print(f"Output Excel: {output_path}")
     n_html_mittente = 0
     if riepilogo_acronimi is not None:
-        dati_m = _dati_grafico_email_mittente_acronimo_html(riepilogo_acronimi)
+        dati_m = _dati_grafico_email_mittente_acronimo_html(
+            riepilogo_acronimi,
+            finestre_attivita=finestre_attivita,
+        )
         n_html_mittente = len(dati_m.get("charts") or [])
     print(
         f"Grafici email per settimana/acronimo ({_etichetta_finestra_email_mittente()}): "
