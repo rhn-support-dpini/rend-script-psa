@@ -20,8 +20,8 @@ Output:
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
     <input>.html — report Scrum/Kanban (stesso percorso del .xlsx prodotto);
         grafici email per acronimo/settimana e, prima dello storico, un grafico per
-        acronimo con distribuzione mail per mittente (2026-W12 … settimana corrente,
-        esclusi ignora.addr / other.addr).
+        acronimo con email per settimana ISO (2026-W12 … corrente; esclusi mittenti
+        in ignora.addr / other.addr, senza indirizzi in grafico).
     Le righe Description con prefisso "#" generano sotto-righe da colonna W (TAG Temporali);
     A–R (+ Description in AA) sono merge verticali per Title, con bordo rosso pastello per card.
     K (InizioLavorazione(gg)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
@@ -2671,25 +2671,28 @@ def _giorno_in_finestra_email_grafici_excel(giorno):
     return chiave <= (ty, tw)
 
 
-def _mittente_display_per_grafico(mittente):
-    """Etichetta breve per asse categorie (preferisce l'indirizzo email)."""
-    emails = EMAIL_MITTENTE_IN_TESTO_RE.findall(mittente or "")
-    if emails:
-        return emails[0]
-    testo = (mittente or "").strip()
-    if not testo:
-        return "(sconosciuto)"
-    return testo if len(testo) <= 80 else testo[:77] + "..."
+def _etichette_settimane_finestra_email():
+    """Settimane ISO ordinate da 2026-W12 alla settimana corrente (inclusa)."""
+    labels = []
+    y, w = EMAIL_EXCEL_WEEK_START_YEAR, EMAIL_EXCEL_WEEK_START_WEEK
+    ty, tw, _ = date.today().isocalendar()
+    while (y, w) <= (ty, tw):
+        labels.append(f"{y}-W{w:02d}")
+        successivo = date.fromisocalendar(y, w, 1) + timedelta(days=7)
+        y, w, _ = successivo.isocalendar()
+    return labels
 
 
-def _aggrega_email_mittenti_per_acronimo_excel(riepilogo_acronimi):
+def _aggrega_email_settimane_per_acronimo_finestra(riepilogo_acronimi):
     """
-    Conteggi mittente per acronimo (2026-W12 … settimana corrente),
-    esclusi ignora.addr / other.addr.
+    Conteggi email per settimana ISO e acronimo (2026-W12 … corrente),
+    esclusi mittenti in ignora.addr / other.addr.
     """
     record, fonte = _carica_record_email_deduplicati()
     acronimi_noti = _acronimi_noti_da_riepilogo(riepilogo_acronimi)
     esclusi, _ = _carica_indirizzi_esclusione_mittente()
+    settimane = _etichette_settimane_finestra_email()
+    settimane_ok = set(settimane)
     per_acronimo = defaultdict(Counter)
     for giorno, oggetto, mittente in record:
         if not _giorno_in_finestra_email_grafici_excel(giorno):
@@ -2699,20 +2702,21 @@ def _aggrega_email_mittenti_per_acronimo_excel(riepilogo_acronimi):
         acronimo = _acronimo_da_oggetto_email(oggetto, acronimi_noti)
         if not acronimo:
             continue
-        etichetta = _mittente_display_per_grafico(mittente)
-        per_acronimo[acronimo][etichetta] += 1
+        sett = _etichetta_settimana_iso(giorno)
+        if sett in settimane_ok:
+            per_acronimo[acronimo][sett] += 1
 
     serie = []
     for acronimo in sorted(per_acronimo.keys()):
-        righe = sorted(
-            per_acronimo[acronimo].items(), key=lambda x: (-x[1], x[0])
-        )
+        righe = [(sett, per_acronimo[acronimo].get(sett, 0)) for sett in settimane]
+        if sum(conteggio for _, conteggio in righe) <= 0:
+            continue
         serie.append((acronimo, righe))
-    return serie, fonte
+    return serie, fonte, settimane
 
 
 def crea_foglio_email_mittenti_excel(wb, riepilogo_acronimi):
-    """Un grafico a colonne per acronimo: distribuzione email per mittente."""
+    """Un grafico a colonne per acronimo: email totali per settimana ISO."""
     if EMAIL_MITTENTI_SHEET in wb.sheetnames:
         del wb[EMAIL_MITTENTI_SHEET]
     ws = wb.create_sheet(EMAIL_MITTENTI_SHEET)
@@ -2721,11 +2725,14 @@ def crea_foglio_email_mittenti_excel(wb, riepilogo_acronimi):
         f" … {_etichetta_settimana_corrente()}"
     )
     ws.cell(row=1, column=1).value = (
-        f"Email per mittente (esclusi ignora.addr / other.addr) — {finestra}"
+        f"Email per settimana e acronimo (esclusi ignora.addr / other.addr) — "
+        f"{finestra}"
     )
     ws.cell(row=1, column=1).font = Font(bold=True)
 
-    serie, fonte = _aggrega_email_mittenti_per_acronimo_excel(riepilogo_acronimi)
+    serie, fonte, _ = _aggrega_email_settimane_per_acronimo_finestra(
+        riepilogo_acronimi
+    )
     if not serie:
         msg = "Nessun dato email nel periodo indicato."
         if fonte:
@@ -2746,20 +2753,20 @@ def crea_foglio_email_mittenti_excel(wb, riepilogo_acronimi):
 
     for acronimo, righe in serie:
         header_row = cursor
-        ws.cell(row=header_row, column=1).value = "Mittente"
+        ws.cell(row=header_row, column=1).value = "Settimana"
         ws.cell(row=header_row, column=2).value = "N. email"
-        for offset, (mittente, conteggio) in enumerate(righe, start=1):
+        for offset, (settimana, conteggio) in enumerate(righe, start=1):
             r = header_row + offset
-            ws.cell(row=r, column=1).value = mittente
+            ws.cell(row=r, column=1).value = settimana
             ws.cell(row=r, column=2).value = conteggio
         last_row = header_row + len(righe)
 
         chart = BarChart()
         chart.type = "col"
         chart.style = 10
-        chart.title = f"{acronimo} — email per mittente ({periodo_titolo})"
+        chart.title = f"{acronimo} — email per settimana ({periodo_titolo})"
         chart.y_axis.title = "N. email"
-        chart.x_axis.title = "Mittente"
+        chart.x_axis.title = "Settimana ISO"
         chart.legend = None
         data_ref = Reference(
             ws,
@@ -3057,9 +3064,11 @@ def _etichetta_finestra_email_mittente():
 
 
 def _dati_grafico_email_mittente_acronimo_html(riepilogo_acronimi):
-    """Chart.js: un grafico per acronimo, assi = mittenti (periodo W12, esclusi .addr)."""
+    """Chart.js: un grafico per acronimo, settimane in ascisse (W12, esclusi .addr)."""
     periodo = _etichetta_finestra_email_mittente()
-    serie, fonte = _aggrega_email_mittenti_per_acronimo_excel(riepilogo_acronimi)
+    serie, fonte, settimane = _aggrega_email_settimane_per_acronimo_finestra(
+        riepilogo_acronimi
+    )
     if not serie:
         if fonte:
             msg = (
@@ -3076,19 +3085,19 @@ def _dati_grafico_email_mittente_acronimo_html(riepilogo_acronimi):
             "available": False,
             "message": msg,
             "period": periodo,
+            "labels": settimane,
             "charts": [],
         }
 
     charts = []
     totale = 0
     for acronimo, righe in serie:
-        labels = [mittente for mittente, _ in righe]
         valori = [conteggio for _, conteggio in righe]
         totale += sum(valori)
         charts.append(
             {
                 "acronimo": acronimo,
-                "labels": labels,
+                "labels": settimane,
                 "data": valori,
                 "total": sum(valori),
             }
@@ -3097,6 +3106,7 @@ def _dati_grafico_email_mittente_acronimo_html(riepilogo_acronimi):
         "available": True,
         "period": periodo,
         "source": fonte or "",
+        "labels": settimane,
         "charts": charts,
         "n_acronimi": len(charts),
         "total": totale,
@@ -3109,10 +3119,12 @@ def _html_nota_email_mittente_acronimo(dati):
             f'<p class="sub"><em>{html.escape(dati.get("message", ""))}</em></p>'
         )
     return (
-        f'<p class="sub">Un grafico per acronimo: distribuzione delle email per '
-        f"<b>mittente</b> tra <b>{html.escape(dati.get('period', ''))}</b>. "
-        f"Esclusi i mittenti in <code>ignora.addr</code> e <code>other.addr</code>; "
-        f"deduplica DATA+OGGETTO. Fonte: "
+        f'<p class="sub">Un grafico per acronimo: <b>settimane ISO</b> in ascisse '
+        f"(da <b>{html.escape(dati.get('period', ''))}</b>), "
+        f"numero totale di email in ordinata (tutti i mittenti ammessi, "
+        f"senza mostrare indirizzi). Esclusi i mittenti in "
+        f"<code>ignora.addr</code> e <code>other.addr</code>; deduplica "
+        f"DATA+OGGETTO. Fonte: "
         f'<code>{html.escape(str(dati.get("source", "")))}</code>. '
         f"Totale nel periodo: <b>{dati.get('total', 0)}</b> email su "
         f"<b>{dati.get('n_acronimi', 0)}</b> acronimi.</p>"
@@ -3120,20 +3132,18 @@ def _html_nota_email_mittente_acronimo(dati):
 
 
 def _html_grafici_email_mittente_acronimo(dati):
-    """Canvas Chart.js per ogni acronimo (barre per mittente)."""
+    """Canvas Chart.js per ogni acronimo (barre per settimana ISO)."""
     if not dati.get("available"):
         return ""
     blocks = []
     for idx, chart in enumerate(dati.get("charts", [])):
         acr = html.escape(chart.get("acronimo", ""))
         tot = int(chart.get("total") or 0)
-        n_mitt = len(chart.get("labels") or [])
-        altezza = max(220, min(480, 120 + n_mitt * 22))
         canvas_id = f"chart-email-mittente-{idx}"
         blocks.append(
             f'    <div class="chart-card chart-card-full">\n'
-            f"      <h3>{acr} — {tot} email · {n_mitt} mittenti</h3>\n"
-            f'      <div class="chart-wrap-email-mittente" style="height:{altezza}px">'
+            f"      <h3>{acr} — {tot} email nel periodo</h3>\n"
+            f'      <div class="chart-wrap-lg">'
             f'<canvas id="{canvas_id}"></canvas></div>\n'
             f"    </div>"
         )
@@ -3536,7 +3546,6 @@ def genera_html_jkan(
     .chart-card-full .sub {{ margin: 0 0 .75rem; }}
     .chart-wrap-ratio-all {{ position: relative; width: 100%; min-height: 360px; }}
     .chart-wrap-sm {{ position: relative; height: 200px; }}
-    .chart-wrap-email-mittente {{ position: relative; width: 100%; }}
     table {{ width: 100%; border-collapse: collapse; font-size: .9rem; }}
     th, td {{ border: 1px solid var(--border); padding: .45rem .6rem; text-align: center; }}
     th {{ background: #f1f5f9; }}
@@ -3958,12 +3967,12 @@ def genera_html_jkan(
     if (!bundle || !bundle.available) {{
       return;
     }}
-    const mittenteOpts = Object.assign({{}}, baseOpts, {{
+    const settimanaOpts = Object.assign({{}}, baseOpts, {{
       plugins: {{ legend: {{ display: false }} }},
       scales: {{
         x: {{
           ticks: {{ maxRotation: 45, autoSkip: true }},
-          title: {{ display: true, text: "Mittente" }}
+          title: {{ display: true, text: "Settimana ISO" }}
         }},
         y: {{
           beginAtZero: true,
@@ -3977,17 +3986,18 @@ def genera_html_jkan(
       if (!canvas) {{
         return;
       }}
+      const weekLabels = ch.labels || bundle.labels || [];
       new Chart(canvas, {{
         type: "bar",
         data: {{
-          labels: ch.labels || [],
+          labels: weekLabels,
           datasets: [{{
             label: "Email",
             data: ch.data || [],
             backgroundColor: "#1a56db"
           }}]
         }},
-        options: mittenteOpts
+        options: settimanaOpts
       }});
     }});
   }}
@@ -4278,7 +4288,7 @@ def elabora(input_csv):
         dati_m = _dati_grafico_email_mittente_acronimo_html(riepilogo_acronimi)
         n_html_mittente = len(dati_m.get("charts") or [])
     print(
-        f"Grafici email per mittente/acronimo ({_etichetta_finestra_email_mittente()}): "
+        f"Grafici email per settimana/acronimo ({_etichetta_finestra_email_mittente()}): "
         f"Excel «{EMAIL_MITTENTI_SHEET}»={n_grafici_email}, HTML={n_html_mittente}."
     )
     print(f"Output HTML: {html_path}")
