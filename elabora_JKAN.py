@@ -19,7 +19,9 @@ Output:
         mail/mittente per acronimo), storico (dbJKAN.csv).
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
     <input>.html — report Scrum/Kanban (stesso percorso del .xlsx prodotto);
-        include grafico email per acronimo/settimana se presenti venv/Data/Email o email.lst.
+        grafici email per acronimo/settimana e, prima dello storico, un grafico per
+        acronimo con distribuzione mail per mittente (2026-W12 … settimana corrente,
+        esclusi ignora.addr / other.addr).
     Le righe Description con prefisso "#" generano sotto-righe da colonna W (TAG Temporali);
     A–R (+ Description in AA) sono merge verticali per Title, con bordo rosso pastello per card.
     K (InizioLavorazione(gg)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
@@ -3047,6 +3049,97 @@ def _html_grafici_email_settimana(bundle, canvas_prefix):
     return "\n".join(blocks)
 
 
+def _etichetta_finestra_email_mittente():
+    return (
+        f"{EMAIL_EXCEL_WEEK_START_YEAR}-W{EMAIL_EXCEL_WEEK_START_WEEK:02d}"
+        f" … {_etichetta_settimana_corrente()}"
+    )
+
+
+def _dati_grafico_email_mittente_acronimo_html(riepilogo_acronimi):
+    """Chart.js: un grafico per acronimo, assi = mittenti (periodo W12, esclusi .addr)."""
+    periodo = _etichetta_finestra_email_mittente()
+    serie, fonte = _aggrega_email_mittenti_per_acronimo_excel(riepilogo_acronimi)
+    if not serie:
+        if fonte:
+            msg = (
+                f"Nessuna email mappata ad acronimo nel periodo {periodo}. "
+                f"Fonte: {fonte}."
+            )
+        else:
+            msg = (
+                "Nessun dato email: copiare gli export in "
+                f"{EMAIL_EXPORT_SUBDIR}/ sotto Data/ o generare email.lst "
+                "(variabili EMAIL_DIR / EMAIL_LST)."
+            )
+        return {
+            "available": False,
+            "message": msg,
+            "period": periodo,
+            "charts": [],
+        }
+
+    charts = []
+    totale = 0
+    for acronimo, righe in serie:
+        labels = [mittente for mittente, _ in righe]
+        valori = [conteggio for _, conteggio in righe]
+        totale += sum(valori)
+        charts.append(
+            {
+                "acronimo": acronimo,
+                "labels": labels,
+                "data": valori,
+                "total": sum(valori),
+            }
+        )
+    return {
+        "available": True,
+        "period": periodo,
+        "source": fonte or "",
+        "charts": charts,
+        "n_acronimi": len(charts),
+        "total": totale,
+    }
+
+
+def _html_nota_email_mittente_acronimo(dati):
+    if not dati.get("available"):
+        return (
+            f'<p class="sub"><em>{html.escape(dati.get("message", ""))}</em></p>'
+        )
+    return (
+        f'<p class="sub">Un grafico per acronimo: distribuzione delle email per '
+        f"<b>mittente</b> tra <b>{html.escape(dati.get('period', ''))}</b>. "
+        f"Esclusi i mittenti in <code>ignora.addr</code> e <code>other.addr</code>; "
+        f"deduplica DATA+OGGETTO. Fonte: "
+        f'<code>{html.escape(str(dati.get("source", "")))}</code>. '
+        f"Totale nel periodo: <b>{dati.get('total', 0)}</b> email su "
+        f"<b>{dati.get('n_acronimi', 0)}</b> acronimi.</p>"
+    )
+
+
+def _html_grafici_email_mittente_acronimo(dati):
+    """Canvas Chart.js per ogni acronimo (barre per mittente)."""
+    if not dati.get("available"):
+        return ""
+    blocks = []
+    for idx, chart in enumerate(dati.get("charts", [])):
+        acr = html.escape(chart.get("acronimo", ""))
+        tot = int(chart.get("total") or 0)
+        n_mitt = len(chart.get("labels") or [])
+        altezza = max(220, min(480, 120 + n_mitt * 22))
+        canvas_id = f"chart-email-mittente-{idx}"
+        blocks.append(
+            f'    <div class="chart-card chart-card-full">\n'
+            f"      <h3>{acr} — {tot} email · {n_mitt} mittenti</h3>\n"
+            f'      <div class="chart-wrap-email-mittente" style="height:{altezza}px">'
+            f'<canvas id="{canvas_id}"></canvas></div>\n'
+            f"    </div>"
+        )
+    return "\n".join(blocks)
+
+
 def _dati_grafici_jkan(df):
     dates, weeks = _etichette_asse_tempo(df)
     n = len(df)
@@ -3326,6 +3419,10 @@ def genera_html_jkan(
     dati["stima"] = _dati_stima_ore_grafici(riepilogo_stima or [])
     dati_email = _dati_grafico_email_settimana(riepilogo_acronimi)
     dati["email_weekly"] = dati_email
+    dati_email_mittente = _dati_grafico_email_mittente_acronimo_html(
+        riepilogo_acronimi
+    )
+    dati["email_mittente_acronimo"] = dati_email_mittente
     chart_json = json.dumps(dati, ensure_ascii=False)
     nota_email_html = _html_nota_grafico_email(dati_email)
     email_chart_html = _html_grafici_email_settimana(
@@ -3334,6 +3431,12 @@ def genera_html_jkan(
     nota_email_filtrata_html = _html_nota_grafico_email_filtrato(dati_email)
     email_chart_filtrata_html = _html_grafici_email_settimana(
         dati_email.get("filtered"), "chart-email-weekly-excl"
+    )
+    nota_email_mittente_html = _html_nota_email_mittente_acronimo(
+        dati_email_mittente
+    )
+    email_mittente_chart_html = _html_grafici_email_mittente_acronimo(
+        dati_email_mittente
     )
     kpi_stima_html = _html_kpi_stima_ore(dati["stima"]["summary"])
     burndown_forecast_html = _html_burndown_forecast(dati["burndown"]["forecast"])
@@ -3433,6 +3536,7 @@ def genera_html_jkan(
     .chart-card-full .sub {{ margin: 0 0 .75rem; }}
     .chart-wrap-ratio-all {{ position: relative; width: 100%; min-height: 360px; }}
     .chart-wrap-sm {{ position: relative; height: 200px; }}
+    .chart-wrap-email-mittente {{ position: relative; width: 100%; }}
     table {{ width: 100%; border-collapse: collapse; font-size: .9rem; }}
     th, td {{ border: 1px solid var(--border); padding: .45rem .6rem; text-align: center; }}
     th {{ background: #f1f5f9; }}
@@ -3565,6 +3669,12 @@ def genera_html_jkan(
     <h3 class="email-subsection">Esclusi mittenti (ignora.addr / other.addr)</h3>
 {nota_email_filtrata_html}
 {email_chart_filtrata_html}
+  </section>
+
+  <section id="email-mittente-acronimo">
+    <h2>Email per mittente e acronimo</h2>
+{nota_email_mittente_html}
+{email_mittente_chart_html}
   </section>
 
   <section id="tabella">
@@ -3844,6 +3954,48 @@ def genera_html_jkan(
     renderEmailWeeklyBundle(D.email_weekly.filtered, "chart-email-weekly-excl");
   }}
 
+  function renderEmailMittentePerAcronimo(bundle) {{
+    if (!bundle || !bundle.available) {{
+      return;
+    }}
+    const mittenteOpts = Object.assign({{}}, baseOpts, {{
+      plugins: {{ legend: {{ display: false }} }},
+      scales: {{
+        x: {{
+          ticks: {{ maxRotation: 45, autoSkip: true }},
+          title: {{ display: true, text: "Mittente" }}
+        }},
+        y: {{
+          beginAtZero: true,
+          ticks: {{ precision: 0 }},
+          title: {{ display: true, text: "N. email" }}
+        }}
+      }}
+    }});
+    (bundle.charts || []).forEach(function(ch, i) {{
+      const canvas = document.getElementById("chart-email-mittente-" + i);
+      if (!canvas) {{
+        return;
+      }}
+      new Chart(canvas, {{
+        type: "bar",
+        data: {{
+          labels: ch.labels || [],
+          datasets: [{{
+            label: "Email",
+            data: ch.data || [],
+            backgroundColor: "#1a56db"
+          }}]
+        }},
+        options: mittenteOpts
+      }});
+    }});
+  }}
+
+  if (D.email_mittente_acronimo) {{
+    renderEmailMittentePerAcronimo(D.email_mittente_acronimo);
+  }}
+
   (function() {{
     const S = D.stima || {{}};
     const ratioChartOpts = Object.assign({{}}, baseOpts, {{
@@ -4121,9 +4273,13 @@ def elabora(input_csv):
     print(f"Righe output: {righe_output}")
     print(f"Input: {input_path}")
     print(f"Output Excel: {output_path}")
+    n_html_mittente = 0
+    if riepilogo_acronimi is not None:
+        dati_m = _dati_grafico_email_mittente_acronimo_html(riepilogo_acronimi)
+        n_html_mittente = len(dati_m.get("charts") or [])
     print(
-        f"Foglio Excel «{EMAIL_MITTENTI_SHEET}»: {n_grafici_email} grafico/i "
-        f"(mittente per acronimo; non nel report HTML)."
+        f"Grafici email per mittente/acronimo ({_etichetta_finestra_email_mittente()}): "
+        f"Excel «{EMAIL_MITTENTI_SHEET}»={n_grafici_email}, HTML={n_html_mittente}."
     )
     print(f"Output HTML: {html_path}")
     print(f"Snapshot {data_snapshot.isoformat()}: {dict(conteggi)}")
