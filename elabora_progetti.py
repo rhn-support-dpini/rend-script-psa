@@ -132,14 +132,18 @@ RIGHE_TABELLA_EXPORT_2 = (
     'Giornate Residenti CELLI',
     'Giornate CNS',
     'Giornate Patching',
-    'Progetto JBoss',
 )
 
 # Colonna I (gg/u acquistati), in ordine con RIGHE_TABELLA_EXPORT_2 (righe senza valore omesse).
 GG_ACQUISTATI_TABELLA_EXPORT_2 = (280, 94, 77)
 
 # Colonna A del foglio Export 2: Riferimento tabella 3 (match su COL_RIF_TABELLA_3 nel tab dati).
-RIFERIMENTO_TABELLA_3_EXPORT_2 = (1, 5, 3, 12)
+RIFERIMENTO_TABELLA_3_EXPORT_2 = (1, 5, 3)
+# Righe Tabella di Export (1ª copia) → indice riga dati Export 2 (0=CELLI, 1=CNS): copia B–H in C–I.
+_EXPORT2_COPIA_DA_EXPORT1 = ((17, 0), (18, 1))
+_EXPORT1_COL_COPIA_INIZIO = 2   # B
+_EXPORT1_COL_COPIA_FINE = 8     # H
+_EXPORT2_COL_COPIA_INIZIO = 3   # C (allineato a B di Export 1)
 EXPORT2_HDR_RIF_TAB3 = 'Riferimento Tabella 3'
 # Colonne foglio Export 2 (+1 rispetto a Export 1 per la colonna Riferimento Tabella 3).
 _EXPORT2_COL = 1
@@ -2405,8 +2409,24 @@ def formatta_tabella_codice_interno(ws_e, config, df_per_calc, col_rif, col_role
     }
 
 
+def _copia_export1_in_export2_righe(ws_export1, ws_export2, dup_start, n_righe_dati):
+    """Copia Tabella di Export (B–H) nelle righe dati di Export 2 (C–I), entrambe le copie tabella."""
+    n_cols = _EXPORT1_COL_COPIA_FINE - _EXPORT1_COL_COPIA_INIZIO + 1
+    for src_row, idx in _EXPORT2_COPIA_DA_EXPORT1:
+        if idx >= n_righe_dati:
+            continue
+        dest_rows = (3 + idx, dup_start + 2 + idx)
+        for dest_row in dest_rows:
+            for off in range(n_cols):
+                src_c = _EXPORT1_COL_COPIA_INIZIO + off
+                dst_c = _EXPORT2_COL_COPIA_INIZIO + off
+                ws_export2.cell(row=dest_row, column=dst_c).value = ws_export1.cell(
+                    row=src_row, column=src_c
+                ).value
+
+
 def formatta_tabella_export_2_struttura(ws_e, config, df_per_calc, col_actual, fill_verde, fill_nero,
-                                        font_bianco_bold, center, right_align):
+                                        font_bianco_bold, center, right_align, ws_export1=None):
     """Formatta il foglio 'Tabella di Export 2' come Tabella di Export.
 
     Colonna A: ``RIFERIMENTO_TABELLA_3_EXPORT_2``; colonna B etichette ``RIGHE_TABELLA_EXPORT_2``;
@@ -2492,6 +2512,26 @@ def formatta_tabella_export_2_struttura(ws_e, config, df_per_calc, col_actual, f
     scrivi_titolo(dup_start)
     scrivi_header(dup_start + 1)
     scrivi_righe(dup_start + 2, arrotonda=True)
+
+    if ws_export1 is not None:
+        _copia_export1_in_export2_righe(ws_export1, ws_e, dup_start, n_righe)
+        for src_row, idx in _EXPORT2_COPIA_DA_EXPORT1:
+            if idx >= n_righe:
+                continue
+            for dest_row in (3 + idx, dup_start + 2 + idx):
+                ws_e.cell(row=dest_row, column=_EXPORT2_COL_GG_ACQUISTATI).alignment = right_align
+                try:
+                    gg_cons = float(str(
+                        ws_e.cell(row=dest_row, column=_EXPORT2_COL_GG_CONSUMATI).value or 0
+                    ).replace(',', '.'))
+                    i_num = float(str(
+                        ws_e.cell(row=dest_row, column=_EXPORT2_COL_GG_ACQUISTATI).value or 0
+                    ).replace(',', '.'))
+                    arrotonda = dest_row >= dup_start + 2
+                    k_val = round(i_num - gg_cons) if arrotonda else round(i_num - gg_cons, 2)
+                    ws_e.cell(row=dest_row, column=_EXPORT2_COL_GG_CONSUMATI + 1).value = k_val
+                except (ValueError, TypeError):
+                    pass
 
 # --- FOGLIO VERIFICA ---
 
@@ -3690,6 +3730,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
         formatta_tabella_export_2_struttura(
             wb['Tabella di Export 2'], config, df_per_calc, col_actual,
             fill_verde, fill_nero, font_bianco_bold, center, right_align,
+            ws_export1=wb['Tabella di Export'],
         )
 
         scrivi_foglio_verifica(wb, {

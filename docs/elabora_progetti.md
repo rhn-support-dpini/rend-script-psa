@@ -227,7 +227,7 @@ Dopo la lettura dell'Excel, lo script espande la **colonna assegnazione** (indic
 | `Riferimento tabella 1` … `4` | Ref-key `a@b@c@d` (accetta anche `&` legacy) |
 | `Commento` | Commento libero |
 
-**Ref-key `a@b@c@d`:** `a` e `b` alimentano solo il foglio **Tabella di Export** (incrocio con ref-key colonna N in `cust.config`). `c` e `d` alimentano solo **Tabella di Export 2** (chiavi riga 1=CELLI, 5=CNS, 3=Patching, 12=JBoss). Per ogni riga Export 2 le gg consumate = ore con tab. 3 = chiave + ore con tab. 4 = chiave (÷ 8).
+**Ref-key `a@b@c@d`:** `a` e `b` alimentano solo il foglio **Tabella di Export** (incrocio con ref-key colonna N in `cust.config`). `c` e `d` alimentano solo **Tabella di Export 2** (chiavi riga 1=CELLI, 5=CNS, 3=Patching). Per ogni riga Export 2 le gg consumate = ore con tab. 3 = chiave + ore con tab. 4 = chiave (÷ 8).
 
 Esempio: `2@8@1@3` → Export 1 ref 2 e 8; Export 2 CELLI (1) e Patching (3).
 
@@ -235,7 +235,7 @@ Esempio: `2@8@1@3` → Export 1 ref 2 e 8; Export 2 CELLI (1) e Patching (3).
 
 ## Foglio «Tabella di Export 2»
 
-Quattro righe fisse (CELLI, CNS, Patching, JBoss) con chiavi tab. 3 in colonna A (1, 5, 3, 12). Gg consumati come sopra da tab. 3 e tab. 4 del sorgente; tab. 2 **non** contribuisce a questo foglio.
+Tre righe fisse (CELLI, CNS, Patching) con chiavi tab. 3 in colonna A (1, 5, 3). Gg consumati da tab. 3 e tab. 4 del sorgente; tab. 2 **non** contribuisce a questo foglio. Colonne C–I delle righe CELLI e CNS (1ª e 2ª copia tabella) copiate da Tabella di Export righe 17–18 colonne B–H; gg/u residui ricalcolati dopo la copia.
 
 ---
 
