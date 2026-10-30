@@ -50,10 +50,14 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 
 - Report **HTML**: sezione «Email per acronimo e settimana» — barre impilate Chart.js (settimana ISO × conteggio email per acronimo); lettura da `venv/Data/Email` (export Apps Script) o `email.lst`; deduplica DATA+OGGETTO; acronimo da pattern `| CODE (` nel soggetto o match sui Title del board; top 12 acronimi + «Altri». Env: `EMAIL_DIR`, `EMAIL_LST`.
 
+### Sessione 2026-10-30 — ref-key quaterna (Export 2)
+
+- Ref-key assegnazione: parsing `a@b@c@d` (legacy `&`); **tab. 4** alimenta solo **Tabella di Export 2** (accoppiato a tab. 3); **tab. 2** non sum più su Export 2 (solo codice interno Export 1).
+
 ### Sessione 2026-10-13 — `elabora_progetti.py`
 
-- Nuovo foglio **`Tabella di Export 2`**: col. A «Riferimento Tabella 3» (per riga: CELLI=1, CNS=5, Patching=3, JBoss=12); col. B etichette; gg acquistati/consumati; consumati = somma Actual Hours (÷8) per `Riferimento tabella 3` nel tab `dati`, più ore con `Riferimento tabella 2` (col. W) valorizzato e ≠ 0 sulla stessa chiave col. A.
-- **Ref-key assegnazione**: parsing `6`, `6@4`, `6@4@9` (legacy `&`); colonne `Riferimento tabella 1/2/3` nel foglio `dati`. Dettaglio Ruoli: colonne **Riferimento Tabella 1/2/3** (valori da tab `dati`).
+- Nuovo foglio **`Tabella di Export 2`**: col. A «Riferimento Tabella 3» (per riga: CELLI=1, CNS=5, Patching=3, JBoss=12); col. B etichette; gg acquistati/consumati (logica aggiornata sessione 2026-10-30 con ref-key `a@b@c@d`).
+- **Ref-key assegnazione** (originale): parsing `6`, `6@4`, `6@4@9`; Dettaglio Ruoli colonne tab. 1–3.
 
 ### Sessione 2026-10-07 — `elabora_JKAN.py`
 

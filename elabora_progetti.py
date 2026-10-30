@@ -542,10 +542,12 @@ def calcola_date_settimana(week_str):
 COL_RIF_TABELLA_1 = "Riferimento tabella 1"
 COL_RIF_TABELLA_2 = "Riferimento tabella 2"
 COL_RIF_TABELLA_3 = "Riferimento tabella 3"
+COL_RIF_TABELLA_4 = "Riferimento tabella 4"
 
 COLONNE_ASSEGNAZIONE_DERIVATE = [
     "Nome risorsa", "RifInterno PSA", "Cliente", "Sotto progetto",
-    COL_RIF_TABELLA_1, COL_RIF_TABELLA_2, COL_RIF_TABELLA_3, "Commento",
+    COL_RIF_TABELLA_1, COL_RIF_TABELLA_2, COL_RIF_TABELLA_3,
+    COL_RIF_TABELLA_4, "Commento",
 ]
 
 # Separatori ref-key nel 5° segmento assegnazione: @ (attuale) o & (legacy).
@@ -581,20 +583,23 @@ def _to_int_riferimento_tabella(s):
 
 
 def parse_segmenti_riferimento_tabella(ref_field):
-    """Estrae fino a tre codici numerici dal 5° segmento dell'assegnazione.
+    """Estrae fino a quattro codici numerici dal 5° segmento dell'assegnazione.
 
-    Formati supportati: ``6``, ``6@4``, ``6@4@9`` (accetta anche ``&`` al posto di ``@``).
+    Formati supportati: ``6``, ``6@4``, ``6@4@9``, ``6@4@9@3`` (accetta anche ``&``).
+    I primi tre valori alimentano tab. 1–3; il quarto (tab. 4) serve solo al foglio
+    «Tabella di Export 2».
     """
     if pd.isna(ref_field):
-        return '', '', ''
+        return '', '', '', ''
     s = str(ref_field).strip()
     if not s:
-        return '', '', ''
+        return '', '', '', ''
     parts = [p.strip() for p in _RIF_TAB_SEP_RE.split(s) if p.strip()]
     rif1 = _to_int_riferimento_tabella(parts[0]) if len(parts) >= 1 else ''
     rif2 = _to_int_riferimento_tabella(parts[1]) if len(parts) >= 2 else ''
     rif3 = _to_int_riferimento_tabella(parts[2]) if len(parts) >= 3 else ''
-    return rif1, rif2, rif3
+    rif4 = _to_int_riferimento_tabella(parts[3]) if len(parts) >= 4 else ''
+    return rif1, rif2, rif3, rif4
 
 
 def splitta_assegnazione(val):
@@ -602,22 +607,23 @@ def splitta_assegnazione(val):
 
     Il formato atteso è: "Nome|RifInterno PSA|Cliente|Sottoprogetto|ref-key|Commento"
     Il Commento può mancare (5 segmenti). Il ref-key può contenere uno o più valori numerici
-    separati da ``@`` (es. ``6@4`` o ``6@4@9``): vanno in Riferimento tabella 1/2/3.
+    separati da ``@`` (es. ``6@4``, ``6@4@9``, ``6@4@1@3``): tab. 1–3 come prima; tab. 4
+    solo per «Tabella di Export 2».
 
     Args:
         val: stringa grezza della cella, o NaN.
 
     Returns:
-        Lista di esattamente 8 elementi (stesso ordine di ``COLONNE_ASSEGNAZIONE_DERIVATE``).
+        Lista di esattamente 9 elementi (stesso ordine di ``COLONNE_ASSEGNAZIONE_DERIVATE``).
     """
     parti = [p.strip() for p in str(val).split('|')] if pd.notna(val) else []
     while len(parti) < 6:
         parti.append("")
     parti = parti[:6]
 
-    rif1, rif2, rif3 = parse_segmenti_riferimento_tabella(parti[4])
+    rif1, rif2, rif3, rif4 = parse_segmenti_riferimento_tabella(parti[4])
 
-    return [parti[0], parti[1], parti[2], parti[3], rif1, rif2, rif3, parti[5]]
+    return [parti[0], parti[1], parti[2], parti[3], rif1, rif2, rif3, rif4, parti[5]]
 
 
 def rif_impatta_somme_codice_interno(val):
@@ -2229,6 +2235,7 @@ def formatta_foglio_tentative(ws_t, df_dati_comp, col_proj, col_role_name, col_p
         (COL_RIF_TABELLA_1, COL_RIF_TABELLA_1),
         (COL_RIF_TABELLA_2, COL_RIF_TABELLA_2),
         (COL_RIF_TABELLA_3, COL_RIF_TABELLA_3),
+        (COL_RIF_TABELLA_4, COL_RIF_TABELLA_4),
         ('Commento', 'Commento'),
     )
     headers = [t[0] for t in header_src]
@@ -2404,13 +2411,14 @@ def formatta_tabella_export_2_struttura(ws_e, config, df_per_calc, col_actual, f
 
     Colonna A: ``RIFERIMENTO_TABELLA_3_EXPORT_2``; colonna B etichette ``RIGHE_TABELLA_EXPORT_2``;
     gg/u acquistati e consumati come Export 1 (consumati = somma Actual Hours ÷ 8 per
-    ``Riferimento tabella 3`` nel tab dati, più le ore con ``Riferimento tabella 2``
+    ``Riferimento tabella 3`` nel tab dati, più le ore con ``Riferimento tabella 4``
     valorizzato e ≠ 0 aggregate sulla stessa chiave colonna A).
+    Il tab. 2 resta solo per «Tabella di Export» (codice interno), non per Export 2.
     """
     n_righe = len(RIGHE_TABELLA_EXPORT_2)
     somme_rif_tab3 = somme_giornate_dict(df_per_calc, COL_RIF_TABELLA_3, col_actual)
-    df_rif_tab2 = df_per_somme_codice_interno(df_per_calc, COL_RIF_TABELLA_2)
-    somme_rif_tab2 = somme_giornate_dict(df_rif_tab2, COL_RIF_TABELLA_2, col_actual)
+    df_rif_tab4 = df_per_somme_codice_interno(df_per_calc, COL_RIF_TABELLA_4)
+    somme_rif_tab4 = somme_giornate_dict(df_rif_tab4, COL_RIF_TABELLA_4, col_actual)
 
     def scrivi_titolo(start_row):
         ws_e.merge_cells(f"B{start_row}:M{start_row}")
@@ -2449,7 +2457,7 @@ def formatta_tabella_export_2_struttura(ws_e, config, df_per_calc, col_actual, f
             rif_key = norm_ref_key(rif3)
             gg_cons = (
                 lookup_somma_ref(somme_rif_tab3, rif_key)
-                + lookup_somma_ref(somme_rif_tab2, rif_key)
+                + lookup_somma_ref(somme_rif_tab4, rif_key)
             )
             j_val = round(gg_cons) if arrotonda else round(gg_cons, 2)
             ws_e.cell(row=r, column=_EXPORT2_COL_GG_CONSUMATI).value = j_val

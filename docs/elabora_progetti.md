@@ -119,9 +119,11 @@ Tabella a colonne: tutte le colonne del file sorgente PSA/CSV più le colonne de
 | `OPA@profilo` | Secondo segmento; usato per distinguere PM/PC (`@pm`, `@pc`) nei calcoli del foglio `progetti`. |
 | `Cliente` | Terzo segmento. |
 | `Sotto progetto` | Quarto segmento. |
-| `Riferimento tabella 1` | Primo codice numerico del quinto segmento (prima di `&`). |
-| `Sotto Riferimento tabella 1` | Secondo codice numerico, se presente (`6&4`). |
-| `Commento` | Sesto segmento. |
+| `Riferimento tabella 1` | Primo codice (`a`) del quinto segmento ref-key. |
+| `Riferimento tabella 2` | Secondo codice (`b`), se presente. |
+| `Riferimento tabella 3` | Terzo codice (`c`), se presente. |
+| `Riferimento tabella 4` | Quarto codice (`d`), se presente; solo per foglio **Tabella di Export 2**. |
+| `Commento` | Sesto segmento pipe dell'assegnazione. |
 
 In fondo al foglio: riga **Versione script** con data e hash dell'ultimo commit git.
 
@@ -214,7 +216,7 @@ Non entrano invece nel calcolo dei **giorni disponibili / rimanenti**:
 
 ## Elaborazione dati sorgente
 
-Dopo la lettura dell'Excel, lo script espande la **colonna assegnazione** (indice 2, colonna C del sorgente PSA) in sette campi separati dal carattere `|`:
+Dopo la lettura dell'Excel, lo script espande la **colonna assegnazione** (indice 2, colonna C del sorgente PSA) in campi derivati (pipe `|` + ref-key nel 5° segmento).
 
 | Campo derivato | Contenuto |
 |----------------|-----------|
@@ -222,11 +224,18 @@ Dopo la lettura dell'Excel, lo script espande la **colonna assegnazione** (indic
 | `OPA@profilo` | Codice OPA e profilo |
 | `Cliente` | Cliente |
 | `Sotto progetto` | Sotto-progetto |
-| `Riferimento tabella 1` | Primo codice numerico del campo riferimento |
-| `Sotto Riferimento tabella 1` | Secondo codice, se presente (formato `6&4`) |
+| `Riferimento tabella 1` … `4` | Ref-key `a@b@c@d` (accetta anche `&` legacy) |
 | `Commento` | Commento libero |
 
-Il campo riferimento nell'assegnazione può contenere uno o due valori numerici separati da `&` (es. `6&4` o `6 & 4`): il primo va in **Riferimento tabella 1**, il secondo in **Sotto Riferimento tabella 1**.
+**Ref-key `a@b@c@d`:** `a` e `b` alimentano solo il foglio **Tabella di Export** (incrocio con ref-key colonna N in `cust.config`). `c` e `d` alimentano solo **Tabella di Export 2** (chiavi riga 1=CELLI, 5=CNS, 3=Patching, 12=JBoss). Per ogni riga Export 2 le gg consumate = ore con tab. 3 = chiave + ore con tab. 4 = chiave (÷ 8).
+
+Esempio: `2@8@1@3` → Export 1 ref 2 e 8; Export 2 CELLI (1) e Patching (3).
+
+---
+
+## Foglio «Tabella di Export 2»
+
+Quattro righe fisse (CELLI, CNS, Patching, JBoss) con chiavi tab. 3 in colonna A (1, 5, 3, 12). Gg consumati come sopra da tab. 3 e tab. 4 del sorgente; tab. 2 **non** contribuisce a questo foglio.
 
 ---
 
@@ -238,7 +247,7 @@ Il foglio **Tabella di Export** (e la sezione omonima nel report HTML) riepiloga
 
 **Regola di esclusione:** le righe con **Riferimento tabella 1** vuoto, mancante o pari a **0** restano nel flusso normale (pivot, foglio `progetti`, riepiloghi, Tentative, grafici) ma **non** entrano nelle somme J/K del tab codice interno — né per il riferimento principale né per il sotto-riferimento di quella riga.
 
-Le righe con riferimento valorizzato e diverso da zero contribuiscono alle colonne J/K (giornate consuntivate e residuo) incrociando sia `Riferimento tabella 1` sia `Sotto Riferimento tabella 1` con il ref-key (colonna N) di ciascuna voce `CodiceInternoN` in config.
+Le righe con riferimento valorizzato e diverso da zero contribuiscono alle colonne J/K (giornate consuntivate e residuo) incrociando **Riferimento tabella 1** e **Riferimento tabella 2** con il ref-key (colonna N) di ciascuna voce `CodiceInternoN` in config.
 
 - **Colonna J:** somma di tutte le ore consuntivate (in giornate), incluse quelle con milestone **Non-Billable Labor**.
 - **Colonna K:** giornate acquisite (config) meno solo le ore **billable**; le ore Non-Billable Labor non riducono il residuo.
