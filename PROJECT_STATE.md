@@ -1,6 +1,6 @@
 # PROJECT_STATE — rend-script-psa
 
-Ultimo aggiornamento: 2026-10-21 (sessione Cursor su branch `Cursor`).
+Ultimo aggiornamento: 2026-11-02 (sessione Cursor su branch `Cursor`).
 
 Documento di handoff per sessioni successive: cosa c’è nel repo, come funziona, cosa è stato toccato di recente, e cosa evitare.
 
@@ -30,6 +30,11 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 ---
 
 ## Implementato / modificato (cronologia recente)
+
+### Sessione 2026-11-02 — `cust.config` (Tabella di Export)
+
+- **team PaaS 2025-2** (`CodiceInterno4`): colonna I **gg/u acquistati** = **280**.
+- Rimossa riga **Fideuram 2025-7** (`CodiceInterno10`); restano Fideuram 2026-8 e righe successive.
 
 ### Sessione 2026-10-20 — `goAll` / email
 
