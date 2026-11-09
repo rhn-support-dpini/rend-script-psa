@@ -16,7 +16,7 @@ Il nome file input deve contenere una data `yyyy-mm-dd` o `yyyy/mm/dd`.
 
 ## Output Excel
 
-Fogli: `data-all` (principale, tutte le card), `exportData` (copia senza C/D/E/H e senza righe tag Waiting/Assignee/Working/Fix/Timeout), `data-export` (export ridotto), `time-Waiting`, `stat`, `email-mittenti` (grafici Excel email/settimana per acronimo, 2026-W12 … corrente, esclusi mittenti `ignora.addr`/`other.addr`), `storico` (tabella `dbJKAN.csv`).
+Fogli: `data-all` (principale), `exportData` (copia senza C/D/E/H; W/X/Y vuote su tag Waiting/Assignee/Working/Fix/Timeout), `data-export`, `time-Waiting`, `stat`, `email-mittenti` (grafici Excel email/settimana per acronimo, 2026-W12 … corrente, esclusi mittenti `ignora.addr`/`other.addr`), `storico` (tabella `dbJKAN.csv`).
 
 ### Colonne foglio `data-all`
 

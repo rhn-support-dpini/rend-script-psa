@@ -15,8 +15,8 @@ Parametri:
 
 Output:
     File .xlsx con stesso nome e percorso del CSV di input.
-    Fogli: data-all, exportData (copia data-all senza C/D/E/H; senza righe tag
-        Waiting/Assignee/Working/Fix/Timeout), data-export,
+    Fogli: data-all, exportData (copia data-all senza C/D/E/H; col. W/X/Y vuote
+        per tag Waiting/Assignee/Working/Fix/Timeout, A–V e X–AB invariate), data-export,
         time-Waiting, stat, email-mittenti (grafici
         mail/mittente per acronimo), storico (dbJKAN.csv).
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
@@ -2302,10 +2302,9 @@ def rimuovi_tutte_celle_unite(ws):
     ws.merged_cells = MultiCellRange()
 
 
-def riga_export_data_da_eliminare(ws, row):
+def riga_tag_operativo_escluso_export(ws, row):
     """
-    True se la riga dati va rimossa da exportData (tag Waiting/Assignee/Working/Fix/Timeout).
-    Header e legenda non vengono valutati; si usa solo la colonna TAG Temporali.
+    True se il TAG Temporali (col. W) è Waiting/Assignee/Working/Fix/Timeout.
     """
     if row < DATA_FIRST_ROW:
         return False
@@ -2324,11 +2323,58 @@ def riga_export_data_da_eliminare(ws, row):
     )
 
 
-def elimina_righe_tag_esclusi_export_data(ws):
-    """Rimuove da exportData le righe espansione dei tag operativi esclusi."""
-    for row in range(ws.max_row, DATA_FIRST_ROW - 1, -1):
-        if riga_export_data_da_eliminare(ws, row):
-            ws.delete_rows(row, 1)
+def _riga_destinazione_card_export(row, start, end):
+    """Riga dello stesso gruppo card (sopra, sotto o prima riga del gruppo)."""
+    if row > start:
+        return row - 1
+    if row < end:
+        return row + 1
+    return start
+
+
+def preserva_valori_av_export_per_riga(ws, row, start, end):
+    """
+    Copia valori colonne A–V dalla riga verso una riga dello stesso acronimo
+    se la destinazione è vuota (evita perdita dati card quando si pulisce il TAG).
+    """
+    dest = _riga_destinazione_card_export(row, start, end)
+    for col_orig in range(1, COL_TIMEOUT + 1):
+        col = colonna_export_data(col_orig)
+        if not col:
+            continue
+        val = ws.cell(row=row, column=col).value
+        if val is None:
+            continue
+        dst = ws.cell(row=dest, column=col)
+        if dst.value is None:
+            dst.value = val
+
+
+def pulisci_celle_tag_esclusi_export_data(ws, gruppi):
+    """
+    Svuota solo TAG Temporali (W) e delta di riga (X–Y) sui tag esclusi;
+    A–V e Z–AB restano come nella copia da data-all.
+    """
+    col_clear = tuple(
+        c
+        for col in (COL_TAG, COL_DELTA_GIORNI_TAG, COL_ORE)
+        if (c := colonna_export_data(col)) is not None
+    )
+    gruppo_per_riga = {}
+    for start, end in gruppi:
+        for r in range(start, end + 1):
+            gruppo_per_riga[r] = (start, end)
+
+    for row in range(DATA_FIRST_ROW, ws.max_row + 1):
+        if row not in gruppo_per_riga:
+            continue
+        if not riga_tag_operativo_escluso_export(ws, row):
+            continue
+        start, end = gruppo_per_riga[row]
+        preserva_valori_av_export_per_riga(ws, row, start, end)
+        for col in col_clear:
+            cell = ws.cell(row=row, column=col)
+            cell.value = None
 
 
 def applica_merge_gruppi_export_data(ws, gruppi):
@@ -2389,7 +2435,7 @@ def applica_merge_gruppi_export_data(ws, gruppi):
             applica_bordo_gruppo(ws, start, end, 1, last_col, PASTEL_RED_BORDER)
 
 
-def crea_foglio_export_data(wb, ws_src):
+def crea_foglio_export_data(wb, ws_src, gruppi):
     """Copia data-all in exportData rimuovendo Assignee, Start/End Date e Priority."""
     if EXPORT_DATA_SHEET in wb.sheetnames:
         wb.remove(wb[EXPORT_DATA_SHEET])
@@ -2397,10 +2443,9 @@ def crea_foglio_export_data(wb, ws_src):
     ws.title = EXPORT_DATA_SHEET
     for col in EXPORT_DATA_COL_ESCLUSE:
         ws.delete_cols(col, 1)
-    elimina_righe_tag_esclusi_export_data(ws)
-    gruppi_export = gruppi_righe_per_title(ws)
+    pulisci_celle_tag_esclusi_export_data(ws, gruppi)
     rimuovi_tutte_celle_unite(ws)
-    applica_merge_gruppi_export_data(ws, gruppi_export)
+    applica_merge_gruppi_export_data(ws, gruppi)
     idx_data = wb.sheetnames.index(OUTPUT_SHEET)
     wb.move_sheet(ws, offset=idx_data + 1 - wb.index(ws))
     return ws
@@ -2419,7 +2464,7 @@ def scrivi_excel(card, output_path, df_storico=None, riepilogo_acronimi=None):
     wb = load_workbook(output_path)
     ws_data = wb[OUTPUT_SHEET]
     gruppi = formatta_foglio_dati(ws_data)
-    crea_foglio_export_data(wb, ws_data)
+    crea_foglio_export_data(wb, ws_data, gruppi)
     formatta_foglio_export(wb[DATA_EXPORT_SHEET])
     crea_foglio_time_waiting(wb, ws_data, gruppi)
     riepilogo = riepilogo_da_gruppi(ws_data, gruppi)
