@@ -15,8 +15,8 @@ Parametri:
 
 Output:
     File .xlsx con stesso nome e percorso del CSV di input.
-    Fogli: data-all, exportData (copia data-all senza C/D/E/H; col. W/X/Y vuote
-        per tag Waiting/Assignee/Working/Fix/Timeout, A–V e X–AB invariate), data-export,
+    Fogli: data-all, exportData (copia senza C/D/E/H; svuota e rimuove righe tag
+        Waiting/Assignee/Working/Fix/Timeout/Rework/Nota/NotaB), data-export,
         time-Waiting, stat, email-mittenti (grafici
         mail/mittente per acronimo), storico (dbJKAN.csv).
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
@@ -2302,16 +2302,8 @@ def rimuovi_tutte_celle_unite(ws):
     ws.merged_cells = MultiCellRange()
 
 
-def riga_tag_operativo_escluso_export(ws, row):
-    """
-    True se il TAG Temporali (col. W) è Waiting/Assignee/Working/Fix/Timeout.
-    """
-    if row < DATA_FIRST_ROW:
-        return False
-    col_tag = colonna_export_data(COL_TAG)
-    if not col_tag:
-        return False
-    tag = ws.cell(row=row, column=col_tag).value
+def is_tag_escluso_da_export_data(tag):
+    """Tag da svuotare in exportData (col. W)."""
     if not tag:
         return False
     return (
@@ -2320,7 +2312,23 @@ def riga_tag_operativo_escluso_export(ws, row):
         or is_tag_working(tag)
         or is_tag_fix(tag)
         or is_tag_timeout(tag)
+        or is_tag_rework(tag)
+        or is_tag_nota(tag)
+        or is_tag_notab(tag)
+        or is_riga_tag_nota(tag)
+        or is_riga_tag_notab(tag)
     )
+
+
+def riga_tag_operativo_escluso_export(ws, row):
+    """True se il TAG Temporali (col. W) è tra quelli esclusi da exportData."""
+    if row < DATA_FIRST_ROW:
+        return False
+    col_tag = colonna_export_data(COL_TAG)
+    if not col_tag:
+        return False
+    tag = ws.cell(row=row, column=col_tag).value
+    return is_tag_escluso_da_export_data(tag)
 
 
 def _riga_destinazione_card_export(row, start, end):
@@ -2375,6 +2383,37 @@ def pulisci_celle_tag_esclusi_export_data(ws, gruppi):
         for col in col_clear:
             cell = ws.cell(row=row, column=col)
             cell.value = None
+            cell.fill = PatternFill()
+        if row != start:
+            for col_orig in range(1, COL_CARD_END + 1):
+                col = colonna_export_data(col_orig)
+                if col:
+                    ws.cell(row=row, column=col).value = None
+
+
+def riga_export_senza_dati(ws, row):
+    """True se la riga non ha valori in nessuna colonna del foglio exportData."""
+    if row < DATA_FIRST_ROW:
+        return False
+    last = colonna_export_data(COL_LAST)
+    if not last:
+        return False
+    for col in range(1, last + 1):
+        val = ws.cell(row=row, column=col).value
+        if val is not None and str(val).strip() != "":
+            return False
+    return True
+
+
+def elimina_righe_vuote_export_data(ws, gruppi):
+    """Elimina righe dati rimaste vuote dopo la pulizia dei tag esclusi."""
+    da_cancellare = []
+    for start, end in gruppi:
+        for row in range(start, end + 1):
+            if riga_export_senza_dati(ws, row):
+                da_cancellare.append(row)
+    for row in sorted(set(da_cancellare), reverse=True):
+        ws.delete_rows(row, 1)
 
 
 def applica_merge_gruppi_export_data(ws, gruppi):
@@ -2444,8 +2483,10 @@ def crea_foglio_export_data(wb, ws_src, gruppi):
     for col in EXPORT_DATA_COL_ESCLUSE:
         ws.delete_cols(col, 1)
     pulisci_celle_tag_esclusi_export_data(ws, gruppi)
+    elimina_righe_vuote_export_data(ws, gruppi)
+    gruppi_export = gruppi_righe_per_title(ws)
     rimuovi_tutte_celle_unite(ws)
-    applica_merge_gruppi_export_data(ws, gruppi)
+    applica_merge_gruppi_export_data(ws, gruppi_export)
     idx_data = wb.sheetnames.index(OUTPUT_SHEET)
     wb.move_sheet(ws, offset=idx_data + 1 - wb.index(ws))
     return ws
