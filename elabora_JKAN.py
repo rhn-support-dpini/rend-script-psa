@@ -67,6 +67,7 @@ from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.cell.text import InlineFont
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.cell_range import MultiCellRange
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 VENV_DIR = os.path.join(SCRIPT_DIR, "venv")
@@ -189,6 +190,7 @@ REWORK_TIME_GG_COL = "Rework Time (gg)"
 OUTPUT_SHEET = "data-all"
 EXPORT_DATA_SHEET = "exportData"
 EXPORT_DATA_COL_ESCLUSE = (8, 5, 4, 3)  # H, E, D, C — ordine decrescente per delete_cols
+EXPORT_DATA_COL_ESCLUSE_SET = frozenset({3, 4, 5, 8})
 DATA_EXPORT_SHEET = "data-export"
 TIME_WAITING_SHEET = "time-Waiting"
 STATUS_ORDINE_DATA_ALL = [
@@ -2279,15 +2281,88 @@ def crea_foglio_time_waiting(wb, ws_data, gruppi):
         ws.cell(row=idx, column=3).alignment = left
 
 
-def crea_foglio_export_data(wb, ws_src):
+def colonna_export_data(col_data_all):
+    """Indice colonna su exportData dopo rimozione C, D, E, H (indici data-all)."""
+    if col_data_all in EXPORT_DATA_COL_ESCLUSE_SET:
+        return None
+    return col_data_all - sum(
+        1 for c in EXPORT_DATA_COL_ESCLUSE_SET if c < col_data_all
+    )
+
+
+def rimuovi_tutte_celle_unite(ws):
+    """Elimina tutti i merge (necessario dopo delete_cols: openpyxl non riallinea i range)."""
+    ws.merged_cells = MultiCellRange()
+
+
+def applica_merge_gruppi_export_data(ws, gruppi):
+    """
+    Ricrea i merge verticali su exportData con indici colonna corretti.
+    Senza questo passo, i merge di % Stimato ecc. restano sulle lettere vecchie
+    e coprono TAG Temporali / Delta ore sulle righe tag.
+    """
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    middle = Alignment(vertical="center", wrap_text=True)
+    center_export = {colonna_export_data(c) for c in CENTER_COLS}
+    center_export.discard(None)
+    colonne_merge_card = tuple(
+        c
+        for col in range(1, COL_CARD_END + 1)
+        if (c := colonna_export_data(col)) is not None
+    )
+    colonne_merge_vert = tuple(
+        c
+        for col in (
+            COL_GIORNI,
+            COL_TOTALE_ORE,
+            COL_PERCENT_STIMATO_LAVORATO,
+            COL_TIMEOUT,
+            COL_DELTA_ORE,
+            COL_DELTA_GIORNI,
+            COL_DESCRIPTION,
+        )
+        if (c := colonna_export_data(col)) is not None
+    )
+    last_col = colonna_export_data(COL_LAST)
+
+    for start, end in gruppi:
+        if end > start:
+            for col in colonne_merge_card:
+                ws.merge_cells(
+                    start_row=start,
+                    start_column=col,
+                    end_row=end,
+                    end_column=col,
+                )
+                merged = ws.cell(row=start, column=col)
+                if col in center_export:
+                    merged.alignment = center
+                else:
+                    merged.alignment = middle
+            for col in colonne_merge_vert:
+                ws.merge_cells(
+                    start_row=start,
+                    start_column=col,
+                    end_row=end,
+                    end_column=col,
+                )
+                ws.cell(row=start, column=col).alignment = (
+                    center if col in center_export else middle
+                )
+        if last_col is not None:
+            applica_bordo_gruppo(ws, start, end, 1, last_col, PASTEL_RED_BORDER)
+
+
+def crea_foglio_export_data(wb, ws_src, gruppi):
     """Copia data-all in exportData rimuovendo Assignee, Start/End Date e Priority."""
     if EXPORT_DATA_SHEET in wb.sheetnames:
-        std = wb[EXPORT_DATA_SHEET]
-        wb.remove(std)
+        wb.remove(wb[EXPORT_DATA_SHEET])
     ws = wb.copy_worksheet(ws_src)
     ws.title = EXPORT_DATA_SHEET
     for col in EXPORT_DATA_COL_ESCLUSE:
         ws.delete_cols(col, 1)
+    rimuovi_tutte_celle_unite(ws)
+    applica_merge_gruppi_export_data(ws, gruppi)
     idx_data = wb.sheetnames.index(OUTPUT_SHEET)
     wb.move_sheet(ws, offset=idx_data + 1 - wb.index(ws))
     return ws
@@ -2306,7 +2381,7 @@ def scrivi_excel(card, output_path, df_storico=None, riepilogo_acronimi=None):
     wb = load_workbook(output_path)
     ws_data = wb[OUTPUT_SHEET]
     gruppi = formatta_foglio_dati(ws_data)
-    crea_foglio_export_data(wb, ws_data)
+    crea_foglio_export_data(wb, ws_data, gruppi)
     formatta_foglio_export(wb[DATA_EXPORT_SHEET])
     crea_foglio_time_waiting(wb, ws_data, gruppi)
     riepilogo = riepilogo_da_gruppi(ws_data, gruppi)
