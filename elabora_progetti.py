@@ -139,6 +139,14 @@ GG_ACQUISTATI_TABELLA_EXPORT_2 = (280, 94, 77)
 
 # Colonna A del foglio Export 2: Riferimento tabella 3 (match su COL_RIF_TABELLA_3 nel tab dati).
 RIFERIMENTO_TABELLA_3_EXPORT_2 = (1, 5, 3)
+# Riga «Giornate Patching»: colonne D/E/G/I (offset da _EXPORT2_COL, come Export 1 + col. A rif. tab. 3).
+_EXPORT2_PATCHING_RIGA_IDX = 2
+_EXPORT2_PATCHING_CAMPI = (
+    (3, 'Fast Patching'),
+    (4, 'Consulenza ed implementazione'),
+    (6, 'Celli'),
+    (8, 'Gruppo Residente Red Hat'),
+)
 # Righe Tabella di Export (1ª copia) → indice riga dati Export 2 (0=CELLI, 1=CNS): copia B–H in C–I.
 _EXPORT2_COPIA_DA_EXPORT1 = ((17, 0), (18, 1))
 _EXPORT1_COL_COPIA_INIZIO = 2   # B
@@ -2468,6 +2476,9 @@ def formatta_tabella_export_2_struttura(ws_e, config, df_per_calc, col_actual, f
             rif3 = RIFERIMENTO_TABELLA_3_EXPORT_2[i]
             ws_e.cell(row=r, column=_EXPORT2_COL).value = rif3
             ws_e.cell(row=r, column=_EXPORT2_COL + 1).value = etichetta
+            if i == _EXPORT2_PATCHING_RIGA_IDX:
+                for col_off, val in _EXPORT2_PATCHING_CAMPI:
+                    ws_e.cell(row=r, column=_EXPORT2_COL + col_off).value = val
             if i < len(GG_ACQUISTATI_TABELLA_EXPORT_2):
                 gg = GG_ACQUISTATI_TABELLA_EXPORT_2[i]
                 ws_e.cell(row=r, column=_EXPORT2_COL_GG_ACQUISTATI).value = (

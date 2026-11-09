@@ -1,6 +1,6 @@
 # PROJECT_STATE — rend-script-psa
 
-Ultimo aggiornamento: 2026-11-02 (sessione Cursor su branch `Cursor`).
+Ultimo aggiornamento: 2026-11-09 (sessione Cursor su branch `Cursor`).
 
 Documento di handoff per sessioni successive: cosa c’è nel repo, come funziona, cosa è stato toccato di recente, e cosa evitare.
 
@@ -31,10 +31,16 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 
 ## Implementato / modificato (cronologia recente)
 
-### Sessione 2026-11-02 — `cust.config` (Tabella di Export)
+### Sessione 2026-11-09 — `elabora_JKAN.py` (Excel `data-all`)
 
-- **team PaaS 2025-2** (`CodiceInterno4`): colonna I **gg/u acquistati** = **280**.
-- Rimossa riga **Fideuram 2025-7** (`CodiceInterno10`); restano Fideuram 2026-8 e righe successive.
+- Nessuna **formula** nel foglio: totali hh/gg, Delta Giorni riga, Totale Lavorate ecc. sono **valori** scritti da `applica_totali_gruppo` / `applica_valori_delta_giorni_tag_righe`.
+- **Riga 2** sotto intestazioni: descrizione colonne (`legenda_colonne_data_all`); E e H = «non utilizzato»; dati da riga 3 (`DATA_FIRST_ROW`).
+- **Ordine colonne**: coppie metriche (gg) prima di (hh) per Waiting/Working/Rework/Fix; dopo % Stimato: T Totale Lavorate (gg), **U** Totale Lavorate (hh), **V** Timeout (scambio ex U/V).
+
+### Sessione 2026-11-02 — `cust.config` / Export 2
+
+- **team PaaS 2025-2** (`CodiceInterno4`): colonna I **gg/u acquistati** = **280** (commit iniziale; successive righe Export in `cust.config` aggiornate a parte).
+- **Tabella di Export 2**, riga **Giornate Patching**: colonne D/E/G/I = Fast Patching, Consulenza ed implementazione, Celli, Gruppo Residente Red Hat (`elabora_progetti.py`).
 
 ### Sessione 2026-10-20 — `goAll` / email
 

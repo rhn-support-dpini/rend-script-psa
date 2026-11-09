@@ -235,7 +235,7 @@ Esempio: `2@8@1@3` → Export 1 ref 2 e 8; Export 2 CELLI (1) e Patching (3).
 
 ## Foglio «Tabella di Export 2»
 
-Tre righe fisse (CELLI, CNS, Patching) con chiavi tab. 3 in colonna A (1, 5, 3). Gg consumati da tab. 3 e tab. 4 del sorgente; tab. 2 **non** contribuisce a questo foglio. Colonne C–I delle righe CELLI e CNS (1ª e 2ª copia tabella) copiate da Tabella di Export righe 17–18 colonne B–H; gg/u residui ricalcolati dopo la copia.
+Tre righe fisse (CELLI, CNS, Patching) con chiavi tab. 3 in colonna A (1, 5, 3). Gg consumati da tab. 3 e tab. 4 del sorgente; tab. 2 **non** contribuisce a questo foglio. Colonne C–I delle righe CELLI e CNS (1ª e 2ª copia tabella) copiate da Tabella di Export righe 17–18 colonne B–H; gg/u residui ricalcolati dopo la copia. Riga **Giornate Patching**: colonne D/E/G/I valorizzate con «Fast Patching», «Consulenza ed implementazione», «Celli», «Gruppo Residente Red Hat» (entrambe le copie tabella).
 
 ---
 
