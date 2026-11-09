@@ -269,6 +269,11 @@ COL_DELTA_GIORNI = 26  # Z — Delta Giorni (card, Acronimi Done)
 COL_DELTA_ORE = 27  # AA — Delta ore (card, Acronimi Done)
 COL_DESCRIPTION = 28  # AB — Description (ultima colonna)
 COL_LAST = 28
+# Colonne data-all (A–V e Z–AA) consolidate su # Inizio Attività in exportData
+EXPORT_DATA_COLONNE_CONSOLIDA = tuple(range(1, COL_TIMEOUT + 1)) + (
+    COL_DELTA_GIORNI,
+    COL_DELTA_ORE,
+)
 PASTEL_RED_BORDER = Side(style="medium", color="E8A0A0")
 PASTEL_GREEN_FILL = PatternFill(fill_type="solid", fgColor="D9EAD3")
 PASTEL_RED_FILL = PatternFill(fill_type="solid", fgColor="FFEBEE")
@@ -2416,6 +2421,42 @@ def elimina_righe_vuote_export_data(ws, gruppi):
         ws.delete_rows(row, 1)
 
 
+def riga_inizio_attivita_gruppo_export(ws, start, end):
+    """Riga del gruppo con tag '# Inizio Attivita'' in TAG Temporali (exportData)."""
+    col_tag = colonna_export_data(COL_TAG)
+    if col_tag:
+        for row in range(start, end + 1):
+            if is_tag_inizio_attivita(ws.cell(row=row, column=col_tag).value):
+                return row
+    return start
+
+
+def consolida_gruppo_export_su_inizio_attivita(ws, gruppi):
+    """
+    exportData: per ogni acronimo, copia A–V e Z–AA dal gruppo sulla riga
+    # Inizio Attività; rimuove le altre righe del gruppo (stesso Title).
+    """
+    righe_da_cancellare = []
+    for start, end in gruppi:
+        dest = riga_inizio_attivita_gruppo_export(ws, start, end)
+        for col_orig in EXPORT_DATA_COLONNE_CONSOLIDA:
+            col = colonna_export_data(col_orig)
+            if not col:
+                continue
+            valore = None
+            for row in range(start, end + 1):
+                v = ws.cell(row=row, column=col).value
+                if v is not None and str(v).strip() != "":
+                    valore = v
+            if valore is not None:
+                ws.cell(row=dest, column=col).value = valore
+        for row in range(start, end + 1):
+            if row != dest:
+                righe_da_cancellare.append(row)
+    for row in sorted(set(righe_da_cancellare), reverse=True):
+        ws.delete_rows(row, 1)
+
+
 def applica_merge_gruppi_export_data(ws, gruppi):
     """
     Ricrea i merge verticali su exportData con indici colonna corretti.
@@ -2484,6 +2525,8 @@ def crea_foglio_export_data(wb, ws_src, gruppi):
         ws.delete_cols(col, 1)
     pulisci_celle_tag_esclusi_export_data(ws, gruppi)
     elimina_righe_vuote_export_data(ws, gruppi)
+    gruppi_export = gruppi_righe_per_title(ws)
+    consolida_gruppo_export_su_inizio_attivita(ws, gruppi_export)
     gruppi_export = gruppi_righe_per_title(ws)
     rimuovi_tutte_celle_unite(ws)
     applica_merge_gruppi_export_data(ws, gruppi_export)
