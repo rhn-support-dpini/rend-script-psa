@@ -15,7 +15,8 @@ Parametri:
 
 Output:
     File .xlsx con stesso nome e percorso del CSV di input.
-    Fogli: data-all, data-export, time-Waiting, stat, email-mittenti (grafici
+    Fogli: data-all, exportData (copia data-all senza colonne C, D, E, H), data-export,
+        time-Waiting, stat, email-mittenti (grafici
         mail/mittente per acronimo), storico (dbJKAN.csv).
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
     <input>.html — report Scrum/Kanban (stesso percorso del .xlsx prodotto);
@@ -39,8 +40,8 @@ Output:
     X (Delta Giorni): Delta ore (Y) / 8 per riga tag (valore, non formula).
     Y (Delta ore): ore per riga tag (# Waiting/Working/Fix/Rework);
         sfondo rosso pastello se ultimo tag operativo è # Waiting e ore ≥ 56 (# Nota/# NotaB finali escluse).
-    Z (Delta ore): Ore Stimate (G) − Totale Lavorate (hh) (U), solo se Status è Acronimi Done.
-    AA (Delta Giorni): Delta ore (card) / 8, solo se Status è Acronimi Done.
+    Z (Delta Giorni): Delta ore (card) / 8, solo se Status è Acronimi Done.
+    AA (Delta ore): Ore Stimate (G) − Totale Lavorate (hh) (U), solo se Status è Acronimi Done.
     G (Giornate Stimate): valore numerico dal tag "# Estimate" in Description; sfondo grigio leggibile.
     H (Ore Stimate): Giornate Stimate (col. G) × 8; sfondo acqua marina pastello.
     Colonna W (Totale Lavorate (hh)): sfondo acqua marina pastello.
@@ -175,6 +176,9 @@ TAG_TEMPORALI_COL = "TAG Temporali"
 DELTA_ORE_COL = "Delta ore__card"
 DELTA_GIORNI_COL = "Delta Giorni__card"
 DELTA_GIORNI_TAG_HEADER = "Delta Giorni"
+DELTA_ORE_CARD_HEADER = "Ore Stimate − Lavorate"
+DELTA_CARD_LEGEND_RIGA2 = "Solo Acronimi Done"
+DELTA_GIORNI_CARD_HEADER = DELTA_ORE_CARD_HEADER.replace("Ore", "Giorni", 1)
 INIZIO_LAVORAZIONE_COL = "InizioLavorazione(gg)"
 TOTALE_WAITING_HH_COL = "Totale Waiting (hh)"
 TOTALE_WAITING_COL = "Totale Waiting (gg)"
@@ -183,6 +187,8 @@ TOTALE_WORKING_COL = "Totale Working (gg)"
 REWORK_TIME_COL = "Rework Time (hh)"
 REWORK_TIME_GG_COL = "Rework Time (gg)"
 OUTPUT_SHEET = "data-all"
+EXPORT_DATA_SHEET = "exportData"
+EXPORT_DATA_COL_ESCLUSE = (8, 5, 4, 3)  # H, E, D, C — ordine decrescente per delete_cols
 DATA_EXPORT_SHEET = "data-export"
 TIME_WAITING_SHEET = "time-Waiting"
 STATUS_ORDINE_DATA_ALL = [
@@ -256,8 +262,8 @@ COL_TIMEOUT = 22  # V — Timeout (gg)
 COL_TAG = 23  # W — TAG Temporali
 COL_DELTA_GIORNI_TAG = 24  # X — Delta Giorni (Delta ore / 8) per riga tag
 COL_ORE = 25  # Y — Delta ore (ore per riga tag)
-COL_DELTA_ORE = 26  # Z — Delta ore (card, Acronimi Done)
-COL_DELTA_GIORNI = 27  # AA — Delta Giorni (card, Acronimi Done)
+COL_DELTA_GIORNI = 26  # Z — Delta Giorni (card, Acronimi Done)
+COL_DELTA_ORE = 27  # AA — Delta ore (card, Acronimi Done)
 COL_DESCRIPTION = 28  # AB — Description (ultima colonna)
 COL_LAST = 28
 PASTEL_RED_BORDER = Side(style="medium", color="E8A0A0")
@@ -1306,8 +1312,8 @@ def colonne_output():
         TAG_TEMPORALI_COL,
         DELTA_GIORNI_RIGA_COL,
         ORE_COL,
-        DELTA_ORE_COL,
         DELTA_GIORNI_COL,
+        DELTA_ORE_COL,
         "Description",
     ]
 
@@ -2106,8 +2112,8 @@ def legenda_colonne_data_all():
         COL_TAG: "Testo del tag # della riga",
         COL_DELTA_GIORNI_TAG: "Delta gg riga",
         COL_ORE: "Delta hh riga",
-        COL_DELTA_ORE: "Ore Stimate − Totale Lavorate (solo Acronimi Done)",
-        COL_DELTA_GIORNI: "Delta ore (card) / 8 (solo Acronimi Done)",
+        COL_DELTA_GIORNI: DELTA_CARD_LEGEND_RIGA2,
+        COL_DELTA_ORE: DELTA_CARD_LEGEND_RIGA2,
         COL_DESCRIPTION: "Description MIRO (merge per card)",
     }
 
@@ -2155,8 +2161,10 @@ def formatta_foglio_dati(ws):
         DELTA_GIORNI_TAG_HEADER
     )
     ws.cell(row=DATA_HEADER_ROW, column=COL_ORE).value = ORE_COL
-    ws.cell(row=DATA_HEADER_ROW, column=COL_DELTA_ORE).value = "Delta ore"
-    ws.cell(row=DATA_HEADER_ROW, column=COL_DELTA_GIORNI).value = "Delta Giorni"
+    ws.cell(row=DATA_HEADER_ROW, column=COL_DELTA_GIORNI).value = (
+        DELTA_GIORNI_CARD_HEADER
+    )
+    ws.cell(row=DATA_HEADER_ROW, column=COL_DELTA_ORE).value = DELTA_ORE_CARD_HEADER
     aggiungi_riga_legenda_colonne(ws)
     gruppi = formatta_foglio_card(ws)
     applica_valori_delta_giorni_tag_righe(ws, ws.max_row)
@@ -2271,6 +2279,20 @@ def crea_foglio_time_waiting(wb, ws_data, gruppi):
         ws.cell(row=idx, column=3).alignment = left
 
 
+def crea_foglio_export_data(wb, ws_src):
+    """Copia data-all in exportData rimuovendo Assignee, Start/End Date e Priority."""
+    if EXPORT_DATA_SHEET in wb.sheetnames:
+        std = wb[EXPORT_DATA_SHEET]
+        wb.remove(std)
+    ws = wb.copy_worksheet(ws_src)
+    ws.title = EXPORT_DATA_SHEET
+    for col in EXPORT_DATA_COL_ESCLUSE:
+        ws.delete_cols(col, 1)
+    idx_data = wb.sheetnames.index(OUTPUT_SHEET)
+    wb.move_sheet(ws, offset=idx_data + 1 - wb.index(ws))
+    return ws
+
+
 def scrivi_excel(card, output_path, df_storico=None, riepilogo_acronimi=None):
     reset_tag_sintassi_errata()
     righe_all = ordina_righe_data_all(espandi_card_con_tag(card))
@@ -2284,6 +2306,7 @@ def scrivi_excel(card, output_path, df_storico=None, riepilogo_acronimi=None):
     wb = load_workbook(output_path)
     ws_data = wb[OUTPUT_SHEET]
     gruppi = formatta_foglio_dati(ws_data)
+    crea_foglio_export_data(wb, ws_data)
     formatta_foglio_export(wb[DATA_EXPORT_SHEET])
     crea_foglio_time_waiting(wb, ws_data, gruppi)
     riepilogo = riepilogo_da_gruppi(ws_data, gruppi)

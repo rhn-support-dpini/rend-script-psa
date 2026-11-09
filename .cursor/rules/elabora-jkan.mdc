@@ -16,7 +16,7 @@ Il nome file input deve contenere una data `yyyy-mm-dd` o `yyyy/mm/dd`.
 
 ## Output Excel
 
-Fogli: `data-all` (principale, tutte le card), `data-export` (export ridotto), `time-Waiting`, `stat`, `email-mittenti` (grafici Excel email/settimana per acronimo, 2026-W12 … corrente, esclusi mittenti `ignora.addr`/`other.addr`), `storico` (tabella `dbJKAN.csv`).
+Fogli: `data-all` (principale, tutte le card), `exportData` (copia di `data-all` senza colonne C, D, E, H), `data-export` (export ridotto), `time-Waiting`, `stat`, `email-mittenti` (grafici Excel email/settimana per acronimo, 2026-W12 … corrente, esclusi mittenti `ignora.addr`/`other.addr`), `storico` (tabella `dbJKAN.csv`).
 
 ### Colonne foglio `data-all`
 
@@ -34,7 +34,8 @@ Fogli: `data-all` (principale, tutte le card), `data-export` (export ridotto), `
 | W | TAG Temporali | testo del tag `#` della riga; giallo pastello `# Nota - <data> -`; rosso pastello `# NotaB - <data> -` |
 | X | Delta Giorni | Delta ore (Y) / 8 per riga tag (valore) |
 | Y | Delta ore | ore per riga tag; rosso pastello se ultimo tag operativo (# Nota/# NotaB finali escluse) è # Waiting e ore ≥ 56 |
-| Z–AA | Delta ore / Delta Giorni | solo Status Acronimi Done (livello card) |
+| Z | Giorni Stimate − Lavorate | delta giorni card, solo Acronimi Done |
+| AA | Ore Stimate − Lavorate | delta ore card, solo Acronimi Done |
 
 Righe `#` in Description → sotto-righe col. TAG Temporali; totali hh/gg in `applica_totali_gruppo` per card (merge A–R + AA, bordo rosso pastello).
 
