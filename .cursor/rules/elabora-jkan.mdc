@@ -38,7 +38,7 @@ Fogli: `data-all` (principale, tutte le card), `data-export` (export ridotto), `
 
 Righe `#` in Description → sotto-righe col. TAG Temporali; totali hh/gg in `applica_totali_gruppo` per card (merge A–R + AA, bordo rosso pastello).
 
-Foglio `data-all`: riga 1 intestazioni, riga 2 descrizione colonne (`legenda_colonne_data_all`, E/H = «non utilizzato»), dati da riga 3.
+Foglio `data-all`: riga 1 intestazioni, riga 2 descrizione colonne (`legenda_colonne_data_all`, colonne non usate = «Non Utilizzato»), dati da riga 3.
 
 Foglio `data-all`: righe card ordinate per Status (Acronimi Done → Fab. Test in progress → in progress → Waiting for fab. → Backlog → POC → Abandoned; altri in coda), alfabetico per prima riga Title nel gruppo.
 

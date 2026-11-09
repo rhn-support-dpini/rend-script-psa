@@ -2078,17 +2078,18 @@ def allinea_colonna_tag_temporali(ws, max_row):
 
 def legenda_colonne_data_all():
     """Testi riga 2: significato di ogni colonna del foglio data-all."""
-    non_usato = "non utilizzato"
+    non_usato = "Non Utilizzato"
+    da_lyra_glenn = "Da Lyra Glenn"
     return {
-        1: "Nome card MIRO (chiave di raggruppamento e merge)",
-        2: "Status Kanban dal CSV",
+        1: "Acronimo",
+        2: "Stato Acronimo",
         3: "Assignee dal CSV",
-        4: "Start Date dal CSV",
+        4: non_usato,
         COL_END_DATE: non_usato,
-        COL_GIORNATE_STIMATE: "Giorni da tag # Estimate in Description (non dal CSV)",
-        COL_ORE_STIMATE: "Giornate Stimate × 8",
+        COL_GIORNATE_STIMATE: da_lyra_glenn,
+        COL_ORE_STIMATE: da_lyra_glenn,
         COL_PRIORITY: non_usato,
-        COL_TAGS_ORIG: "Campo Tags dal CSV",
+        COL_TAGS_ORIG: "Campo Tags",
         COL_INIZIO_LAVORAZIONE: "Giorni lavorativi dal tag # Inizio Attivita' a oggi",
         COL_TOTALE_WAITING: "Ore Waiting / 8 (totali card)",
         COL_TOTALE_WAITING_HH: "Somma Delta ore sui tag # Waiting -",
