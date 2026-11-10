@@ -159,11 +159,11 @@ Due sezioni in sequenza verticale, stesso schema colonne. Titoli: `ACTUAL HOURS 
 
 ### Foglio `Dettaglio Ruoli`
 
-Stessa logica pivot della sezione **Estimated** del Riepilogo, con intestazione `DETTAGLIO RUOLI - ESTIMATED HOURS - <data>`.
+Stessa chiave pivot della sezione **Estimated** del Riepilogo, con intestazione `DETTAGLIO RUOLI - <data>`.
 
 | Project: Project Name | Sotto progetto | Milestone | Commento | Resource: Full Name | Riferimento Interno | *Settimana 1* | … | TOTALE RIGA | *(vuota)* | Actual Hours (Giornate) |
 |-----------------------|----------------|-----------|----------|---------------------|---------------------|---------------|---|-------------|-----------|-------------------------|
-| Come Riepilogo Estimated. | Come Riepilogo. | Come Riepilogo. | Come Riepilogo. | Come Riepilogo. | `Riferimento tabella 1` (rinominato). | Ore stimate per attività/settimana, ÷ 8. | … | Somma orizzontale settimane. | Colonna vuota di separazione. | Somma **Actual Hours** per progetto + sotto progetto + milestone + riferimento (tutto il periodo, non per settimana), ÷ 8. |
+| Come Riepilogo Estimated. | Come Riepilogo. | Come Riepilogo. | Come Riepilogo. | Come Riepilogo. | `Riferimento tabella 1` (rinominato). | Per allocazione/settimana: se **Estimated ≈ Actual** (giornate) → valore **Actual**; altrimenti **Estimated** e cella **giallo pastello**. | … | Somma delle celle settimana mostrate. | Colonna vuota di separazione. | Somma **Actual Hours** per progetto + sotto progetto + milestone + riferimento (tutto il periodo, non per settimana), ÷ 8. |
 
 **Righe 3–4 (sopra le settimane):** riga 3 = intervallo lun–dom della settimana ISO; riga 4 = nome mese (o `mese1-mese2` se a cavallo).
 

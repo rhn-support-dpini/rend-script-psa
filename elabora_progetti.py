@@ -8,7 +8,8 @@ Excel di output multi-foglio con:
   - User     : giornate lavorate e pianificate per Risorsa / progetto / sotto-progetto
   - progetti : riepilogo contratti con giorni consuntivati vs. riscattati
   - Riepilogo Settimanale : pivot actual/estimated per attività e settimana
-  - Dettaglio Ruoli       : pivot estimated con breakdown per ruolo/milestone
+  - Dettaglio Ruoli       : pivot ruolo/milestone; celle settimana: actual se stima=consuntivo,
+                            altrimenti estimated (giallo pastello se scostamento)
   - Tentative             : stati ≠ Scheduled/Commit più righe in aggregazioni miste K×L
   - Tabella di Export     : riepilogo giornate per codice interno (colonna A)
   - Tabella di Export 2   : riepilogo sintetico (righe fisse in colonna A; J/K da valorizzare)
@@ -48,6 +49,7 @@ Configurazione (cartella dello script):
 
 import argparse
 import pandas as pd
+import numpy as np
 import os
 import re
 import sys
@@ -1135,6 +1137,73 @@ def prepara_pivot_dettaglio_ruoli(pivot_role_est, df_per_calc, col_proj, col_rol
     return pivot.rename(columns={COL_RIF_TABELLA_1: HDR_RIF_TABELLA_1_DR})
 
 
+_RE_COLONNA_PERIODO_PSA = re.compile(r'CY\d{4}-W\d+', re.IGNORECASE)
+
+
+def colonne_settimana_pivot(df):
+    """Colonne pivot con periodo PSA (es. CY2026-W14)."""
+    return [c for c in df.columns if _RE_COLONNA_PERIODO_PSA.fullmatch(str(c).strip())]
+
+
+def applica_regola_est_actual_dettaglio_ruoli(pivot_est, pivot_act):
+    """Valori celle settimana Dettaglio Ruoli e maschera scostamento stima/consuntivo.
+
+    Per ogni allocazione e settimana (giornate, da pivot /8):
+    - se estimated ≈ actual → valore actual;
+    - altrimenti → valore estimated (mismatch True → giallo pastello in output).
+
+    Returns:
+        (display_df, mismatch_df) con stesse righe/colonne di pivot_est.
+    """
+    out = pivot_est.copy()
+    mismatch = pd.DataFrame(False, index=out.index, columns=out.columns)
+    week_cols = colonne_settimana_pivot(out)
+    if not week_cols or pivot_act is None or pivot_act.empty:
+        return out, mismatch
+
+    key_cols = [c for c in out.columns if c not in week_cols and c != 'TOTALE RIGA']
+    act_lookup = pivot_act.set_index(key_cols)[week_cols] if key_cols else pivot_act[week_cols]
+
+    for w in week_cols:
+        e = pd.to_numeric(out[w], errors='coerce').fillna(0.0)
+        if key_cols:
+            keys = [tuple(x) for x in out[key_cols].itertuples(index=False, name=None)]
+            a = pd.Series(
+                [float(act_lookup.at[k, w]) if k in act_lookup.index else 0.0 for k in keys],
+                index=out.index,
+            )
+        else:
+            a = pd.to_numeric(pivot_act[w], errors='coerce').fillna(0.0).reindex(out.index).fillna(0.0)
+        same = np.isclose(e.to_numpy(), a.to_numpy(), rtol=0.0, atol=1e-6)
+        out[w] = np.where(same, a, e)
+        mismatch[w] = ~same
+
+    if 'TOTALE RIGA' in out.columns:
+        out['TOTALE RIGA'] = out[week_cols].sum(axis=1)
+    return out, mismatch
+
+
+def applica_sfondo_scostamento_est_actual_dr(ws_dr, mismatch_df, data_start_row, ultima_riga_ws,
+                                             hdr_row=2, first_week_col=1, ultima_col=None):
+    """Giallo pastello sulle celle settimana con scostamento estimated vs actual."""
+    if mismatch_df is None or mismatch_df.empty:
+        return
+    if ultima_col is None:
+        ultima_col = ws_dr.max_column
+    for c in range(first_week_col, ultima_col + 1):
+        hdr = str(ws_dr.cell(row=hdr_row, column=c).value or '').strip()
+        if not _RE_COLONNA_PERIODO_PSA.fullmatch(hdr):
+            continue
+        if hdr not in mismatch_df.columns:
+            continue
+        for r in range(data_start_row, ultima_riga_ws + 1):
+            df_row = r - data_start_row
+            if df_row < 0 or df_row >= len(mismatch_df):
+                continue
+            if bool(mismatch_df.iloc[df_row][hdr]):
+                ws_dr.cell(row=r, column=c).fill = FILL_GIALLO_PASTELLO_DR
+
+
 def filtra_pivot_senza_totale_zero(df):
     """Esclude righe con TOTALE RIGA uguale a zero."""
     if df is None or df.empty or 'TOTALE RIGA' not in df.columns:
@@ -1738,6 +1807,7 @@ def formatta_tab_progetti(
 # --- FORMATTAZIONE TAB RIEPILOGO SETTIMANALE ---
 
 FILL_AZZURRO_PASTELLO_DR = PatternFill(fill_type='solid', fgColor='D6EAF8')
+FILL_GIALLO_PASTELLO_DR = PatternFill(fill_type='solid', fgColor='FFFDE7')
 GRID_SIDE_DR = Side(style='thin', color='B0BEC5')
 
 
@@ -1827,7 +1897,9 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
     Nella tabella Actual, righe con TOTALE RIGA zero sono omesse.
     Intestazioni del foglio Riepilogo con stile Tabella di Export (titolo verde, header nero).
 
-    Dettaglio Ruoli: pivot estimated per ruolo con:
+    Dettaglio Ruoli: pivot per ruolo con valori settimana da stima/consuntivo:
+    se estimated ≈ actual per allocazione/settimana si mostra l'actual;
+    altrimenti l'estimated con sfondo giallo pastello.
     - Riga 3: intervallo date di ogni settimana (lun-dom)
     - Riga 4: nome del mese (o "mese1-mese2" se la settimana è a cavallo di mese)
     - Colorazione pastello dalla settimana corrente in poi: per ogni cella si applica
@@ -1990,10 +2062,14 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
     r_next = write_pivot(ws_rs, r_next, pivot_estimated, f"ESTIMATED HOURS (GIORNATE) - {data_prod}",
                          wrap_text_cols=wrap_attivita, **rs_style)
 
-    pivot_role_display = prepara_pivot_dettaglio_ruoli(
+    pivot_role_est_prep = prepara_pivot_dettaglio_ruoli(
         pivot_role_est, df_per_calc, col_proj, col_role_name)
+    pivot_role_act_prep = prepara_pivot_dettaglio_ruoli(
+        pivot_actual, df_per_calc, col_proj, col_role_name)
+    pivot_role_display, mismatch_dr = applica_regola_est_actual_dettaglio_ruoli(
+        pivot_role_est_prep, pivot_role_act_prep)
     dr_next = write_pivot(ws_dr, 1, pivot_role_display,
-                          f"DETTAGLIO RUOLI - ESTIMATED HOURS - {data_prod}",
+                          f"DETTAGLIO RUOLI - {data_prod}",
                           border_group=True, extra_center_cols={1, 5, 6, 7},
                           wrap_text_cols=wrap_attivita)
     ultima_riga_dr = dr_next - 5
@@ -2146,6 +2222,10 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
                     subset, col_status_k, col_status_l, col_estimated)
                 cella.fill = FILLS_COMBO_KL.get((kk, ll), FILLS_VIOLA_KL)
 
+    applica_sfondo_scostamento_est_actual_dr(
+        ws_dr, mismatch_dr, data_start_row, ultima_riga_ws,
+        hdr_row=2, first_week_col=first_week_col, ultima_col=ultima_col - 1)
+
     # Colonna Actual Hours (Giornate) — ultima_col + 2 (lascia una colonna vuota)
     act_col = ultima_col + 2
     actual_grp = (
@@ -2219,6 +2299,19 @@ def formatta_riepilogo(ws_rs, ws_dr, pivot_actual, pivot_estimated, pivot_role_e
             start_row=leg_start + n_leg - 1, start_column=lc1,
             end_row=leg_start + n_leg - 1,   end_column=lc2
         )
+
+        leg_scost = leg_start + n_leg + 1
+        c_leg = ws_dr.cell(row=leg_scost, column=lc1)
+        ws_dr.merge_cells(start_row=leg_scost, start_column=lc1, end_row=leg_scost, end_column=lc2)
+        c_leg.value = "Scostamento stima / consuntivo"
+        c_leg.fill = FILL_GIALLO_PASTELLO_DR
+        c_leg.font = bold
+        c_leg.alignment = center
+        c_leg.border = Border(
+            top=green_med, bottom=green_med, left=green_med, right=green_med)
+
+    return mismatch_dr
+
 
 def formatta_foglio_tentative(ws_t, df_dati_comp, col_proj, col_role_name, col_period,
                               col_estimated, col_status_k, col_status_l,
@@ -2791,8 +2884,12 @@ def genera_html(df_dati_comp, rows_progetti, pivot_actual, pivot_estimated,
     else:
         df_exp = pd.DataFrame()
 
-    pv_ruoli = prepara_pivot_dettaglio_ruoli(
+    pv_ruoli_est = prepara_pivot_dettaglio_ruoli(
         pivot_role_est, df_per_calc, col_proj, col_role_name)
+    pv_ruoli_act = prepara_pivot_dettaglio_ruoli(
+        pivot_actual, df_per_calc, col_proj, col_role_name)
+    pv_ruoli, mismatch_ruoli = applica_regola_est_actual_dettaglio_ruoli(
+        pv_ruoli_est, pv_ruoli_act)
     pivot_actual_riep = filtra_pivot_senza_totale_zero(pivot_actual)
 
     _oggi_h = datetime.now()
@@ -3215,7 +3312,7 @@ tr.sep-progetto:hover{background:transparent !important}
             '</ul></div>'
         )
 
-    def _tbl_dettaglio_ruoli(df, highlight_week_col_idx=None):
+    def _tbl_dettaglio_ruoli(df, highlight_week_col_idx=None, mismatch_df=None):
         if df is None or df.empty:
             return '<p class="empty">Nessun dato disponibile.</p>'
         tbl_cls = 'tbl-week-highlight' if highlight_week_col_idx is not None else ''
@@ -3233,9 +3330,14 @@ tr.sep-progetto:hover{background:transparent !important}
         for i, (_, row) in enumerate(rows_iter):
             out.append('<tr>')
             for j, v in enumerate(row):
+                bg = None
+                if mismatch_df is not None and j < len(mismatch_df.columns):
+                    col_name = df.columns[j]
+                    if col_name in mismatch_df.columns and bool(mismatch_df.iloc[i][col_name]):
+                        bg = 'light_yellow'
                 out.append(_cell(v, week_highlight=(
                     highlight_week_col_idx is not None and j == highlight_week_col_idx),
-                    multiline=(j in multiline_cols)))
+                    multiline=(j in multiline_cols), bg=bg))
             out.append('</tr>')
             if i + 1 < len(rows_iter):
                 cur_p = row.iloc[0]
@@ -3281,7 +3383,7 @@ tr.sep-progetto:hover{background:transparent !important}
     sec_ruoli = f"""
 <section class="sec" id="dettaglio-ruoli">
   <div class="sec-hdr"><h2>Dettaglio Ruoli</h2></div>
-  <div class="sub-sec">{_tbl_dettaglio_ruoli(pv_ruoli, hi_week_ruoli)}</div>
+  <div class="sub-sec">{_tbl_dettaglio_ruoli(pv_ruoli, hi_week_ruoli, mismatch_ruoli)}</div>
 </section>"""
 
     exp_title = config_codice_interno_titolo(config) or 'Tabella di Export'

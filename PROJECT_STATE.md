@@ -1,6 +1,6 @@
 # PROJECT_STATE — rend-script-psa
 
-Ultimo aggiornamento: 2026-11-10 (sessione Cursor su branch `Cursor`).
+Ultimo aggiornamento: 2026-11-10 (Dettaglio Ruoli est/actual; sessione Cursor su branch `Cursor`).
 
 Documento di handoff per sessioni successive: cosa c’è nel repo, come funziona, cosa è stato toccato di recente, e cosa evitare.
 
@@ -30,6 +30,10 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 ---
 
 ## Implementato / modificato (cronologia recente)
+
+### Sessione 2026-11-10 — `elabora_progetti.py` (Dettaglio Ruoli)
+
+- Colonne settimana: se estimated ≈ actual (tolleranza 1e-6 gg) → valore **actual**; altrimenti **estimated** + sfondo **giallo pastello** (`FFFDE7`), anche in HTML; legenda «Scostamento stima / consuntivo». Colori K×L restano sulle celle in accordo; lo scostamento sovrascrive con il giallo.
 
 ### Sessione 2026-11-10 — `elabora_JKAN.py` (foglio `exportData`)
 
