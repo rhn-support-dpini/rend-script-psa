@@ -1,6 +1,6 @@
 # PROJECT_STATE — rend-script-psa
 
-Ultimo aggiornamento: 2026-11-09 (sessione Cursor su branch `Cursor`).
+Ultimo aggiornamento: 2026-11-10 (sessione Cursor su branch `Cursor`).
 
 Documento di handoff per sessioni successive: cosa c’è nel repo, come funziona, cosa è stato toccato di recente, e cosa evitare.
 
@@ -30,6 +30,10 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 ---
 
 ## Implementato / modificato (cronologia recente)
+
+### Sessione 2026-11-10 — `elabora_JKAN.py` (foglio `exportData`)
+
+- Bordo rosso pastello: la riga `# Done` (col. TAG) resta nello stesso gruppo Title della card — non si azzera più col. A sulle sotto-righe tag esclusi; `ripristina_title_gruppi_export_data` dopo pulizia; consolidamento non elimina la riga `# Done`.
 
 ### Sessione 2026-11-09 — `elabora_JKAN.py` (Excel `data-all`)
 

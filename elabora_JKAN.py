@@ -2365,8 +2365,8 @@ def preserva_valori_av_export_per_riga(ws, row, start, end):
 
 def pulisci_celle_tag_esclusi_export_data(ws, gruppi):
     """
-    Svuota solo TAG Temporali (W) e delta di riga (X–Y) sui tag esclusi;
-    A–V e Z–AB restano come nella copia da data-all.
+    Svuota TAG Temporali (W) e delta di riga (X–Y) sui tag esclusi;
+    sulle sotto-righe azzera B–R (non Title: serve al raggruppamento exportData).
     """
     col_clear = tuple(
         c
@@ -2391,6 +2391,8 @@ def pulisci_celle_tag_esclusi_export_data(ws, gruppi):
             cell.fill = PatternFill()
         if row != start:
             for col_orig in range(1, COL_CARD_END + 1):
+                if col_orig == 1:
+                    continue
                 col = colonna_export_data(col_orig)
                 if col:
                     ws.cell(row=row, column=col).value = None
@@ -2431,10 +2433,34 @@ def riga_inizio_attivita_gruppo_export(ws, start, end):
     return start
 
 
+def riga_tag_done_export(ws, row):
+    """True se la riga exportData ha '# Done' in TAG Temporali."""
+    col_tag = colonna_export_data(COL_TAG)
+    if not col_tag:
+        return False
+    return is_tag_done_temporale(ws.cell(row=row, column=col_tag).value)
+
+
+def ripristina_title_gruppi_export_data(ws, gruppi):
+    """
+    Reimposta Title (col. A) su tutte le righe di ogni gruppo data-all,
+    così gruppi_righe_per_title resta continuo dopo la pulizia tag esclusi.
+    """
+    for start, end in gruppi:
+        if start > ws.max_row:
+            continue
+        title = ws.cell(row=start, column=1).value
+        if title is None or str(title).strip() == "":
+            continue
+        for row in range(start, min(end, ws.max_row) + 1):
+            ws.cell(row=row, column=1).value = title
+
+
 def consolida_gruppo_export_su_inizio_attivita(ws, gruppi):
     """
     exportData: per ogni acronimo, copia A–V e Z–AA dal gruppo sulla riga
-    # Inizio Attività; rimuove le altre righe del gruppo (stesso Title).
+    # Inizio Attività; rimuove le altre righe del gruppo (stesso Title),
+    salvo la riga '# Done' in TAG Temporali.
     """
     righe_da_cancellare = []
     for start, end in gruppi:
@@ -2451,8 +2477,11 @@ def consolida_gruppo_export_su_inizio_attivita(ws, gruppi):
             if valore is not None:
                 ws.cell(row=dest, column=col).value = valore
         for row in range(start, end + 1):
-            if row != dest:
-                righe_da_cancellare.append(row)
+            if row == dest:
+                continue
+            if riga_tag_done_export(ws, row):
+                continue
+            righe_da_cancellare.append(row)
     for row in sorted(set(righe_da_cancellare), reverse=True):
         ws.delete_rows(row, 1)
 
@@ -2524,6 +2553,7 @@ def crea_foglio_export_data(wb, ws_src, gruppi):
     for col in EXPORT_DATA_COL_ESCLUSE:
         ws.delete_cols(col, 1)
     pulisci_celle_tag_esclusi_export_data(ws, gruppi)
+    ripristina_title_gruppi_export_data(ws, gruppi)
     elimina_righe_vuote_export_data(ws, gruppi)
     gruppi_export = gruppi_righe_per_title(ws)
     consolida_gruppo_export_su_inizio_attivita(ws, gruppi_export)
