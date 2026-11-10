@@ -38,6 +38,7 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 ### Sessione 2026-11-10 — `elabora_JKAN.py` (foglio `exportData`)
 
 - Bordo rosso pastello: la riga `# Done` (col. TAG) resta nello stesso gruppo Title della card — non si azzera più col. A sulle sotto-righe tag esclusi; `ripristina_title_gruppi_export_data` dopo pulizia; consolidamento non elimina la riga `# Done`.
+- **exportData** col. A: solo prima riga Title (`normalizza_title_colonna_a_export_data`); in TAG Temporali restano anche righe `# Production - <data>` (come `# Done`), tag operativi ancora esclusi.
 
 ### Sessione 2026-11-09 — `elabora_JKAN.py` (Excel `data-all`)
 

@@ -15,7 +15,8 @@ Parametri:
 
 Output:
     File .xlsx con stesso nome e percorso del CSV di input.
-    Fogli: data-all, exportData (copia senza C/D/E/H; svuota e rimuove righe tag
+    Fogli: data-all, exportData (copia senza C/D/E/H; col. A = solo nome acronimo;
+        tag Inizio Attività, Production, Done in TAG Temporali; svuota e rimuove righe tag
         Waiting/Assignee/Working/Fix/Timeout/Rework/Nota/NotaB), data-export,
         time-Waiting, stat, email-mittenti (grafici
         mail/mittente per acronimo), storico (dbJKAN.csv).
@@ -302,6 +303,10 @@ INIZIO_ATTIVITA_TAG_RE = re.compile(
     r"^#\s*Inizio\s+Attivit[aà]'?\s*-\s*",
     re.IGNORECASE,
 )
+PRODUCTION_TAG_RE = re.compile(
+    r"^#\s*Production\s*-\s*",
+    re.IGNORECASE,
+)
 DONE_TAG_RE = re.compile(r"^#\s*Done\b", re.IGNORECASE)
 WAITING_TAG_RE = re.compile(
     r"^#\s*Waiting\s*-\s*",
@@ -484,6 +489,12 @@ def is_tag_inizio_attivita(tag):
     if not tag:
         return False
     return bool(INIZIO_ATTIVITA_TAG_RE.match(str(tag).strip()))
+
+
+def is_tag_production(tag):
+    if not tag:
+        return False
+    return bool(PRODUCTION_TAG_RE.match(str(tag).strip()))
 
 
 def is_tag_done_temporale(tag):
@@ -1285,7 +1296,14 @@ def espandi_card_con_tag(card):
             nuova[TOTALE_LAVORATE_GG_COL] = None
             nuova[TOTALE_LAVORATE_HH_COL] = None
             nuova[DELTA_GIORNI_RIGA_COL] = None
-            if is_tag_timeout(tag) or is_tag_nota(tag) or is_tag_notab(tag):
+            if (
+                is_tag_timeout(tag)
+                or is_tag_nota(tag)
+                or is_tag_notab(tag)
+                or is_tag_production(tag)
+                or is_tag_inizio_attivita(tag)
+                or is_tag_done_temporale(tag)
+            ):
                 nuova[ORE_COL] = None
             else:
                 nuova[ORE_COL] = ore_da_tag_temporale(
@@ -2441,6 +2459,14 @@ def riga_tag_done_export(ws, row):
     return is_tag_done_temporale(ws.cell(row=row, column=col_tag).value)
 
 
+def riga_tag_production_export(ws, row):
+    """True se la riga exportData ha '# Production' in TAG Temporali."""
+    col_tag = colonna_export_data(COL_TAG)
+    if not col_tag:
+        return False
+    return is_tag_production(ws.cell(row=row, column=col_tag).value)
+
+
 def ripristina_title_gruppi_export_data(ws, gruppi):
     """
     Reimposta Title (col. A) su tutte le righe di ogni gruppo data-all,
@@ -2456,11 +2482,26 @@ def ripristina_title_gruppi_export_data(ws, gruppi):
             ws.cell(row=row, column=1).value = title
 
 
+def normalizza_title_colonna_a_export_data(ws, gruppi):
+    """Colonna A exportData: solo prima riga del Title (nome acronimo, senza commenti sotto)."""
+    for start, end in gruppi:
+        if start > ws.max_row:
+            continue
+        raw = ws.cell(row=start, column=1).value
+        if raw is None or str(raw).strip() == "":
+            continue
+        nome = _nome_acronimo_da_title(str(raw))
+        if nome == "(senza title)":
+            nome = prima_riga_colonna(raw) or nome
+        for row in range(start, min(end, ws.max_row) + 1):
+            ws.cell(row=row, column=1).value = nome
+
+
 def consolida_gruppo_export_su_inizio_attivita(ws, gruppi):
     """
     exportData: per ogni acronimo, copia A–V e Z–AA dal gruppo sulla riga
     # Inizio Attività; rimuove le altre righe del gruppo (stesso Title),
-    salvo la riga '# Done' in TAG Temporali.
+    salvo '# Done' e '# Production' in TAG Temporali.
     """
     righe_da_cancellare = []
     for start, end in gruppi:
@@ -2480,6 +2521,8 @@ def consolida_gruppo_export_su_inizio_attivita(ws, gruppi):
             if row == dest:
                 continue
             if riga_tag_done_export(ws, row):
+                continue
+            if riga_tag_production_export(ws, row):
                 continue
             righe_da_cancellare.append(row)
     for row in sorted(set(righe_da_cancellare), reverse=True):
@@ -2558,6 +2601,7 @@ def crea_foglio_export_data(wb, ws_src, gruppi):
     gruppi_export = gruppi_righe_per_title(ws)
     consolida_gruppo_export_su_inizio_attivita(ws, gruppi_export)
     gruppi_export = gruppi_righe_per_title(ws)
+    normalizza_title_colonna_a_export_data(ws, gruppi_export)
     rimuovi_tutte_celle_unite(ws)
     applica_merge_gruppi_export_data(ws, gruppi_export)
     idx_data = wb.sheetnames.index(OUTPUT_SHEET)
