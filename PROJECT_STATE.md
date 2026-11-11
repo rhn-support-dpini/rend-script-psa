@@ -1,6 +1,6 @@
 # PROJECT_STATE — rend-script-psa
 
-Ultimo aggiornamento: 2026-11-10 (Dettaglio Ruoli est/actual; sessione Cursor su branch `Cursor`).
+Ultimo aggiornamento: 2026-11-11 (exportData date Inizio/Done; alias Produzione).
 
 Documento di handoff per sessioni successive: cosa c’è nel repo, come funziona, cosa è stato toccato di recente, e cosa evitare.
 
@@ -34,6 +34,12 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 ### Sessione 2026-11-10 — `elabora_progetti.py` (Dettaglio Ruoli)
 
 - Colonne settimana: se estimated ≈ actual (tolleranza 1e-6 gg) → valore **actual**; altrimenti **estimated** + sfondo **giallo pastello** (`FFFDE7`), anche in HTML; legenda «Scostamento stima / consuntivo». Colori K×L restano sulle celle in accordo; lo scostamento sovrascrive con il giallo.
+
+### Sessione 2026-11-11 — `elabora_JKAN.py` (foglio `exportData`)
+
+- Colonne finali **Inizio Attivita'** e **Done/Rilascio** (`applica_colonne_inizio_done_export_data`): data da tag `# Inizio Attivita'` e `# Done`, merge per gruppo acronimo, formato `YYYY-MM-DD`.
+- Tag `# Produzione -` riconosciuto come `# Production -` (`PRODUCTION_TAG_RE`); riga conservata in TAG Temporali come Production.
+- **Rework / Fix**: righe tag escluse da exportData; totali (hh)/(gg) restano sulla riga consolidata `# Inizio Attività` (colonne Rework/Fix da `consolida_gruppo_export_su_inizio_attivita`).
 
 ### Sessione 2026-11-10 — `elabora_JKAN.py` (foglio `exportData`)
 

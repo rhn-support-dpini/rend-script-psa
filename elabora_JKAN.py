@@ -16,8 +16,9 @@ Parametri:
 Output:
     File .xlsx con stesso nome e percorso del CSV di input.
     Fogli: data-all, exportData (copia senza C/D/E/H; col. A = solo nome acronimo;
-        tag Inizio Attività, Production, Done in TAG Temporali; svuota e rimuove righe tag
-        Waiting/Assignee/Working/Fix/Timeout/Rework/Nota/NotaB), data-export,
+        tag Inizio Attività, Production/Produzione, Done in TAG Temporali; svuota e rimuove
+        righe tag Waiting/Assignee/Working/Fix/Timeout/Rework/Nota/NotaB — totali Rework/Fix
+        restano sulle colonne consolidate; in fondo Inizio Attivita' e Done/Rilascio), data-export,
         time-Waiting, stat, email-mittenti (grafici
         mail/mittente per acronimo), storico (dbJKAN.csv).
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
@@ -304,9 +305,11 @@ INIZIO_ATTIVITA_TAG_RE = re.compile(
     re.IGNORECASE,
 )
 PRODUCTION_TAG_RE = re.compile(
-    r"^#\s*Production\s*-\s*",
+    r"^#\s*(?:Production|Produzione)\s*-\s*",
     re.IGNORECASE,
 )
+EXPORT_DATA_COL_INIZIO_ATTIVITA = "Inizio Attivita'"
+EXPORT_DATA_COL_DONE_RILASCIO = "Done/Rilascio"
 DONE_TAG_RE = re.compile(r"^#\s*Done\b", re.IGNORECASE)
 WAITING_TAG_RE = re.compile(
     r"^#\s*Waiting\s*-\s*",
@@ -2587,6 +2590,56 @@ def applica_merge_gruppi_export_data(ws, gruppi):
             applica_bordo_gruppo(ws, start, end, 1, last_col, PASTEL_RED_BORDER)
 
 
+def applica_colonne_inizio_done_export_data(ws, gruppi):
+    """
+    exportData: colonne finali con data da # Inizio Attivita' e # Done (per gruppo acronimo).
+    """
+    col_base = colonna_export_data(COL_LAST)
+    if not col_base:
+        return
+    col_inizio = col_base + 1
+    col_done = col_base + 2
+    col_tag = colonna_export_data(COL_TAG)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    ws.cell(row=DATA_HEADER_ROW, column=col_inizio).value = EXPORT_DATA_COL_INIZIO_ATTIVITA
+    ws.cell(row=DATA_HEADER_ROW, column=col_done).value = EXPORT_DATA_COL_DONE_RILASCIO
+    ws.cell(row=DATA_LEGEND_ROW, column=col_inizio).value = (
+        "Data dal tag # Inizio Attivita' (TAG Temporali)"
+    )
+    ws.cell(row=DATA_LEGEND_ROW, column=col_done).value = (
+        "Data dal tag # Done (TAG Temporali)"
+    )
+    for col in (col_inizio, col_done):
+        ws.cell(row=DATA_HEADER_ROW, column=col).alignment = center
+        ws.cell(row=DATA_LEGEND_ROW, column=col).alignment = center
+
+    for start, end in gruppi:
+        if start > ws.max_row:
+            continue
+        tag_righe = []
+        if col_tag:
+            for row in range(start, min(end, ws.max_row) + 1):
+                tag_righe.append(ws.cell(row=row, column=col_tag).value)
+        inizio, done = _finestra_attivita_da_tag_righe(tag_righe)
+        ws.cell(row=start, column=col_inizio).value = (
+            formatta_data_corta(inizio) if inizio else None
+        )
+        ws.cell(row=start, column=col_done).value = (
+            formatta_data_corta(done) if done else None
+        )
+        if end > start:
+            for col in (col_inizio, col_done):
+                ws.merge_cells(
+                    start_row=start,
+                    start_column=col,
+                    end_row=end,
+                    end_column=col,
+                )
+                ws.cell(row=start, column=col).alignment = center
+        applica_bordo_gruppo(ws, start, end, 1, col_done, PASTEL_RED_BORDER)
+
+
 def crea_foglio_export_data(wb, ws_src, gruppi):
     """Copia data-all in exportData rimuovendo Assignee, Start/End Date e Priority."""
     if EXPORT_DATA_SHEET in wb.sheetnames:
@@ -2604,6 +2657,7 @@ def crea_foglio_export_data(wb, ws_src, gruppi):
     normalizza_title_colonna_a_export_data(ws, gruppi_export)
     rimuovi_tutte_celle_unite(ws)
     applica_merge_gruppi_export_data(ws, gruppi_export)
+    applica_colonne_inizio_done_export_data(ws, gruppi_export)
     idx_data = wb.sheetnames.index(OUTPUT_SHEET)
     wb.move_sheet(ws, offset=idx_data + 1 - wb.index(ws))
     return ws
