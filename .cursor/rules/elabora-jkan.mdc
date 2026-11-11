@@ -16,7 +16,7 @@ Il nome file input deve contenere una data `yyyy-mm-dd` o `yyyy/mm/dd`.
 
 ## Output Excel
 
-Fogli: `data-all` (principale), `exportData` (copia senza C/D/E/H; col. A solo nome acronimo; tag operativi svuotati; restano `# Inizio Attività`, `# Production`/`# Produzione` e `# Done` in TAG Temporali; totali Rework/Fix sulle colonne consolidate; colonne finali **Inizio Attivita'**, **Done/Rilascio**, **Produzione** (date da tag), **Rework** e **Fix** (conteggio tag su data-all)), `data-export`, `time-Waiting`, `stat`, `email-mittenti` (grafici Excel email/settimana per acronimo, 2026-W12 … corrente, esclusi mittenti `ignora.addr`/`other.addr`), `storico` (tabella `dbJKAN.csv`).
+Fogli: `data-all` (principale), `exportData` (senza Stimate/Tags/Inizio/Waiting/Working/Rework-Fix time né C/D/E/H; esclusi Status **Abandoned**, **new - to be verified**, **POC 10**; col. A acronimo; date finali **gg-mm-aaaa**), `data-export`, `time-Waiting`, `stat`, `email-mittenti` (grafici Excel email/settimana per acronimo, 2026-W12 … corrente, esclusi mittenti `ignora.addr`/`other.addr`), `storico` (tabella `dbJKAN.csv`).
 
 ### Colonne foglio `data-all`
 

@@ -1,6 +1,6 @@
 # PROJECT_STATE — rend-script-psa
 
-Ultimo aggiornamento: 2026-11-11 (exportData date Inizio/Done; alias Produzione).
+Ultimo aggiornamento: 2026-11-11 (exportData colonne ridotte, date gg-mm-aaaa, filtro Status).
 
 Documento di handoff per sessioni successive: cosa c’è nel repo, come funziona, cosa è stato toccato di recente, e cosa evitare.
 
@@ -37,7 +37,7 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 
 ### Sessione 2026-11-11 — `elabora_JKAN.py` (foglio `exportData`)
 
-- Colonne finali **Inizio Attivita'**, **Done/Rilascio**, **Produzione** (date da tag), **Rework** e **Fix** (conteggio tag su data-all); merge per gruppo acronimo; date `YYYY-MM-DD`.
+- Colonne finali **Inizio Attivita'**, **Done/Rilascio**, **Produzione** (date **gg-mm-aaaa**), **Rework** e **Fix** (conteggio tag); escluse colonne Stimate/Tags/Inizio/Waiting/Working/Rework-Fix time; esclusi Status Abandoned, new - to be verified, POC 10; niente footer data-all.
 - Tag `# Produzione -` riconosciuto come `# Production -` (`PRODUCTION_TAG_RE`); riga conservata in TAG Temporali come Production.
 - **Rework / Fix**: righe tag escluse da exportData; totali (hh)/(gg) restano sulla riga consolidata `# Inizio Attività` (colonne Rework/Fix da `consolida_gruppo_export_su_inizio_attivita`).
 

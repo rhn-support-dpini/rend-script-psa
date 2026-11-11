@@ -15,7 +15,8 @@ Parametri:
 
 Output:
     File .xlsx con stesso nome e percorso del CSV di input.
-    Fogli: data-all, exportData (copia senza C/D/E/H; col. A = solo nome acronimo;
+    Fogli: data-all, exportData (colonne ridotte; esclusi Status Abandoned / new - to be verified / POC 10;
+        col. A = solo nome acronimo;
         tag Inizio Attività, Production/Produzione, Done in TAG Temporali; svuota e rimuove
         righe tag Waiting/Assignee/Working/Fix/Timeout/Rework/Nota/NotaB — totali Rework/Fix
         restano sulle colonne consolidate; in fondo Inizio Attivita', Done/Rilascio, Produzione,
@@ -193,8 +194,14 @@ REWORK_TIME_COL = "Rework Time (hh)"
 REWORK_TIME_GG_COL = "Rework Time (gg)"
 OUTPUT_SHEET = "data-all"
 EXPORT_DATA_SHEET = "exportData"
-EXPORT_DATA_COL_ESCLUSE = (8, 5, 4, 3)  # H, E, D, C — ordine decrescente per delete_cols
-EXPORT_DATA_COL_ESCLUSE_SET = frozenset({3, 4, 5, 8})
+# C,D,E,H + Stimate/Tags/Inizio/Waiting/Working/Rework/Fix time (ordine decr. per delete_cols)
+EXPORT_DATA_COL_ESCLUSE_SET = frozenset(
+    {3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18}
+)
+EXPORT_DATA_COL_ESCLUSE = tuple(sorted(EXPORT_DATA_COL_ESCLUSE_SET, reverse=True))
+EXPORT_DATA_STATUS_ESCLUSI = frozenset(
+    {"Abandoned", "new - to be verified", "POC 10"}
+)
 DATA_EXPORT_SHEET = "data-export"
 TIME_WAITING_SHEET = "time-Waiting"
 STATUS_ORDINE_DATA_ALL = [
@@ -1022,6 +1029,18 @@ def formatta_data_corta(valore):
     parsed = parse_data(valore)
     if parsed is not None:
         return parsed.isoformat()
+    return normalizza_testo(valore)
+
+
+def formatta_data_gg_mm_aaaa(valore):
+    """Formatta una data come gg-mm-aaaa (es. 21-06-2026) per exportData."""
+    if valore is None or valore == "":
+        return ""
+    if isinstance(valore, date):
+        return valore.strftime("%d-%m-%Y")
+    parsed = parse_data(valore)
+    if parsed is not None:
+        return parsed.strftime("%d-%m-%Y")
     return normalizza_testo(valore)
 
 
@@ -2318,8 +2337,31 @@ def crea_foglio_time_waiting(wb, ws_data, gruppi):
         ws.cell(row=idx, column=3).alignment = left
 
 
+def status_escluso_export_data(status):
+    """True se lo Status MIRO non deve comparire nel foglio exportData."""
+    testo = normalizza_testo(status, compatta_spazi=True)
+    if not testo:
+        return False
+    if testo.lower() in {s.lower() for s in EXPORT_DATA_STATUS_ESCLUSI}:
+        return True
+    return is_status_new_to_be_verified(status)
+
+
+def elimina_gruppi_status_esclusi_export_data(ws, gruppi):
+    """Rimuove i gruppi card con Status in EXPORT_DATA_STATUS_ESCLUSI."""
+    righe = []
+    for start, end in gruppi:
+        if status_escluso_export_data(ws.cell(row=start, column=COL_STATUS).value):
+            righe.extend(range(start, end + 1))
+    if not righe:
+        return gruppi
+    for row in sorted(set(righe), reverse=True):
+        ws.delete_rows(row, 1)
+    return gruppi_righe_per_title(ws)
+
+
 def colonna_export_data(col_data_all):
-    """Indice colonna su exportData dopo rimozione C, D, E, H (indici data-all)."""
+    """Indice colonna su exportData dopo le colonne escluse (indici data-all)."""
     if col_data_all in EXPORT_DATA_COL_ESCLUSE_SET:
         return None
     return col_data_all - sum(
@@ -2487,6 +2529,38 @@ def ripristina_title_gruppi_export_data(ws, gruppi):
             continue
         for row in range(start, min(end, ws.max_row) + 1):
             ws.cell(row=row, column=1).value = title
+
+
+def allinea_gruppi_acronimo_export_data(ws):
+    """
+    Col. A sulle righe # Production / # Done senza Title e restituisce i gruppi acronimo.
+    """
+    col_tag = colonna_export_data(COL_TAG)
+    gruppi = []
+    acronimo = None
+    start = None
+    for row in range(DATA_FIRST_ROW, ws.max_row + 1):
+        val = ws.cell(row=row, column=1).value
+        titolo = normalizza_testo(val)
+        tag_val = ws.cell(row=row, column=col_tag).value if col_tag else None
+        has_tag = bool(normalizza_testo(tag_val))
+        if titolo:
+            if start is not None:
+                gruppi.append((start, row - 1))
+            acronimo = _nome_acronimo_da_title(titolo) or prima_riga_colonna(val) or titolo
+            if acronimo == "(senza title)":
+                acronimo = prima_riga_colonna(val) or acronimo
+            ws.cell(row=row, column=1).value = acronimo
+            start = row
+        elif has_tag and acronimo and start is not None:
+            ws.cell(row=row, column=1).value = acronimo
+        elif start is not None and not titolo and not has_tag:
+            gruppi.append((start, row - 1))
+            start = None
+            acronimo = None
+    if start is not None:
+        gruppi.append((start, ws.max_row))
+    return gruppi
 
 
 def normalizza_title_colonna_a_export_data(ws, gruppi):
@@ -2683,13 +2757,13 @@ def applica_colonne_inizio_done_export_data(ws, gruppi, ws_src=None, gruppi_src=
                 n_fix = _conta_tag_gruppo_data_all(ws_src, s_src, e_src, is_tag_fix)
 
         ws.cell(row=start, column=col_inizio).value = (
-            formatta_data_corta(inizio) if inizio else None
+            formatta_data_gg_mm_aaaa(inizio) if inizio else None
         )
         ws.cell(row=start, column=col_done).value = (
-            formatta_data_corta(done) if done else None
+            formatta_data_gg_mm_aaaa(done) if done else None
         )
         ws.cell(row=start, column=col_prod).value = (
-            formatta_data_corta(produzione) if produzione else None
+            formatta_data_gg_mm_aaaa(produzione) if produzione else None
         )
         if ws_src is not None and gruppi_src is not None and span:
             ws.cell(row=start, column=col_rework).value = n_rework
@@ -2714,10 +2788,16 @@ def crea_foglio_export_data(wb, ws_src, gruppi):
     """Copia data-all in exportData rimuovendo Assignee, Start/End Date e Priority."""
     if EXPORT_DATA_SHEET in wb.sheetnames:
         wb.remove(wb[EXPORT_DATA_SHEET])
+    gruppi_src_data_all = gruppi
     ws = wb.copy_worksheet(ws_src)
     ws.title = EXPORT_DATA_SHEET
+    if gruppi:
+        ultima_riga_dati = max(end for _start, end in gruppi)
+        if ws.max_row > ultima_riga_dati:
+            ws.delete_rows(ultima_riga_dati + 1, ws.max_row - ultima_riga_dati)
     for col in EXPORT_DATA_COL_ESCLUSE:
         ws.delete_cols(col, 1)
+    gruppi = elimina_gruppi_status_esclusi_export_data(ws, gruppi)
     pulisci_celle_tag_esclusi_export_data(ws, gruppi)
     ripristina_title_gruppi_export_data(ws, gruppi)
     elimina_righe_vuote_export_data(ws, gruppi)
@@ -2726,8 +2806,11 @@ def crea_foglio_export_data(wb, ws_src, gruppi):
     gruppi_export = gruppi_righe_per_title(ws)
     normalizza_title_colonna_a_export_data(ws, gruppi_export)
     rimuovi_tutte_celle_unite(ws)
+    gruppi_export = allinea_gruppi_acronimo_export_data(ws)
     applica_merge_gruppi_export_data(ws, gruppi_export)
-    applica_colonne_inizio_done_export_data(ws, gruppi_export, ws_src, gruppi)
+    applica_colonne_inizio_done_export_data(
+        ws, gruppi_export, ws_src, gruppi_src_data_all
+    )
     idx_data = wb.sheetnames.index(OUTPUT_SHEET)
     wb.move_sheet(ws, offset=idx_data + 1 - wb.index(ws))
     return ws
