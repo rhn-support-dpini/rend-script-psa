@@ -354,10 +354,13 @@ for FILEPATH in "$TARGET_DIR"/$PATTERN_JKAN; do
     if esegui_elabora_jkan "$FILENAME"; then
         RESULT_XLSX="$TARGET_DIR/${BASE_NOEXT}.xlsx"
         RESULT_HTML="$TARGET_DIR/${BASE_NOEXT}.html"
+        RESULT_DOCX="$TARGET_DIR/${BASE_NOEXT}.docx"
         echo "Output Excel: $RESULT_XLSX"
         echo "Output HTML: $RESULT_HTML"
+        echo "Output documento exportData: $RESULT_DOCX"
         copia_risultato_su_drive "$RESULT_XLSX" "$DRIVE_DIR_MIRO" "MIRO" || true
         copia_risultato_su_drive "$RESULT_HTML" "$DRIVE_DIR_MIRO" "MIRO" || true
+        copia_risultato_su_drive "$RESULT_DOCX" "$DRIVE_DIR_MIRO" "MIRO" || true
         NUOVO_NOME=$(nome_trattato_jkan "$FILENAME")
         echo "Rinomino il file in: $NUOVO_NOME"
         mv "$FILEPATH" "$TARGET_DIR/$NUOVO_NOME"

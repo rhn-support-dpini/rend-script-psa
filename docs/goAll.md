@@ -12,7 +12,7 @@ Google Drive                          rend-script-psa/venv/Data/
 │                                                        └──►  YYYY-MM-DD-Result-PSA.xlsx
 └── Miro/                                  ──copia──►  YYYY-MM-DD-Intesa-JBOSS.csv
     └── *-Intesa-JBOSS.csv                               ──elabora_JKAN.py──►  x-YYYY-MM-DD-Intesa-JBOSS.csv
-                                                         └──►  .xlsx, <input>.html, dbJKAN.csv
+                                                         └──►  .xlsx, .html, .docx, dbJKAN.csv
 ```
 
 | Fase | Script ausiliario | Elaborazione Python | Rinomina post-successo |

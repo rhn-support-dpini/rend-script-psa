@@ -15,7 +15,8 @@ Parametri:
 
 Output:
     File .xlsx con stesso nome e percorso del CSV di input.
-    Fogli: data-all, exportData (colonne ridotte; esclusi Status Abandoned / new - to be verified / POC 10;
+    <input>.docx — documento Word/Google per acronimo (dati exportData).
+    Fogli: data-all, exportData (colonne ridotte; esclusi Status Abandoned / new - to be verified / POC 10 / delayed to 2027;
         col. A = solo nome acronimo;
         tag Inizio Attività, Production/Produzione, Done in TAG Temporali; svuota e rimuove
         righe tag Waiting/Assignee/Working/Fix/Timeout/Rework/Nota/NotaB — totali Rework/Fix
@@ -62,7 +63,9 @@ import math
 import os
 import re
 import sys
+import zipfile
 from collections import Counter, defaultdict
+from xml.sax.saxutils import escape as xml_escape
 from datetime import date, datetime, timedelta
 
 import pandas as pd
@@ -194,14 +197,15 @@ REWORK_TIME_COL = "Rework Time (hh)"
 REWORK_TIME_GG_COL = "Rework Time (gg)"
 OUTPUT_SHEET = "data-all"
 EXPORT_DATA_SHEET = "exportData"
-# C,D,E,H + Stimate/Tags/Inizio/Waiting/Working/Rework/Fix time (ordine decr. per delete_cols)
-EXPORT_DATA_COL_ESCLUSE_SET = frozenset(
-    {3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18}
-)
-EXPORT_DATA_COL_ESCLUSE = tuple(sorted(EXPORT_DATA_COL_ESCLUSE_SET, reverse=True))
 EXPORT_DATA_STATUS_ESCLUSI = frozenset(
-    {"Abandoned", "new - to be verified", "POC 10"}
+    {
+        "Abandoned",
+        "new - to be verified",
+        "POC 10",
+        "delayed to 2027",
+    }
 )
+EXPORT_DATA_DOC_EXT = ".docx"
 DATA_EXPORT_SHEET = "data-export"
 TIME_WAITING_SHEET = "time-Waiting"
 STATUS_ORDINE_DATA_ALL = [
@@ -279,6 +283,12 @@ COL_DELTA_GIORNI = 26  # Z — Delta Giorni (card, Acronimi Done)
 COL_DELTA_ORE = 27  # AA — Delta ore (card, Acronimi Done)
 COL_DESCRIPTION = 28  # AB — Description (ultima colonna)
 COL_LAST = 28
+# C,D,E,H + Stimate/Tags/…/Fix time + Description (decrescente per delete_cols)
+EXPORT_DATA_COL_ESCLUSE_SET = frozenset(
+    {3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, COL_DESCRIPTION}
+)
+EXPORT_DATA_COL_ESCLUSE = tuple(sorted(EXPORT_DATA_COL_ESCLUSE_SET, reverse=True))
+EXPORT_DATA_COL_ANCHOR_FOGLIO = COL_DELTA_ORE
 # Colonne data-all (A–V e Z–AA) consolidate su # Inizio Attività in exportData
 EXPORT_DATA_COLONNE_CONSOLIDA = tuple(range(1, COL_TIMEOUT + 1)) + (
     COL_DELTA_GIORNI,
@@ -425,6 +435,12 @@ def percorso_html_da_xlsx(xlsx_path):
     """Report HTML omonimo del file Excel prodotto (.xlsx → .html)."""
     base, _ = os.path.splitext(xlsx_path)
     return base + ".html"
+
+
+def percorso_export_data_doc_da_xlsx(xlsx_path):
+    """Documento Word/Google (import) omonimo dell'Excel (.xlsx → .docx)."""
+    base, _ = os.path.splitext(xlsx_path)
+    return base + EXPORT_DATA_DOC_EXT
 
 
 def normalizza_testo(valore, compatta_spazi=False):
@@ -2469,7 +2485,7 @@ def riga_export_senza_dati(ws, row):
     """True se la riga non ha valori in nessuna colonna del foglio exportData."""
     if row < DATA_FIRST_ROW:
         return False
-    last = colonna_export_data(COL_LAST)
+    last = colonna_export_data(EXPORT_DATA_COL_ANCHOR_FOGLIO)
     if not last:
         return False
     for col in range(1, last + 1):
@@ -2634,11 +2650,10 @@ def applica_merge_gruppi_export_data(ws, gruppi):
             COL_TIMEOUT,
             COL_DELTA_ORE,
             COL_DELTA_GIORNI,
-            COL_DESCRIPTION,
         )
         if (c := colonna_export_data(col)) is not None
     )
-    last_col = colonna_export_data(COL_LAST)
+    last_col = colonna_export_data(EXPORT_DATA_COL_ANCHOR_FOGLIO)
 
     for start, end in gruppi:
         if end > start:
@@ -2709,7 +2724,7 @@ def applica_colonne_inizio_done_export_data(ws, gruppi, ws_src=None, gruppi_src=
     exportData: colonne finali (date e conteggi tag) per gruppo acronimo.
     I conteggi Rework/Fix si leggono da data-all prima della pulizia righe tag.
     """
-    col_base = colonna_export_data(COL_LAST)
+    col_base = colonna_export_data(EXPORT_DATA_COL_ANCHOR_FOGLIO)
     if not col_base:
         return
     col_inizio = col_base + 1
@@ -2784,6 +2799,126 @@ def applica_colonne_inizio_done_export_data(ws, gruppi, ws_src=None, gruppi_src=
         applica_bordo_gruppo(ws, start, end, 1, col_fix, PASTEL_RED_BORDER)
 
 
+def _gruppi_lettura_export_data(ws):
+    """Gruppi (start, end) sul foglio exportData senza modificare il worksheet."""
+    col_tag = colonna_export_data(COL_TAG)
+    gruppi = []
+    start = None
+    for row in range(DATA_FIRST_ROW, ws.max_row + 1):
+        titolo = normalizza_testo(ws.cell(row=row, column=1).value)
+        tag_val = ws.cell(row=row, column=col_tag).value if col_tag else None
+        has_tag = bool(normalizza_testo(tag_val))
+        if titolo:
+            if start is not None:
+                gruppi.append((start, row - 1))
+            start = row
+        elif has_tag and start is not None:
+            continue
+        elif start is not None and not titolo and not has_tag:
+            gruppi.append((start, row - 1))
+            start = None
+    if start is not None:
+        gruppi.append((start, ws.max_row))
+    return gruppi
+
+
+def _sezione_acronimo_documento_export(ws, start, end):
+    """Campi exportData per un acronimo (intestazioni riga 1)."""
+    acronimo = normalizza_testo(ws.cell(row=start, column=1).value) or "(senza title)"
+    col_tag = colonna_export_data(COL_TAG)
+    campi = []
+    for col in range(2, ws.max_column + 1):
+        nome = normalizza_testo(ws.cell(row=DATA_HEADER_ROW, column=col).value)
+        if not nome:
+            continue
+        if col_tag and col == col_tag:
+            righe_tag = []
+            for row in range(start, end + 1):
+                tag = ws.cell(row=row, column=col).value
+                if tag and str(tag).strip():
+                    righe_tag.append(str(tag).strip())
+            if righe_tag:
+                campi.append((nome, righe_tag))
+            continue
+        val = ws.cell(row=start, column=col).value
+        if val is None or str(val).strip() == "":
+            continue
+        if isinstance(val, float) and val == int(val):
+            val = int(val)
+        campi.append((nome, str(val).strip()))
+    return acronimo, campi
+
+
+def _docx_paragrafo(testo, bold=False, size=None):
+    testo = xml_escape(testo or "")
+    rpr = "<w:rPr>"
+    if bold:
+        rpr += "<w:b/>"
+    if size:
+        rpr += f'<w:sz w:val="{size}"/>'
+    rpr += "</w:rPr>"
+    return f'<w:p><w:r>{rpr}<w:t xml:space="preserve">{testo}</w:t></w:r></w:p>'
+
+
+def genera_documento_export_data(doc_path, ws_export, titolo_report=None):
+    """
+    Scrive un .docx (importabile in Google Docs) con una sezione per acronimo
+    e i dati del foglio exportData.
+    """
+    gruppi = _gruppi_lettura_export_data(ws_export)
+    sezioni = [_sezione_acronimo_documento_export(ws_export, s, e) for s, e in gruppi]
+    if titolo_report:
+        titolo_report = normalizza_testo(titolo_report)
+    else:
+        titolo_report = f"JKAN exportData — {datetime.now().strftime('%d-%m-%Y %H:%M')}"
+
+    body = [
+        _docx_paragrafo(titolo_report, bold=True, size="32"),
+        _docx_paragrafo(""),
+    ]
+    for acronimo, campi in sezioni:
+        body.append(_docx_paragrafo(acronimo, bold=True, size="28"))
+        for etichetta, valore in campi:
+            if isinstance(valore, list):
+                body.append(_docx_paragrafo(f"{etichetta}:", bold=True))
+                for riga in valore:
+                    body.append(_docx_paragrafo(f"  • {riga}"))
+            else:
+                body.append(_docx_paragrafo(f"{etichetta}: {valore}"))
+        body.append(_docx_paragrafo(""))
+
+    document_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f"<w:body>{''.join(body)}<w:sectPr/></w:body></w:document>"
+    )
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/word/document.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+        "</Types>"
+    )
+    rels_root = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+        'Target="word/document.xml"/>'
+        "</Relationships>"
+    )
+    rels_word = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>'
+    )
+    with zipfile.ZipFile(doc_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", content_types)
+        zf.writestr("_rels/.rels", rels_root)
+        zf.writestr("word/document.xml", document_xml)
+        zf.writestr("word/_rels/document.xml.rels", rels_word)
+
+
 def crea_foglio_export_data(wb, ws_src, gruppi):
     """Copia data-all in exportData rimuovendo Assignee, Start/End Date e Priority."""
     if EXPORT_DATA_SHEET in wb.sheetnames:
@@ -2830,6 +2965,12 @@ def scrivi_excel(card, output_path, df_storico=None, riepilogo_acronimi=None):
     ws_data = wb[OUTPUT_SHEET]
     gruppi = formatta_foglio_dati(ws_data)
     crea_foglio_export_data(wb, ws_data, gruppi)
+    doc_export_path = percorso_export_data_doc_da_xlsx(output_path)
+    genera_documento_export_data(
+        doc_export_path,
+        wb[EXPORT_DATA_SHEET],
+        titolo_report=f"JKAN exportData — {os.path.basename(output_path)}",
+    )
     formatta_foglio_export(wb[DATA_EXPORT_SHEET])
     crea_foglio_time_waiting(wb, ws_data, gruppi)
     riepilogo = riepilogo_da_gruppi(ws_data, gruppi)
@@ -2852,7 +2993,7 @@ def scrivi_excel(card, output_path, df_storico=None, riepilogo_acronimi=None):
     if riepilogo_acronimi is None:
         n_grafici_email = 0
         finestre_attivita = {}
-    return riepilogo_stima, n_grafici_email, finestre_attivita
+    return riepilogo_stima, n_grafici_email, finestre_attivita, doc_export_path
 
 
 def estrai_data_da_nome_file(path):
@@ -5149,7 +5290,7 @@ def elabora(input_csv):
     conteggi, non_mappate = conteggio_per_colonna_kanban(card)
     df_storico = aggiorna_db_jkan(data_snapshot, conteggi)
     riepilogo_acronimi = riepilogo_acronimi_scope(card)
-    riepilogo_stima, n_grafici_email, finestre_attivita = scrivi_excel(
+    riepilogo_stima, n_grafici_email, finestre_attivita, doc_export_path = scrivi_excel(
         card,
         output_path,
         df_storico=df_storico,
@@ -5182,6 +5323,7 @@ def elabora(input_csv):
         f"Excel «{EMAIL_MITTENTI_SHEET}»={n_grafici_email}, HTML={n_html_mittente}."
     )
     print(f"Output HTML: {html_path}")
+    print(f"Output documento exportData: {doc_export_path}")
     print(f"Snapshot {data_snapshot.isoformat()}: {dict(conteggi)}")
     if non_mappate:
         print(f"Card con Status non mappato: {non_mappate}")
@@ -5200,7 +5342,7 @@ Parametri:
               Default: 2026-06-06-WIP.csv nella cartella dello script.
 
 Output:
-  <input>.xlsx e <input>.html — stessa cartella del CSV di input (es. venv/Data/).
+  <input>.xlsx, <input>.html e <input>.docx (exportData per acronimo) — cartella del CSV.
   dbJKAN.csv   — storico snapshot (cartella dello script).
 """
     parser = argparse.ArgumentParser(
