@@ -2522,30 +2522,50 @@ def riga_export_senza_dati(ws, row):
     return True
 
 
+def riga_export_solo_acronimo(ws, row):
+    """True se in col. A c'è solo l'acronimo e nessun altro campo."""
+    if row <= DATA_HEADER_ROW:
+        return False
+    if not normalizza_testo(ws.cell(row=row, column=1).value):
+        return False
+    for col in range(2, ws.max_column + 1):
+        val = ws.cell(row=row, column=col).value
+        if val is not None and str(val).strip() != "":
+            return False
+    return True
+
+
 def unifica_export_data_una_riga_per_acronimo(ws, gruppi):
     """
     Porta tutti i valori del gruppo sulla prima riga e rimuove le sotto-righe
     (evita disallineamento dopo merge verticali).
     """
-    for start, end in gruppi:
+    for start, end in sorted(gruppi, key=lambda g: g[0], reverse=True):
         if end <= start:
             continue
         for col in range(1, ws.max_column + 1):
             valore = None
+            ultimo_status = None
             for row in range(start, end + 1):
                 v = ws.cell(row=row, column=col).value
                 if v is None or str(v).strip() == "":
                     continue
-                if col == 1 and valore is not None:
-                    continue
-                valore = v
+                if col == 1:
+                    if valore is None:
+                        valore = v
+                elif col == 2:
+                    ultimo_status = v
+                elif valore is None:
+                    valore = v
+            if col == 2 and ultimo_status is not None:
+                valore = ultimo_status
             ws.cell(row=start, column=col).value = valore
         for row in range(end, start, -1):
             ws.delete_rows(row, 1)
     first_row = _first_row_dati_export(ws)
     da_cancellare = []
     for row in range(first_row, ws.max_row + 1):
-        if riga_export_senza_dati(ws, row):
+        if riga_export_senza_dati(ws, row) or riga_export_solo_acronimo(ws, row):
             da_cancellare.append(row)
     for row in sorted(set(da_cancellare), reverse=True):
         ws.delete_rows(row, 1)
@@ -2761,20 +2781,53 @@ def _conta_tag_gruppo_data_all(ws_src, start, end, pred):
     return n
 
 
-def _gruppo_data_all_per_nome_export(ws_src, gruppi_src, nome_export):
-    """Trova (start, end) su data-all per lo stesso acronimo del foglio exportData."""
+def _elenco_gruppi_data_all_exportabile(ws_src, gruppi_src):
+    """Gruppi data-all nell'ordine del foglio, esclusi gli Status non export."""
+    elenco = []
+    for start, end in gruppi_src:
+        if status_escluso_export_data(
+            ws_src.cell(row=start, column=COL_STATUS).value
+        ):
+            continue
+        raw = ws_src.cell(row=start, column=1).value
+        nome = _nome_acronimo_da_title(normalizza_testo(raw) or "")
+        if nome == "(senza title)":
+            nome = prima_riga_colonna(raw) or nome
+        if nome == "(senza title)":
+            continue
+        elenco.append((nome, start, end))
+    return elenco
+
+
+def _abbina_gruppo_data_all_export(nome_export, elenco, gia_usati):
+    """Abbina il gruppo export al successivo gruppo data-all con stesso acronimo."""
     chiave = normalizza_testo(nome_export).lower()
     if not chiave:
         return None
-    for start, end in gruppi_src:
-        raw = ws_src.cell(row=start, column=1).value
-        acr = _nome_acronimo_da_title(normalizza_testo(raw) or "")
-        if acr.lower() == chiave:
-            return start, end
-        prima = prima_riga_colonna(raw)
-        if prima and prima.lower() == chiave:
+    for i, (nome, start, end) in enumerate(elenco):
+        if i in gia_usati:
+            continue
+        if nome.lower() == chiave:
+            gia_usati.add(i)
             return start, end
     return None
+
+
+def _tag_righe_gruppo_data_all(ws_src, start, end):
+    """TAG Temporali su data-all + righe #… nel Title multilinea."""
+    tag_righe = []
+    for row in range(start, end + 1):
+        tag = ws_src.cell(row=row, column=COL_TAG).value
+        if tag and str(tag).strip():
+            tag_righe.append(tag)
+    title = ws_src.cell(row=start, column=1).value
+    if title:
+        presenti = {str(t).strip() for t in tag_righe}
+        for tag in estrai_tag_temporali(str(title)):
+            t = tag.strip()
+            if t and t not in presenti:
+                tag_righe.append(tag)
+    return tag_righe
 
 
 def applica_colonne_inizio_done_export_data(ws, gruppi, ws_src=None, gruppi_src=None):
@@ -2804,7 +2857,10 @@ def applica_colonne_inizio_done_export_data(ws, gruppi, ws_src=None, gruppi_src=
         ws.cell(row=DATA_HEADER_ROW, column=col).value = titolo
         ws.cell(row=DATA_HEADER_ROW, column=col).alignment = center
 
-    colonne_valore = (col_inizio, col_done, col_prod, col_rework, col_fix)
+    elenco_src = None
+    usati_src = set()
+    if ws_src is not None and gruppi_src is not None:
+        elenco_src = _elenco_gruppi_data_all_exportabile(ws_src, gruppi_src)
 
     for start, end in gruppi:
         if start > ws.max_row:
@@ -2813,19 +2869,19 @@ def applica_colonne_inizio_done_export_data(ws, gruppi, ws_src=None, gruppi_src=
         if col_tag:
             for row in range(start, min(end, ws.max_row) + 1):
                 tag_righe.append(ws.cell(row=row, column=col_tag).value)
-        inizio, done = _finestra_attivita_da_tag_righe(tag_righe)
-        produzione = _data_produzione_da_tag_righe(tag_righe)
-
         span = None
         n_rework = 0
         n_fix = 0
-        if ws_src is not None and gruppi_src is not None:
+        if elenco_src is not None:
             nome = ws.cell(row=start, column=1).value
-            span = _gruppo_data_all_per_nome_export(ws_src, gruppi_src, nome)
+            span = _abbina_gruppo_data_all_export(nome, elenco_src, usati_src)
             if span:
                 s_src, e_src = span
+                tag_righe = _tag_righe_gruppo_data_all(ws_src, s_src, e_src)
                 n_rework = _conta_tag_gruppo_data_all(ws_src, s_src, e_src, is_tag_rework)
                 n_fix = _conta_tag_gruppo_data_all(ws_src, s_src, e_src, is_tag_fix)
+        inizio, done = _finestra_attivita_da_tag_righe(tag_righe)
+        produzione = _data_produzione_da_tag_righe(tag_righe)
 
         ws.cell(row=start, column=col_inizio).value = (
             formatta_data_gg_mm_aaaa(inizio) if inizio else None
@@ -3059,7 +3115,6 @@ def crea_foglio_export_data(wb, ws_src, gruppi):
     normalizza_title_colonna_a_export_data(ws, gruppi_export)
     rimuovi_tutte_celle_unite(ws)
     gruppi_export = allinea_gruppi_acronimo_export_data(ws)
-    gruppi_export = unifica_export_data_una_riga_per_acronimo(ws, gruppi_export)
     applica_colonne_inizio_done_export_data(
         ws, gruppi_export, ws_src, gruppi_src_data_all
     )

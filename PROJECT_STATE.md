@@ -38,6 +38,7 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 ### Sessione 2026-11-11 — `elabora_JKAN.py` (exportData allineamento)
 
 - **Disallineamento tabella**: dopo `normalizza_title_colonna_a_export_data` ogni sotto-riga aveva l’acronimo in col. A; `allinea_gruppi_acronimo_export_data` trattava ogni riga come nuovo gruppo → righe fantasma. Fix: `gruppi_export_data_per_acronimo` (righe consecutive stesso acronimo), `unifica_export_data_una_riga_per_acronimo` (consolida e cancella sotto-righe), niente più `applica_merge_gruppi_export_data` in pipeline; merge smontati con `rimuovi_tutte_celle_unite` dopo colonne date/conteggi.
+- **Regressione 2026-11-12 (file Intesa)**: la pre-unifica prima delle colonne date cancellava i TAG multi-riga; `unifica` con `delete_rows` in ordine ascendente corrompeva i gruppi. Fix: colonne date da `data-all` (`_tag_righe_gruppo_data_all`, abbinamento ordinato senza gruppi «(senza title)»), unifica solo dopo `applica_colonne_inizio_done_export_data`, eliminazione gruppi dal basso verso l’alto.
 
 ### Sessione 2026-11-11 — `elabora_JKAN.py` (exportData + documento)
 
