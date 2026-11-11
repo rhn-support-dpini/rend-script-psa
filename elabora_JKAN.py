@@ -2514,9 +2514,7 @@ def riga_export_senza_dati(ws, row):
     """True se la riga non ha valori in nessuna colonna del foglio exportData."""
     if row < DATA_FIRST_ROW:
         return False
-    last = colonna_export_data(EXPORT_DATA_COL_ANCHOR_FOGLIO)
-    if not last:
-        return False
+    last = ws.max_column
     for col in range(1, last + 1):
         val = ws.cell(row=row, column=col).value
         if val is not None and str(val).strip() != "":
@@ -2697,10 +2695,6 @@ def applica_merge_gruppi_export_data(ws, gruppi):
                 ws.cell(row=start, column=col).alignment = (
                     center if col in center_export else middle
                 )
-        if last_col is not None:
-            applica_bordo_gruppo(ws, start, end, 1, last_col, PASTEL_RED_BORDER)
-
-
 def _data_produzione_da_tag_righe(tag_righe):
     """Prima data da tag # Production / # Produzione tra i TAG Temporali."""
     for tag in tag_righe:
@@ -2812,7 +2806,21 @@ def applica_colonne_inizio_done_export_data(ws, gruppi, ws_src=None, gruppi_src=
                     end_column=col,
                 )
                 ws.cell(row=start, column=col).alignment = center
-        applica_bordo_gruppo(ws, start, end, 1, col_fix, PASTEL_RED_BORDER)
+
+
+def rimuovi_colonna_tag_export_data(ws):
+    """Elimina col. TAG Temporali dal foglio exportData."""
+    col = colonna_export_data(COL_TAG)
+    if col:
+        ws.delete_cols(col, 1)
+
+
+def ripulisci_bordi_export_data(ws):
+    """Nessun bordo su exportData (niente riquadri rossi)."""
+    vuoto = Border()
+    for row in range(1, ws.max_row + 1):
+        for col in range(1, ws.max_column + 1):
+            ws.cell(row=row, column=col).border = vuoto
 
 
 def _gruppi_lettura_export_data(ws):
@@ -3030,6 +3038,10 @@ def crea_foglio_export_data(wb, ws_src, gruppi):
         ws, gruppi_export, ws_src, gruppi_src_data_all
     )
     ws.delete_rows(DATA_LEGEND_ROW, 1)
+    rimuovi_colonna_tag_export_data(ws)
+    ripulisci_bordi_export_data(ws)
+    gruppi_finale = _gruppi_lettura_export_data(ws)
+    elimina_righe_vuote_export_data(ws, gruppi_finale)
     idx_data = wb.sheetnames.index(OUTPUT_SHEET)
     wb.move_sheet(ws, offset=idx_data + 1 - wb.index(ws))
     return ws
