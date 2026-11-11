@@ -206,6 +206,10 @@ EXPORT_DATA_STATUS_ESCLUSI = frozenset(
     }
 )
 EXPORT_DATA_DOC_EXT = ".docx"
+EXPORT_DATA_DOC_TITOLO_BASE = "Innalzamento baseline JBoss-JBoss - "
+EXPORT_DATA_FIRST_ROW = 2
+DOCX_TAB_INDENT_DXA = 567
+DOCX_TAB_VALUE_DXA = 4800
 DATA_EXPORT_SHEET = "data-export"
 TIME_WAITING_SHEET = "time-Waiting"
 STATUS_ORDINE_DATA_ALL = [
@@ -283,16 +287,41 @@ COL_DELTA_GIORNI = 26  # Z — Delta Giorni (card, Acronimi Done)
 COL_DELTA_ORE = 27  # AA — Delta ore (card, Acronimi Done)
 COL_DESCRIPTION = 28  # AB — Description (ultima colonna)
 COL_LAST = 28
-# C,D,E,H + Stimate/Tags/…/Fix time + Description (decrescente per delete_cols)
+# Colonne omesse in exportData (decrescente per delete_cols su copia data-all)
 EXPORT_DATA_COL_ESCLUSE_SET = frozenset(
-    {3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, COL_DESCRIPTION}
+    {
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        COL_PERCENT_STIMATO_LAVORATO,
+        COL_GIORNI,
+        COL_TOTALE_ORE,
+        COL_TIMEOUT,
+        COL_DELTA_GIORNI_TAG,
+        COL_ORE,
+        COL_DELTA_GIORNI,
+        COL_DELTA_ORE,
+        COL_DESCRIPTION,
+    }
 )
 EXPORT_DATA_COL_ESCLUSE = tuple(sorted(EXPORT_DATA_COL_ESCLUSE_SET, reverse=True))
-EXPORT_DATA_COL_ANCHOR_FOGLIO = COL_DELTA_ORE
-# Colonne data-all (A–V e Z–AA) consolidate su # Inizio Attività in exportData
-EXPORT_DATA_COLONNE_CONSOLIDA = tuple(range(1, COL_TIMEOUT + 1)) + (
-    COL_DELTA_GIORNI,
-    COL_DELTA_ORE,
+EXPORT_DATA_COL_ANCHOR_FOGLIO = COL_TAG
+# Colonne consolidate su # Inizio Attività (solo quelle ancora presenti nel foglio)
+EXPORT_DATA_COLONNE_CONSOLIDA = tuple(
+    col for col in range(1, COL_TAG + 1) if col not in EXPORT_DATA_COL_ESCLUSE_SET
 )
 PASTEL_RED_BORDER = Side(style="medium", color="E8A0A0")
 PASTEL_GREEN_FILL = PatternFill(fill_type="solid", fgColor="D9EAD3")
@@ -2641,18 +2670,7 @@ def applica_merge_gruppi_export_data(ws, gruppi):
         for col in range(1, COL_CARD_END + 1)
         if (c := colonna_export_data(col)) is not None
     )
-    colonne_merge_vert = tuple(
-        c
-        for col in (
-            COL_GIORNI,
-            COL_TOTALE_ORE,
-            COL_PERCENT_STIMATO_LAVORATO,
-            COL_TIMEOUT,
-            COL_DELTA_ORE,
-            COL_DELTA_GIORNI,
-        )
-        if (c := colonna_export_data(col)) is not None
-    )
+    colonne_merge_vert = ()
     last_col = colonna_export_data(EXPORT_DATA_COL_ANCHOR_FOGLIO)
 
     for start, end in gruppi:
@@ -2735,18 +2753,16 @@ def applica_colonne_inizio_done_export_data(ws, gruppi, ws_src=None, gruppi_src=
     col_tag = colonna_export_data(COL_TAG)
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-    header_legenda = (
-        (col_inizio, EXPORT_DATA_COL_INIZIO_ATTIVITA, "Data dal tag # Inizio Attivita' (TAG Temporali)"),
-        (col_done, EXPORT_DATA_COL_DONE_RILASCIO, "Data dal tag # Done (TAG Temporali)"),
-        (col_prod, EXPORT_DATA_COL_PRODUZIONE, "Data dal tag # Production / # Produzione (TAG Temporali)"),
-        (col_rework, EXPORT_DATA_COL_REWORK, "Numero tag # Rework nel gruppo card (data-all)"),
-        (col_fix, EXPORT_DATA_COL_FIX, "Numero tag # Fix nel gruppo card (data-all)"),
+    header_extra = (
+        (col_inizio, EXPORT_DATA_COL_INIZIO_ATTIVITA),
+        (col_done, EXPORT_DATA_COL_DONE_RILASCIO),
+        (col_prod, EXPORT_DATA_COL_PRODUZIONE),
+        (col_rework, EXPORT_DATA_COL_REWORK),
+        (col_fix, EXPORT_DATA_COL_FIX),
     )
-    for col, titolo, legenda in header_legenda:
+    for col, titolo in header_extra:
         ws.cell(row=DATA_HEADER_ROW, column=col).value = titolo
-        ws.cell(row=DATA_LEGEND_ROW, column=col).value = legenda
         ws.cell(row=DATA_HEADER_ROW, column=col).alignment = center
-        ws.cell(row=DATA_LEGEND_ROW, column=col).alignment = center
 
     colonne_valore = (col_inizio, col_done, col_prod, col_rework, col_fix)
 
@@ -2804,7 +2820,8 @@ def _gruppi_lettura_export_data(ws):
     col_tag = colonna_export_data(COL_TAG)
     gruppi = []
     start = None
-    for row in range(DATA_FIRST_ROW, ws.max_row + 1):
+    first_row = EXPORT_DATA_FIRST_ROW
+    for row in range(first_row, ws.max_row + 1):
         titolo = normalizza_testo(ws.cell(row=row, column=1).value)
         tag_val = ws.cell(row=row, column=col_tag).value if col_tag else None
         has_tag = bool(normalizza_testo(tag_val))
@@ -2849,15 +2866,82 @@ def _sezione_acronimo_documento_export(ws, start, end):
     return acronimo, campi
 
 
-def _docx_paragrafo(testo, bold=False, size=None):
+def _docx_paragrafo(testo, style=None):
     testo = xml_escape(testo or "")
-    rpr = "<w:rPr>"
-    if bold:
-        rpr += "<w:b/>"
-    if size:
-        rpr += f'<w:sz w:val="{size}"/>'
-    rpr += "</w:rPr>"
-    return f'<w:p><w:r>{rpr}<w:t xml:space="preserve">{testo}</w:t></w:r></w:p>'
+    ppr = f"<w:pPr><w:pStyle w:val=\"{style}\"/></w:pPr>" if style else ""
+    return f'<w:p>{ppr}<w:r><w:t xml:space="preserve">{testo}</w:t></w:r></w:p>'
+
+
+def _docx_tab_value_pos_da_etichette(sezioni):
+    """Posizione tab per allineare i valori dopo «etichetta:»."""
+    lunghezze = []
+    for _acronimo, campi in sezioni:
+        for etichetta, valore in campi:
+            lunghezze.append(len(f"{etichetta}:"))
+    if not lunghezze:
+        return DOCX_TAB_VALUE_DXA
+    max_chars = max(lunghezze)
+    return DOCX_TAB_INDENT_DXA + max_chars * 180
+
+
+def _docx_riga_campo(etichetta, valore, tab_value_pos):
+    et = xml_escape(f"{etichetta}:")
+    va = xml_escape(str(valore))
+    return (
+        f'<w:p><w:pPr><w:tabs>'
+        f'<w:tab w:val="left" w:pos="{DOCX_TAB_INDENT_DXA}"/>'
+        f'<w:tab w:val="left" w:pos="{tab_value_pos}"/>'
+        f"</w:tabs></w:pPr>"
+        f"<w:r><w:tab/></w:r>"
+        f'<w:r><w:t xml:space="preserve">{et}</w:t></w:r>'
+        f"<w:r><w:tab/></w:r>"
+        f'<w:r><w:t xml:space="preserve">{va}</w:t></w:r></w:p>'
+    )
+
+
+def _docx_riga_elenco(etichetta, righe, tab_value_pos):
+    parts = [
+        _docx_riga_campo(etichetta, righe[0], tab_value_pos) if righe else _docx_riga_campo(etichetta, "", tab_value_pos)
+    ]
+    for riga in righe[1:]:
+        testo = xml_escape(f"• {riga}")
+        parts.append(
+            f'<w:p><w:pPr><w:tabs>'
+            f'<w:tab w:val="left" w:pos="{DOCX_TAB_INDENT_DXA}"/>'
+            f'<w:tab w:val="left" w:pos="{tab_value_pos}"/>'
+            f"</w:tabs></w:pPr>"
+            f"<w:r><w:tab/></w:r>"
+            f"<w:r><w:tab/></w:r>"
+            f'<w:r><w:t xml:space="preserve">{testo}</w:t></w:r></w:p>'
+        )
+    return "".join(parts)
+
+
+def _docx_styles_xml():
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        '<w:style w:type="paragraph" w:styleId="Title" w:default="0">'
+        "<w:name w:val=\"Title\"/>"
+        '<w:basedOn w:val="Normal"/>'
+        "<w:qFormat/>"
+        '<w:rPr><w:b/><w:sz w:val="56"/></w:rPr>'
+        "</w:style>"
+        '<w:style w:type="paragraph" w:styleId="Heading1" w:default="0">'
+        "<w:name w:val=\"heading 1\"/>"
+        '<w:basedOn w:val="Normal"/>'
+        "<w:next w:val=\"Normal\"/>"
+        "<w:qFormat/>"
+        '<w:pPr><w:keepNext/><w:spacing w:before="240" w:after="120"/></w:pPr>'
+        '<w:rPr><w:b/><w:sz w:val="32"/></w:rPr>'
+        "</w:style>"
+        "</w:styles>"
+    )
+
+
+def titolo_documento_export_data():
+    data_prod = datetime.now().strftime("%d-%m-%Y %H:%M")
+    return f"{EXPORT_DATA_DOC_TITOLO_BASE}{data_prod}"
 
 
 def genera_documento_export_data(doc_path, ws_export, titolo_report=None):
@@ -2867,24 +2951,17 @@ def genera_documento_export_data(doc_path, ws_export, titolo_report=None):
     """
     gruppi = _gruppi_lettura_export_data(ws_export)
     sezioni = [_sezione_acronimo_documento_export(ws_export, s, e) for s, e in gruppi]
-    if titolo_report:
-        titolo_report = normalizza_testo(titolo_report)
-    else:
-        titolo_report = f"JKAN exportData — {datetime.now().strftime('%d-%m-%Y %H:%M')}"
+    titolo_report = normalizza_testo(titolo_report) or titolo_documento_export_data()
+    tab_value_pos = _docx_tab_value_pos_da_etichette(sezioni)
 
-    body = [
-        _docx_paragrafo(titolo_report, bold=True, size="32"),
-        _docx_paragrafo(""),
-    ]
+    body = [_docx_paragrafo(titolo_report, style="Title"), _docx_paragrafo("")]
     for acronimo, campi in sezioni:
-        body.append(_docx_paragrafo(acronimo, bold=True, size="28"))
+        body.append(_docx_paragrafo(acronimo, style="Heading1"))
         for etichetta, valore in campi:
             if isinstance(valore, list):
-                body.append(_docx_paragrafo(f"{etichetta}:", bold=True))
-                for riga in valore:
-                    body.append(_docx_paragrafo(f"  • {riga}"))
+                body.append(_docx_riga_elenco(etichetta, valore, tab_value_pos))
             else:
-                body.append(_docx_paragrafo(f"{etichetta}: {valore}"))
+                body.append(_docx_riga_campo(etichetta, valore, tab_value_pos))
         body.append(_docx_paragrafo(""))
 
     document_xml = (
@@ -2899,6 +2976,8 @@ def genera_documento_export_data(doc_path, ws_export, titolo_report=None):
         '<Default Extension="xml" ContentType="application/xml"/>'
         '<Override PartName="/word/document.xml" '
         'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+        '<Override PartName="/word/styles.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>'
         "</Types>"
     )
     rels_root = (
@@ -2910,13 +2989,17 @@ def genera_documento_export_data(doc_path, ws_export, titolo_report=None):
     )
     rels_word = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" '
+        'Target="styles.xml"/>'
+        "</Relationships>"
     )
     with zipfile.ZipFile(doc_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("[Content_Types].xml", content_types)
         zf.writestr("_rels/.rels", rels_root)
         zf.writestr("word/document.xml", document_xml)
         zf.writestr("word/_rels/document.xml.rels", rels_word)
+        zf.writestr("word/styles.xml", _docx_styles_xml())
 
 
 def crea_foglio_export_data(wb, ws_src, gruppi):
@@ -2946,6 +3029,7 @@ def crea_foglio_export_data(wb, ws_src, gruppi):
     applica_colonne_inizio_done_export_data(
         ws, gruppi_export, ws_src, gruppi_src_data_all
     )
+    ws.delete_rows(DATA_LEGEND_ROW, 1)
     idx_data = wb.sheetnames.index(OUTPUT_SHEET)
     wb.move_sheet(ws, offset=idx_data + 1 - wb.index(ws))
     return ws
@@ -2969,7 +3053,7 @@ def scrivi_excel(card, output_path, df_storico=None, riepilogo_acronimi=None):
     genera_documento_export_data(
         doc_export_path,
         wb[EXPORT_DATA_SHEET],
-        titolo_report=f"JKAN exportData — {os.path.basename(output_path)}",
+        titolo_report=titolo_documento_export_data(),
     )
     formatta_foglio_export(wb[DATA_EXPORT_SHEET])
     crea_foglio_time_waiting(wb, ws_data, gruppi)

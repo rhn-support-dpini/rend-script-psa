@@ -37,7 +37,8 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 
 ### Sessione 2026-11-11 — `elabora_JKAN.py` (exportData + documento)
 
-- Output **`.docx`** (`genera_documento_export_data`): una sezione per acronimo con i campi del foglio exportData; importabile in Google Docs; copiato su Drive da `goAll` (stesso basename di xlsx/html).
+- **exportData**: solo Title, Status, TAG + colonne date/conteggi; niente riga 2 legenda né % Stimato/Totali/Timeout/Delta/Stimate−Lavorate.
+- **`.docx`**: titolo «Innalzamento baseline JBoss-JBoss - \<data/ora produzione\>» (stile Title); acronimo Heading 1; campi indentati con tab e valori allineati; copia Drive da `goAll`.
 - Colonna **Description** rimossa da exportData; escluso Status **delayed to 2027** (con Abandoned, new - to be verified, POC 10).
 - Colonne finali date **gg-mm-aaaa** e conteggi Rework/Fix; niente footer data-all.
 - Tag `# Produzione -` riconosciuto come `# Production -` (`PRODUCTION_TAG_RE`); riga conservata in TAG Temporali come Production.

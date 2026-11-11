@@ -16,7 +16,7 @@ Il nome file input deve contenere una data `yyyy-mm-dd` o `yyyy/mm/dd`.
 
 ## Output Excel
 
-Fogli: `data-all` (principale), `exportData` (senza Description/Stimate/Tags/… né C/D/E/H; esclusi **Abandoned**, **new - to be verified**, **POC 10**, **delayed to 2027**), `data-export`. Output **`.docx`** omonimo (Google Docs): una sezione per acronimo con i dati exportData; copiato su Drive come xlsx/html. `time-Waiting`, `stat`, `email-mittenti` (grafici Excel email/settimana per acronimo, 2026-W12 … corrente, esclusi mittenti `ignora.addr`/`other.addr`), `storico` (tabella `dbJKAN.csv`).
+Fogli: `data-all` (principale), `exportData` (solo Title, Status, TAG Temporali + date/conteggi; senza riga legenda; esclusi stati filtrati), `data-export`. **`.docx`**: titolo **Title** «Innalzamento baseline JBoss-JBoss - \<data produzione\>»; acronimo **Heading 1**; campi con tab e valori allineati. `time-Waiting`, `stat`, `email-mittenti` (grafici Excel email/settimana per acronimo, 2026-W12 … corrente, esclusi mittenti `ignora.addr`/`other.addr`), `storico` (tabella `dbJKAN.csv`).
 
 ### Colonne foglio `data-all`
 
