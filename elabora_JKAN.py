@@ -18,7 +18,8 @@ Output:
     Fogli: data-all, exportData (copia senza C/D/E/H; col. A = solo nome acronimo;
         tag Inizio Attività, Production/Produzione, Done in TAG Temporali; svuota e rimuove
         righe tag Waiting/Assignee/Working/Fix/Timeout/Rework/Nota/NotaB — totali Rework/Fix
-        restano sulle colonne consolidate; in fondo Inizio Attivita' e Done/Rilascio), data-export,
+        restano sulle colonne consolidate; in fondo Inizio Attivita', Done/Rilascio, Produzione,
+        Rework e Fix), data-export,
         time-Waiting, stat, email-mittenti (grafici
         mail/mittente per acronimo), storico (dbJKAN.csv).
     dbJKAN.csv — storico snapshot colonne Kanban (cartella dello script).
@@ -310,6 +311,9 @@ PRODUCTION_TAG_RE = re.compile(
 )
 EXPORT_DATA_COL_INIZIO_ATTIVITA = "Inizio Attivita'"
 EXPORT_DATA_COL_DONE_RILASCIO = "Done/Rilascio"
+EXPORT_DATA_COL_PRODUZIONE = "Produzione"
+EXPORT_DATA_COL_REWORK = "Rework"
+EXPORT_DATA_COL_FIX = "Fix"
 DONE_TAG_RE = re.compile(r"^#\s*Done\b", re.IGNORECASE)
 WAITING_TAG_RE = re.compile(
     r"^#\s*Waiting\s*-\s*",
@@ -2590,29 +2594,72 @@ def applica_merge_gruppi_export_data(ws, gruppi):
             applica_bordo_gruppo(ws, start, end, 1, last_col, PASTEL_RED_BORDER)
 
 
-def applica_colonne_inizio_done_export_data(ws, gruppi):
+def _data_produzione_da_tag_righe(tag_righe):
+    """Prima data da tag # Production / # Produzione tra i TAG Temporali."""
+    for tag in tag_righe:
+        if is_tag_production(tag):
+            data = _data_prima_in_tag_temporale(tag)
+            if data:
+                return data
+    return None
+
+
+def _conta_tag_gruppo_data_all(ws_src, start, end, pred):
+    """Conteggio righe TAG Temporali nel gruppo su data-all."""
+    n = 0
+    for row in range(start, end + 1):
+        tag = ws_src.cell(row=row, column=COL_TAG).value
+        if tag and pred(tag):
+            n += 1
+    return n
+
+
+def _gruppo_data_all_per_nome_export(ws_src, gruppi_src, nome_export):
+    """Trova (start, end) su data-all per lo stesso acronimo del foglio exportData."""
+    chiave = normalizza_testo(nome_export).lower()
+    if not chiave:
+        return None
+    for start, end in gruppi_src:
+        raw = ws_src.cell(row=start, column=1).value
+        acr = _nome_acronimo_da_title(normalizza_testo(raw) or "")
+        if acr.lower() == chiave:
+            return start, end
+        prima = prima_riga_colonna(raw)
+        if prima and prima.lower() == chiave:
+            return start, end
+    return None
+
+
+def applica_colonne_inizio_done_export_data(ws, gruppi, ws_src=None, gruppi_src=None):
     """
-    exportData: colonne finali con data da # Inizio Attivita' e # Done (per gruppo acronimo).
+    exportData: colonne finali (date e conteggi tag) per gruppo acronimo.
+    I conteggi Rework/Fix si leggono da data-all prima della pulizia righe tag.
     """
     col_base = colonna_export_data(COL_LAST)
     if not col_base:
         return
     col_inizio = col_base + 1
     col_done = col_base + 2
+    col_prod = col_base + 3
+    col_rework = col_base + 4
+    col_fix = col_base + 5
     col_tag = colonna_export_data(COL_TAG)
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-    ws.cell(row=DATA_HEADER_ROW, column=col_inizio).value = EXPORT_DATA_COL_INIZIO_ATTIVITA
-    ws.cell(row=DATA_HEADER_ROW, column=col_done).value = EXPORT_DATA_COL_DONE_RILASCIO
-    ws.cell(row=DATA_LEGEND_ROW, column=col_inizio).value = (
-        "Data dal tag # Inizio Attivita' (TAG Temporali)"
+    header_legenda = (
+        (col_inizio, EXPORT_DATA_COL_INIZIO_ATTIVITA, "Data dal tag # Inizio Attivita' (TAG Temporali)"),
+        (col_done, EXPORT_DATA_COL_DONE_RILASCIO, "Data dal tag # Done (TAG Temporali)"),
+        (col_prod, EXPORT_DATA_COL_PRODUZIONE, "Data dal tag # Production / # Produzione (TAG Temporali)"),
+        (col_rework, EXPORT_DATA_COL_REWORK, "Numero tag # Rework nel gruppo card (data-all)"),
+        (col_fix, EXPORT_DATA_COL_FIX, "Numero tag # Fix nel gruppo card (data-all)"),
     )
-    ws.cell(row=DATA_LEGEND_ROW, column=col_done).value = (
-        "Data dal tag # Done (TAG Temporali)"
-    )
-    for col in (col_inizio, col_done):
+    for col, titolo, legenda in header_legenda:
+        ws.cell(row=DATA_HEADER_ROW, column=col).value = titolo
+        ws.cell(row=DATA_LEGEND_ROW, column=col).value = legenda
         ws.cell(row=DATA_HEADER_ROW, column=col).alignment = center
         ws.cell(row=DATA_LEGEND_ROW, column=col).alignment = center
+
+    colonne_valore = (col_inizio, col_done, col_prod, col_rework, col_fix)
 
     for start, end in gruppi:
         if start > ws.max_row:
@@ -2622,14 +2669,37 @@ def applica_colonne_inizio_done_export_data(ws, gruppi):
             for row in range(start, min(end, ws.max_row) + 1):
                 tag_righe.append(ws.cell(row=row, column=col_tag).value)
         inizio, done = _finestra_attivita_da_tag_righe(tag_righe)
+        produzione = _data_produzione_da_tag_righe(tag_righe)
+
+        span = None
+        n_rework = 0
+        n_fix = 0
+        if ws_src is not None and gruppi_src is not None:
+            nome = ws.cell(row=start, column=1).value
+            span = _gruppo_data_all_per_nome_export(ws_src, gruppi_src, nome)
+            if span:
+                s_src, e_src = span
+                n_rework = _conta_tag_gruppo_data_all(ws_src, s_src, e_src, is_tag_rework)
+                n_fix = _conta_tag_gruppo_data_all(ws_src, s_src, e_src, is_tag_fix)
+
         ws.cell(row=start, column=col_inizio).value = (
             formatta_data_corta(inizio) if inizio else None
         )
         ws.cell(row=start, column=col_done).value = (
             formatta_data_corta(done) if done else None
         )
+        ws.cell(row=start, column=col_prod).value = (
+            formatta_data_corta(produzione) if produzione else None
+        )
+        if ws_src is not None and gruppi_src is not None and span:
+            ws.cell(row=start, column=col_rework).value = n_rework
+            ws.cell(row=start, column=col_fix).value = n_fix
+        else:
+            ws.cell(row=start, column=col_rework).value = None
+            ws.cell(row=start, column=col_fix).value = None
+
         if end > start:
-            for col in (col_inizio, col_done):
+            for col in colonne_valore:
                 ws.merge_cells(
                     start_row=start,
                     start_column=col,
@@ -2637,7 +2707,7 @@ def applica_colonne_inizio_done_export_data(ws, gruppi):
                     end_column=col,
                 )
                 ws.cell(row=start, column=col).alignment = center
-        applica_bordo_gruppo(ws, start, end, 1, col_done, PASTEL_RED_BORDER)
+        applica_bordo_gruppo(ws, start, end, 1, col_fix, PASTEL_RED_BORDER)
 
 
 def crea_foglio_export_data(wb, ws_src, gruppi):
@@ -2657,7 +2727,7 @@ def crea_foglio_export_data(wb, ws_src, gruppi):
     normalizza_title_colonna_a_export_data(ws, gruppi_export)
     rimuovi_tutte_celle_unite(ws)
     applica_merge_gruppi_export_data(ws, gruppi_export)
-    applica_colonne_inizio_done_export_data(ws, gruppi_export)
+    applica_colonne_inizio_done_export_data(ws, gruppi_export, ws_src, gruppi)
     idx_data = wb.sheetnames.index(OUTPUT_SHEET)
     wb.move_sheet(ws, offset=idx_data + 1 - wb.index(ws))
     return ws

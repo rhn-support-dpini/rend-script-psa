@@ -37,7 +37,7 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 
 ### Sessione 2026-11-11 — `elabora_JKAN.py` (foglio `exportData`)
 
-- Colonne finali **Inizio Attivita'** e **Done/Rilascio** (`applica_colonne_inizio_done_export_data`): data da tag `# Inizio Attivita'` e `# Done`, merge per gruppo acronimo, formato `YYYY-MM-DD`.
+- Colonne finali **Inizio Attivita'**, **Done/Rilascio**, **Produzione** (date da tag), **Rework** e **Fix** (conteggio tag su data-all); merge per gruppo acronimo; date `YYYY-MM-DD`.
 - Tag `# Produzione -` riconosciuto come `# Production -` (`PRODUCTION_TAG_RE`); riga conservata in TAG Temporali come Production.
 - **Rework / Fix**: righe tag escluse da exportData; totali (hh)/(gg) restano sulla riga consolidata `# Inizio Attività` (colonne Rework/Fix da `consolida_gruppo_export_su_inizio_attivita`).
 
