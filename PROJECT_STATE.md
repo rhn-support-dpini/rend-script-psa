@@ -1,6 +1,6 @@
 # PROJECT_STATE — rend-script-psa
 
-Ultimo aggiornamento: 2026-11-11 (exportData .docx Google, senza Description, filtro delayed to 2027).
+Ultimo aggiornamento: 2026-11-11 (exportData una riga per acronimo, allineamento tabella).
 
 Documento di handoff per sessioni successive: cosa c’è nel repo, come funziona, cosa è stato toccato di recente, e cosa evitare.
 
@@ -34,6 +34,10 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 ### Sessione 2026-11-10 — `elabora_progetti.py` (Dettaglio Ruoli)
 
 - Colonne settimana: se estimated ≈ actual (tolleranza 1e-6 gg) → valore **actual**; altrimenti **estimated** + sfondo **giallo pastello** (`FFFDE7`), anche in HTML; legenda «Scostamento stima / consuntivo». Colori K×L restano sulle celle in accordo; lo scostamento sovrascrive con il giallo.
+
+### Sessione 2026-11-11 — `elabora_JKAN.py` (exportData allineamento)
+
+- **Disallineamento tabella**: dopo `normalizza_title_colonna_a_export_data` ogni sotto-riga aveva l’acronimo in col. A; `allinea_gruppi_acronimo_export_data` trattava ogni riga come nuovo gruppo → righe fantasma. Fix: `gruppi_export_data_per_acronimo` (righe consecutive stesso acronimo), `unifica_export_data_una_riga_per_acronimo` (consolida e cancella sotto-righe), niente più `applica_merge_gruppi_export_data` in pipeline; merge smontati con `rimuovi_tutte_celle_unite` dopo colonne date/conteggi.
 
 ### Sessione 2026-11-11 — `elabora_JKAN.py` (exportData + documento)
 

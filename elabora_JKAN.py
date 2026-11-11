@@ -2512,7 +2512,7 @@ def pulisci_celle_tag_esclusi_export_data(ws, gruppi):
 
 def riga_export_senza_dati(ws, row):
     """True se la riga non ha valori in nessuna colonna del foglio exportData."""
-    if row < DATA_FIRST_ROW:
+    if row <= DATA_HEADER_ROW:
         return False
     last = ws.max_column
     for col in range(1, last + 1):
@@ -2520,6 +2520,36 @@ def riga_export_senza_dati(ws, row):
         if val is not None and str(val).strip() != "":
             return False
     return True
+
+
+def unifica_export_data_una_riga_per_acronimo(ws, gruppi):
+    """
+    Porta tutti i valori del gruppo sulla prima riga e rimuove le sotto-righe
+    (evita disallineamento dopo merge verticali).
+    """
+    for start, end in gruppi:
+        if end <= start:
+            continue
+        for col in range(1, ws.max_column + 1):
+            valore = None
+            for row in range(start, end + 1):
+                v = ws.cell(row=row, column=col).value
+                if v is None or str(v).strip() == "":
+                    continue
+                if col == 1 and valore is not None:
+                    continue
+                valore = v
+            ws.cell(row=start, column=col).value = valore
+        for row in range(end, start, -1):
+            ws.delete_rows(row, 1)
+    first_row = _first_row_dati_export(ws)
+    da_cancellare = []
+    for row in range(first_row, ws.max_row + 1):
+        if riga_export_senza_dati(ws, row):
+            da_cancellare.append(row)
+    for row in sorted(set(da_cancellare), reverse=True):
+        ws.delete_rows(row, 1)
+    return _gruppi_lettura_export_data(ws)
 
 
 def elimina_righe_vuote_export_data(ws, gruppi):
@@ -2574,12 +2604,31 @@ def ripristina_title_gruppi_export_data(ws, gruppi):
             ws.cell(row=row, column=1).value = title
 
 
+def gruppi_export_data_per_acronimo(ws):
+    """Righe consecutive exportData con lo stesso acronimo in col. A."""
+    gruppi = []
+    first_row = _first_row_dati_export(ws)
+    if ws.max_row < first_row:
+        return gruppi
+    row = first_row
+    while row <= ws.max_row:
+        title = ws.cell(row=row, column=1).value
+        if title is None or str(title).strip() == "":
+            row += 1
+            continue
+        start = row
+        while row + 1 <= ws.max_row and ws.cell(row=row + 1, column=1).value == title:
+            row += 1
+        gruppi.append((start, row))
+        row += 1
+    return gruppi
+
+
 def allinea_gruppi_acronimo_export_data(ws):
     """
     Col. A sulle righe # Production / # Done senza Title e restituisce i gruppi acronimo.
     """
     col_tag = colonna_export_data(COL_TAG)
-    gruppi = []
     acronimo = None
     start = None
     for row in range(DATA_FIRST_ROW, ws.max_row + 1):
@@ -2588,22 +2637,19 @@ def allinea_gruppi_acronimo_export_data(ws):
         tag_val = ws.cell(row=row, column=col_tag).value if col_tag else None
         has_tag = bool(normalizza_testo(tag_val))
         if titolo:
-            if start is not None:
-                gruppi.append((start, row - 1))
-            acronimo = _nome_acronimo_da_title(titolo) or prima_riga_colonna(val) or titolo
-            if acronimo == "(senza title)":
-                acronimo = prima_riga_colonna(val) or acronimo
-            ws.cell(row=row, column=1).value = acronimo
-            start = row
+            nome = _nome_acronimo_da_title(titolo) or prima_riga_colonna(val) or titolo
+            if nome == "(senza title)":
+                nome = prima_riga_colonna(val) or nome
+            ws.cell(row=row, column=1).value = nome
+            if start is None or nome != acronimo:
+                acronimo = nome
+                start = row
         elif has_tag and acronimo and start is not None:
             ws.cell(row=row, column=1).value = acronimo
         elif start is not None and not titolo and not has_tag:
-            gruppi.append((start, row - 1))
             start = None
             acronimo = None
-    if start is not None:
-        gruppi.append((start, ws.max_row))
-    return gruppi
+    return gruppi_export_data_per_acronimo(ws)
 
 
 def normalizza_title_colonna_a_export_data(ws, gruppi):
@@ -2797,16 +2843,6 @@ def applica_colonne_inizio_done_export_data(ws, gruppi, ws_src=None, gruppi_src=
             ws.cell(row=start, column=col_rework).value = None
             ws.cell(row=start, column=col_fix).value = None
 
-        if end > start:
-            for col in colonne_valore:
-                ws.merge_cells(
-                    start_row=start,
-                    start_column=col,
-                    end_row=end,
-                    end_column=col,
-                )
-                ws.cell(row=start, column=col).alignment = center
-
 
 def rimuovi_colonna_tag_export_data(ws):
     """Elimina col. TAG Temporali dal foglio exportData."""
@@ -2823,28 +2859,18 @@ def ripulisci_bordi_export_data(ws):
             ws.cell(row=row, column=col).border = vuoto
 
 
+def _first_row_dati_export(ws):
+    """Prima riga dati su exportData (dopo legenda se ancora presente)."""
+    if ws.max_row >= DATA_LEGEND_ROW and normalizza_testo(
+        ws.cell(row=DATA_LEGEND_ROW, column=1).value
+    ) == "Acronimo":
+        return DATA_FIRST_ROW
+    return EXPORT_DATA_FIRST_ROW
+
+
 def _gruppi_lettura_export_data(ws):
     """Gruppi (start, end) sul foglio exportData senza modificare il worksheet."""
-    col_tag = colonna_export_data(COL_TAG)
-    gruppi = []
-    start = None
-    first_row = EXPORT_DATA_FIRST_ROW
-    for row in range(first_row, ws.max_row + 1):
-        titolo = normalizza_testo(ws.cell(row=row, column=1).value)
-        tag_val = ws.cell(row=row, column=col_tag).value if col_tag else None
-        has_tag = bool(normalizza_testo(tag_val))
-        if titolo:
-            if start is not None:
-                gruppi.append((start, row - 1))
-            start = row
-        elif has_tag and start is not None:
-            continue
-        elif start is not None and not titolo and not has_tag:
-            gruppi.append((start, row - 1))
-            start = None
-    if start is not None:
-        gruppi.append((start, ws.max_row))
-    return gruppi
+    return gruppi_export_data_per_acronimo(ws)
 
 
 def _sezione_acronimo_documento_export(ws, start, end):
@@ -3033,14 +3059,20 @@ def crea_foglio_export_data(wb, ws_src, gruppi):
     normalizza_title_colonna_a_export_data(ws, gruppi_export)
     rimuovi_tutte_celle_unite(ws)
     gruppi_export = allinea_gruppi_acronimo_export_data(ws)
-    applica_merge_gruppi_export_data(ws, gruppi_export)
+    gruppi_export = unifica_export_data_una_riga_per_acronimo(ws, gruppi_export)
     applica_colonne_inizio_done_export_data(
         ws, gruppi_export, ws_src, gruppi_src_data_all
+    )
+    rimuovi_tutte_celle_unite(ws)
+    gruppi_export = unifica_export_data_una_riga_per_acronimo(
+        ws, _gruppi_lettura_export_data(ws)
     )
     ws.delete_rows(DATA_LEGEND_ROW, 1)
     rimuovi_colonna_tag_export_data(ws)
     ripulisci_bordi_export_data(ws)
-    gruppi_finale = _gruppi_lettura_export_data(ws)
+    gruppi_finale = unifica_export_data_una_riga_per_acronimo(
+        ws, _gruppi_lettura_export_data(ws)
+    )
     elimina_righe_vuote_export_data(ws, gruppi_finale)
     idx_data = wb.sheetnames.index(OUTPUT_SHEET)
     wb.move_sheet(ws, offset=idx_data + 1 - wb.index(ws))
