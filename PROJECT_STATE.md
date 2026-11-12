@@ -1,6 +1,6 @@
 # PROJECT_STATE — rend-script-psa
 
-Ultimo aggiornamento: 2026-11-11 (exportData una riga per acronimo, allineamento tabella).
+Ultimo aggiornamento: 2026-11-12 (exportData colonna asterisco Timeout).
 
 Documento di handoff per sessioni successive: cosa c’è nel repo, come funziona, cosa è stato toccato di recente, e cosa evitare.
 
@@ -34,6 +34,10 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 ### Sessione 2026-11-10 — `elabora_progetti.py` (Dettaglio Ruoli)
 
 - Colonne settimana: se estimated ≈ actual (tolleranza 1e-6 gg) → valore **actual**; altrimenti **estimated** + sfondo **giallo pastello** (`FFFDE7`), anche in HTML; legenda «Scostamento stima / consuntivo». Colori K×L restano sulle celle in accordo; lo scostamento sovrascrive con il giallo.
+
+### Sessione 2026-11-12 — `elabora_JKAN.py` (exportData asterisco Timeout)
+
+- Colonna **senza titolo** dopo Fix: `*` centrato se Timeout (gg) su data-all è in fascia rossa (`>55` gg o valore errore). Nel **.docx** la riga Status termina con ` *`.
 
 ### Sessione 2026-11-11 — `elabora_JKAN.py` (exportData allineamento)
 

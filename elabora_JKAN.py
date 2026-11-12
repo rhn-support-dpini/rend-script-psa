@@ -360,6 +360,7 @@ EXPORT_DATA_COL_DONE_RILASCIO = "Done/Rilascio"
 EXPORT_DATA_COL_PRODUZIONE = "Produzione"
 EXPORT_DATA_COL_REWORK = "Rework"
 EXPORT_DATA_COL_FIX = "Fix"
+EXPORT_DATA_ASTERISCO_TIMEOUT = "*"
 DONE_TAG_RE = re.compile(r"^#\s*Done\b", re.IGNORECASE)
 WAITING_TAG_RE = re.compile(
     r"^#\s*Waiting\s*-\s*",
@@ -813,6 +814,16 @@ def applica_colore_timeout(cella, giorni):
         cella.fill = PASTEL_RED_FILL
     else:
         cella.fill = BRIGHT_RED_FILL
+
+
+def timeout_gg_richiede_asterisco_export(giorni):
+    """True se Timeout (gg) su data-all avrebbe sfondo rosso (pastello o acceso)."""
+    n = parse_numero(giorni)
+    if n is None:
+        return False
+    if n == TIMEOUT_VALORE_ERRATO:
+        return True
+    return n > 55
 
 
 def is_tag_assignee(tag):
@@ -2900,6 +2911,63 @@ def applica_colonne_inizio_done_export_data(ws, gruppi, ws_src=None, gruppi_src=
             ws.cell(row=start, column=col_fix).value = None
 
 
+def applica_colonna_asterisco_timeout_export_data(ws, gruppi, ws_src, gruppi_src):
+    """
+    exportData: colonna senza intestazione; '*' centrato se Timeout (gg) su data-all è in fascia rossa.
+    """
+    col_base = colonna_export_data(EXPORT_DATA_COL_ANCHOR_FOGLIO)
+    if not col_base:
+        return
+    col_asterisco = col_base + 6
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    ws.cell(row=DATA_HEADER_ROW, column=col_asterisco).value = None
+
+    elenco_src = None
+    usati_src = set()
+    if ws_src is not None and gruppi_src is not None:
+        elenco_src = _elenco_gruppi_data_all_exportabile(ws_src, gruppi_src)
+
+    for start, end in gruppi:
+        if start > ws.max_row:
+            continue
+        cella = ws.cell(row=start, column=col_asterisco)
+        cella.value = None
+        cella.alignment = center
+        if elenco_src is None:
+            continue
+        nome = ws.cell(row=start, column=1).value
+        span = _abbina_gruppo_data_all_export(nome, elenco_src, usati_src)
+        if not span:
+            continue
+        s_src, _e_src = span
+        giorni = ws_src.cell(row=s_src, column=COL_TIMEOUT).value
+        if timeout_gg_richiede_asterisco_export(giorni):
+            cella.value = EXPORT_DATA_ASTERISCO_TIMEOUT
+
+
+def _colonna_asterisco_timeout_export(ws):
+    """Indice colonna exportData senza titolo (asterisco Timeout)."""
+    col_fix = None
+    for col in range(1, ws.max_column + 1):
+        if normalizza_testo(ws.cell(row=DATA_HEADER_ROW, column=col).value) == EXPORT_DATA_COL_FIX:
+            col_fix = col
+            break
+    if col_fix is not None and col_fix < ws.max_column:
+        return col_fix + 1
+    for col in range(1, ws.max_column + 1):
+        if not normalizza_testo(ws.cell(row=DATA_HEADER_ROW, column=col).value):
+            return col
+    return None
+
+
+def _riga_export_ha_asterisco_timeout(ws, row):
+    col = _colonna_asterisco_timeout_export(ws)
+    if not col:
+        return False
+    val = ws.cell(row=row, column=col).value
+    return normalizza_testo(val) == EXPORT_DATA_ASTERISCO_TIMEOUT
+
+
 def rimuovi_colonna_tag_export_data(ws):
     """Elimina col. TAG Temporali dal foglio exportData."""
     col = colonna_export_data(COL_TAG)
@@ -2949,10 +3017,15 @@ def _sezione_acronimo_documento_export(ws, start, end):
             continue
         val = ws.cell(row=start, column=col).value
         if val is None or str(val).strip() == "":
-            continue
+            if nome.lower() != "status" or not _riga_export_ha_asterisco_timeout(ws, start):
+                continue
+            val = ""
         if isinstance(val, float) and val == int(val):
             val = int(val)
-        campi.append((nome, str(val).strip()))
+        testo = str(val).strip()
+        if nome.lower() == "status" and _riga_export_ha_asterisco_timeout(ws, start):
+            testo = f"{testo} *"
+        campi.append((nome, testo))
     return acronimo, campi
 
 
@@ -3116,6 +3189,9 @@ def crea_foglio_export_data(wb, ws_src, gruppi):
     rimuovi_tutte_celle_unite(ws)
     gruppi_export = allinea_gruppi_acronimo_export_data(ws)
     applica_colonne_inizio_done_export_data(
+        ws, gruppi_export, ws_src, gruppi_src_data_all
+    )
+    applica_colonna_asterisco_timeout_export_data(
         ws, gruppi_export, ws_src, gruppi_src_data_all
     )
     rimuovi_tutte_celle_unite(ws)
