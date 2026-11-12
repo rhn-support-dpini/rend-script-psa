@@ -3035,6 +3035,57 @@ def _docx_paragrafo(testo, style=None):
     return f'<w:p>{ppr}<w:r><w:t xml:space="preserve">{testo}</w:t></w:r></w:p>'
 
 
+def _docx_bookmark_name_acronimo(acronimo, nomi_gia_usati):
+    """Nome bookmark Word valido e univoco per link interni verso l'Heading1."""
+    etichetta = normalizza_testo(acronimo) or "senza_title"
+    slug = re.sub(r"[^\w]+", "_", etichetta, flags=re.UNICODE).strip("_")
+    if not slug:
+        slug = "senza_title"
+    if slug[0].isdigit():
+        slug = f"x_{slug}"
+    base = f"acr_{slug}"[:35]
+    nome = base
+    n = 2
+    while nome in nomi_gia_usati:
+        suffisso = f"_{n}"
+        nome = (base[: 40 - len(suffisso)] + suffisso) if len(base) + len(suffisso) > 40 else base + suffisso
+        n += 1
+    nomi_gia_usati.add(nome)
+    return nome
+
+
+def _docx_paragrafo_heading1_bookmark(acronimo, bookmark_id, bookmark_name):
+    testo = xml_escape(acronimo or "")
+    nome = xml_escape(bookmark_name)
+    return (
+        f'<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr>'
+        f'<w:bookmarkStart w:id="{bookmark_id}" w:name="{nome}"/>'
+        f'<w:r><w:t xml:space="preserve">{testo}</w:t></w:r>'
+        f'<w:bookmarkEnd w:id="{bookmark_id}"/>'
+        f"</w:p>"
+    )
+
+
+def _docx_indice_acronimi_collegamenti(voci):
+    """Un paragrafo: acronimi separati da «, » con hyperlink al rispettivo Heading1."""
+    if not voci:
+        return _docx_paragrafo("")
+    parti = ["<w:p>"]
+    for i, (etichetta, anchor) in enumerate(voci):
+        if i > 0:
+            parti.append('<w:r><w:t xml:space="preserve">, </w:t></w:r>')
+        lab = xml_escape(etichetta)
+        anc = xml_escape(anchor)
+        parti.append(
+            f'<w:hyperlink w:anchor="{anc}" w:history="1">'
+            f'<w:r><w:rPr><w:u w:val="single"/>'
+            f'<w:color w:val="0563C1"/></w:rPr>'
+            f'<w:t xml:space="preserve">{lab}</w:t></w:r></w:hyperlink>'
+        )
+    parti.append("</w:p>")
+    return "".join(parti)
+
+
 def _docx_tab_value_pos_da_etichette(sezioni):
     """Posizione tab per allineare i valori dopo «etichetta:»."""
     lunghezze = []
@@ -3117,9 +3168,21 @@ def genera_documento_export_data(doc_path, ws_export, titolo_report=None):
     titolo_report = normalizza_testo(titolo_report) or titolo_documento_export_data()
     tab_value_pos = _docx_tab_value_pos_da_etichette(sezioni)
 
-    body = [_docx_paragrafo(titolo_report, style="Title"), _docx_paragrafo("")]
-    for acronimo, campi in sezioni:
-        body.append(_docx_paragrafo(acronimo, style="Heading1"))
+    bookmark_nomi = set()
+    voci_indice = [
+        (acronimo, _docx_bookmark_name_acronimo(acronimo, bookmark_nomi))
+        for acronimo, _campi in sezioni
+    ]
+    body = [
+        _docx_paragrafo(titolo_report, style="Title"),
+        _docx_paragrafo(""),
+        _docx_indice_acronimi_collegamenti(voci_indice),
+        _docx_paragrafo(""),
+    ]
+    bookmark_id = 0
+    for (acronimo, campi), (_testo, bookmark_name) in zip(sezioni, voci_indice):
+        bookmark_id += 1
+        body.append(_docx_paragrafo_heading1_bookmark(acronimo, bookmark_id, bookmark_name))
         for etichetta, valore in campi:
             if isinstance(valore, list):
                 body.append(_docx_riga_elenco(etichetta, valore, tab_value_pos))

@@ -38,6 +38,7 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 ### Sessione 2026-11-12 — `elabora_JKAN.py` (exportData asterisco Timeout)
 
 - Colonna **senza titolo** dopo Fix: `*` centrato se Timeout (gg) su data-all è in fascia rossa (`>55` gg o valore errore). Nel **.docx** la riga Status termina con ` *`.
+- **.docx** indice sotto il titolo (righe vuote prima/dopo): elenco acronimi con link interni ai rispettivi Heading1 (bookmark).
 
 ### Sessione 2026-11-11 — `elabora_JKAN.py` (exportData allineamento)
 
