@@ -16,7 +16,7 @@ Il nome file input deve contenere una data `yyyy-mm-dd` o `yyyy/mm/dd`.
 
 ## Output Excel
 
-Fogli: `data-all` (principale), `exportData` (Title, Status + date/conteggi + col. `*` Timeout; senza TAG Temporali né bordi rossi), `data-export`. **`.docx`**: titolo **Title** «Innalzamento baseline JBoss-JBoss - \<data produzione\>»; acronimo **Heading 1**; campi exportData con tab e valori allineati (**senza** Rework/Fix né asterisco su Status). `time-Waiting`, `stat`, `email-mittenti` (grafici Excel email/settimana per acronimo, 2026-W12 … corrente, esclusi mittenti `ignora.addr`/`other.addr`), `storico` (tabella `dbJKAN.csv`).
+Fogli: `data-all` (principale), `exportData` (Title, Status + date/conteggi + col. `*` Timeout; senza TAG Temporali né bordi rossi), `data-export`. **`.docx`**: titolo **Title** «Innalzamento baseline JBoss-JBoss - \<data produzione\>»; acronimo **Heading 1**; campo **Note:** (resto colonna Title data-all senza acronimo/riga vuota sotto); altri campi exportData con tab e valori allineati (**senza** Rework/Fix né asterisco su Status). `time-Waiting`, `stat`, `email-mittenti` (grafici Excel email/settimana per acronimo, 2026-W12 … corrente, esclusi mittenti `ignora.addr`/`other.addr`), `storico` (tabella `dbJKAN.csv`).
 
 ### Colonne foglio `data-all`
 

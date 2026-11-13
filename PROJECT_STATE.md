@@ -1,6 +1,6 @@
 # PROJECT_STATE — rend-script-psa
 
-Ultimo aggiornamento: 2026-11-12 (docx senza Rework/Fix e senza asterisco Status).
+Ultimo aggiornamento: 2026-11-13 (docx campo Note da Title data-all).
 
 Documento di handoff per sessioni successive: cosa c’è nel repo, come funziona, cosa è stato toccato di recente, e cosa evitare.
 
@@ -40,6 +40,10 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 - Colonna **senza titolo** dopo Fix: `*` centrato se Timeout (gg) su data-all è in fascia rossa (`>55` gg o valore errore). Solo su **exportData** Excel (non replicato nel **.docx**).
 - **.docx** indice sotto il titolo (righe vuote prima/dopo): elenco acronimi con link interni ai rispettivi Heading1 (bookmark).
 - **.docx** `_sezione_acronimo_documento_export`: niente campi Rework/Fix; Status senza suffisso ` *` per timeout oltre soglia.
+
+### Sessione 2026-11-13 — `elabora_JKAN.py` (docx Note)
+
+- **.docx** riga **Note:** per acronimo (prima degli altri campi): testo dalla colonna **Title** di `data-all` senza prima riga (nome acronimo) e senza eventuale seconda riga vuota; omessa se non resta testo.
 
 ### Sessione 2026-11-11 — `elabora_JKAN.py` (exportData allineamento)
 

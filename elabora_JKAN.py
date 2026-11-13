@@ -994,6 +994,19 @@ def prima_riga_colonna(valore):
     return prima or None
 
 
+def _note_da_title_excel(valore):
+    """Title senza prima riga (acronimo) e senza seconda riga vuota, se presente."""
+    if valore is None:
+        return ""
+    linee = str(valore).splitlines()
+    if len(linee) <= 1:
+        return ""
+    rest = linee[1:]
+    if rest and not rest[0].strip():
+        rest = rest[1:]
+    return "\n".join(rest).strip()
+
+
 def log_warning_tag_errato(messaggio, tag, title=None):
     """Stampa riga vuota, Warning e sotto la riga del tag errato."""
     registra_tag_sintassi_errata(tag)
@@ -2974,11 +2987,13 @@ def _gruppi_lettura_export_data(ws):
     return gruppi_export_data_per_acronimo(ws)
 
 
-def _sezione_acronimo_documento_export(ws, start, end):
+def _sezione_acronimo_documento_export(ws, start, end, note=None):
     """Campi exportData per un acronimo (intestazioni riga 1)."""
     acronimo = normalizza_testo(ws.cell(row=start, column=1).value) or "(senza title)"
     col_tag = colonna_export_data(COL_TAG)
     campi = []
+    if note:
+        campi.append(("Note", note))
     for col in range(2, ws.max_column + 1):
         nome = normalizza_testo(ws.cell(row=DATA_HEADER_ROW, column=col).value)
         if not nome:
@@ -3073,9 +3088,22 @@ def _docx_tab_value_pos_da_etichette(sezioni):
     return DOCX_TAB_INDENT_DXA + max_chars * 180
 
 
+def _docx_runs_valore_multilinea(valore):
+    """Run Word per il valore di un campo, con a capo se il testo è multilinea."""
+    linee = str(valore or "").splitlines() or [""]
+    parts = []
+    for i, linea in enumerate(linee):
+        if i:
+            parts.append("<w:r><w:br/></w:r>")
+        parts.append(
+            f'<w:r><w:t xml:space="preserve">{xml_escape(linea)}</w:t></w:r>'
+        )
+    return "".join(parts)
+
+
 def _docx_riga_campo(etichetta, valore, tab_value_pos):
     et = xml_escape(f"{etichetta}:")
-    va = xml_escape(str(valore))
+    val_runs = _docx_runs_valore_multilinea(valore)
     return (
         f'<w:p><w:pPr><w:tabs>'
         f'<w:tab w:val="left" w:pos="{DOCX_TAB_INDENT_DXA}"/>'
@@ -3084,7 +3112,7 @@ def _docx_riga_campo(etichetta, valore, tab_value_pos):
         f"<w:r><w:tab/></w:r>"
         f'<w:r><w:t xml:space="preserve">{et}</w:t></w:r>'
         f"<w:r><w:tab/></w:r>"
-        f'<w:r><w:t xml:space="preserve">{va}</w:t></w:r></w:p>'
+        f"{val_runs}</w:p>"
     )
 
 
@@ -3133,13 +3161,34 @@ def titolo_documento_export_data():
     return f"{EXPORT_DATA_DOC_TITOLO_BASE}{data_prod}"
 
 
-def genera_documento_export_data(doc_path, ws_export, titolo_report=None):
+def _mappa_note_title_data_all(ws_src, gruppi_src):
+    """Note testuali dalla colonna Title di data-all, per acronimo esportato."""
+    mappa = {}
+    for nome, start, _end in _elenco_gruppi_data_all_exportabile(ws_src, gruppi_src):
+        nota = _note_da_title_excel(ws_src.cell(row=start, column=1).value)
+        if nota:
+            mappa[normalizza_testo(nome).lower()] = nota
+    return mappa
+
+
+def genera_documento_export_data(
+    doc_path, ws_export, titolo_report=None, ws_src=None, gruppi_src=None
+):
     """
     Scrive un .docx (importabile in Google Docs) con una sezione per acronimo
     e i dati del foglio exportData.
     """
     gruppi = _gruppi_lettura_export_data(ws_export)
-    sezioni = [_sezione_acronimo_documento_export(ws_export, s, e) for s, e in gruppi]
+    note_per_acronimo = (
+        _mappa_note_title_data_all(ws_src, gruppi_src)
+        if ws_src is not None and gruppi_src is not None
+        else {}
+    )
+    sezioni = []
+    for s, e in gruppi:
+        acr = normalizza_testo(ws_export.cell(row=s, column=1).value) or ""
+        note = note_per_acronimo.get(acr.lower())
+        sezioni.append(_sezione_acronimo_documento_export(ws_export, s, e, note=note))
     titolo_report = normalizza_testo(titolo_report) or titolo_documento_export_data()
     tab_value_pos = _docx_tab_value_pos_da_etichette(sezioni)
 
@@ -3267,6 +3316,8 @@ def scrivi_excel(card, output_path, df_storico=None, riepilogo_acronimi=None):
         doc_export_path,
         wb[EXPORT_DATA_SHEET],
         titolo_report=titolo_documento_export_data(),
+        ws_src=ws_data,
+        gruppi_src=gruppi,
     )
     formatta_foglio_export(wb[DATA_EXPORT_SHEET])
     crea_foglio_time_waiting(wb, ws_data, gruppi)
