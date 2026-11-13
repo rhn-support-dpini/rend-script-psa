@@ -43,7 +43,7 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 
 ### Sessione 2026-11-13 — `elabora_JKAN.py` (docx Note e ordine campi)
 
-- **.docx** riga **Note:** testo da Title `data-all` (escluse righe con primo carattere `#`); ogni riga con **6 tab** in testa; omessa se vuota.
+- **.docx** riga **Note:** da Title `data-all` (escluse righe che iniziano con `#` o `-`); **5 tab** in testa per riga; omessa se vuota.
 - **.docx** sotto ogni Heading1: **Status**, **Inizio Attivita'**, **Rilascio**, **Done/Rilascio**, **Produzione**, **Note**.
 - **Rilascio** exportData/docx: data da tag `# Rilascio - <data>` (`_data_rilascio_da_tag_righe`); vuoto se assente.
 - **Produzione** exportData/docx: tag `# Production` / `# Produzione`; date tag anche `gg-mm-aaaa`.

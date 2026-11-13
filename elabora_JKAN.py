@@ -211,7 +211,7 @@ EXPORT_DATA_FIRST_ROW = 2
 DOCX_TAB_INDENT_DXA = 567
 DOCX_TAB_VALUE_DXA = 4800
 DOCX_TAB_STEP_DXA = 720
-DOCX_NOTE_RIGHE_TABS = 6
+DOCX_NOTE_RIGHE_TABS = 5
 DATA_EXPORT_SHEET = "data-export"
 TIME_WAITING_SHEET = "time-Waiting"
 STATUS_ORDINE_DATA_ALL = [
@@ -1019,7 +1019,7 @@ def prima_riga_colonna(valore):
 
 
 def _note_da_title_excel(valore):
-    """Title senza acronimo, riga vuota iniziale e righe il cui primo carattere è «#»."""
+    """Title senza acronimo, riga vuota iniziale; escluse righe che iniziano con «#» o «-»."""
     if valore is None:
         return ""
     linee = str(valore).splitlines()
@@ -1028,7 +1028,11 @@ def _note_da_title_excel(valore):
     rest = linee[1:]
     if rest and not rest[0].strip():
         rest = rest[1:]
-    rest = [r for r in rest if not r.lstrip().startswith("#")]
+    rest = [
+        r
+        for r in rest
+        if not r.lstrip().startswith("#") and not r.lstrip().startswith("-")
+    ]
     return "\n".join(rest).strip()
 
 
