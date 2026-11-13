@@ -210,6 +210,8 @@ EXPORT_DATA_DOC_TITOLO_BASE = "Innalzamento baseline JBoss-JBoss - "
 EXPORT_DATA_FIRST_ROW = 2
 DOCX_TAB_INDENT_DXA = 567
 DOCX_TAB_VALUE_DXA = 4800
+DOCX_TAB_STEP_DXA = 720
+DOCX_NOTE_VALORE_TABS_EXTRA = 2
 DATA_EXPORT_SHEET = "data-export"
 TIME_WAITING_SHEET = "time-Waiting"
 STATUS_ORDINE_DATA_ALL = [
@@ -357,6 +359,12 @@ PRODUCTION_TAG_RE = re.compile(
 )
 EXPORT_DATA_COL_INIZIO_ATTIVITA = "Inizio Attivita'"
 EXPORT_DATA_COL_DONE_RILASCIO = "Done/Rilascio"
+DOCX_CAMPI_ORDINE_DOC = (
+    "Status",
+    EXPORT_DATA_COL_INIZIO_ATTIVITA,
+    EXPORT_DATA_COL_DONE_RILASCIO,
+    "Note",
+)
 EXPORT_DATA_COL_PRODUZIONE = "Produzione"
 EXPORT_DATA_COL_REWORK = "Rework"
 EXPORT_DATA_COL_FIX = "Fix"
@@ -2987,35 +2995,36 @@ def _gruppi_lettura_export_data(ws):
     return gruppi_export_data_per_acronimo(ws)
 
 
-def _sezione_acronimo_documento_export(ws, start, end, note=None):
-    """Campi exportData per un acronimo (intestazioni riga 1)."""
-    acronimo = normalizza_testo(ws.cell(row=start, column=1).value) or "(senza title)"
-    col_tag = colonna_export_data(COL_TAG)
-    campi = []
-    if note:
-        campi.append(("Note", note))
-    for col in range(2, ws.max_column + 1):
+def _testo_cella_export_per_intestazione(ws, row, nome_intestazione):
+    """Valore testuale su exportData (riga dati, intestazione riga 1)."""
+    nome_cercato = normalizza_testo(nome_intestazione)
+    if not nome_cercato:
+        return None
+    for col in range(1, ws.max_column + 1):
         nome = normalizza_testo(ws.cell(row=DATA_HEADER_ROW, column=col).value)
-        if not nome:
+        if nome != nome_cercato:
             continue
-        if nome in (EXPORT_DATA_COL_REWORK, EXPORT_DATA_COL_FIX):
-            continue
-        if col_tag and col == col_tag:
-            righe_tag = []
-            for row in range(start, end + 1):
-                tag = ws.cell(row=row, column=col).value
-                if tag and str(tag).strip():
-                    righe_tag.append(str(tag).strip())
-            if righe_tag:
-                campi.append((nome, righe_tag))
-            continue
-        val = ws.cell(row=start, column=col).value
+        val = ws.cell(row=row, column=col).value
         if val is None or str(val).strip() == "":
-            continue
+            return None
         if isinstance(val, float) and val == int(val):
             val = int(val)
-        testo = str(val).strip()
-        campi.append((nome, testo))
+        return str(val).strip()
+    return None
+
+
+def _sezione_acronimo_documento_export(ws, start, end, note=None):
+    """Campi docx per acronimo: Status, Inizio Attivita', Done/Rilascio, Note."""
+    acronimo = normalizza_testo(ws.cell(row=start, column=1).value) or "(senza title)"
+    campi = []
+    for nome in DOCX_CAMPI_ORDINE_DOC:
+        if nome == "Note":
+            if note:
+                campi.append(("Note", note))
+            continue
+        testo = _testo_cella_export_per_intestazione(ws, start, nome)
+        if testo:
+            campi.append((nome, testo))
     return acronimo, campi
 
 
@@ -3101,17 +3110,28 @@ def _docx_runs_valore_multilinea(valore):
     return "".join(parts)
 
 
-def _docx_riga_campo(etichetta, valore, tab_value_pos):
+def _docx_tab_stops_xml(tab_value_pos, valore_extra_tabs=0):
+    parti = [
+        f'<w:tab w:val="left" w:pos="{DOCX_TAB_INDENT_DXA}"/>',
+        f'<w:tab w:val="left" w:pos="{tab_value_pos}"/>',
+    ]
+    for i in range(1, valore_extra_tabs + 1):
+        parti.append(
+            f'<w:tab w:val="left" w:pos="{tab_value_pos + i * DOCX_TAB_STEP_DXA}"/>'
+        )
+    return "".join(parti)
+
+
+def _docx_riga_campo(etichetta, valore, tab_value_pos, valore_extra_tabs=0):
     et = xml_escape(f"{etichetta}:")
     val_runs = _docx_runs_valore_multilinea(valore)
+    tab_stops = _docx_tab_stops_xml(tab_value_pos, valore_extra_tabs)
+    tabs_verso_valore = "".join("<w:r><w:tab/></w:r>" for _ in range(1 + valore_extra_tabs))
     return (
-        f'<w:p><w:pPr><w:tabs>'
-        f'<w:tab w:val="left" w:pos="{DOCX_TAB_INDENT_DXA}"/>'
-        f'<w:tab w:val="left" w:pos="{tab_value_pos}"/>'
-        f"</w:tabs></w:pPr>"
+        f'<w:p><w:pPr><w:tabs>{tab_stops}</w:tabs></w:pPr>'
         f"<w:r><w:tab/></w:r>"
         f'<w:r><w:t xml:space="preserve">{et}</w:t></w:r>'
-        f"<w:r><w:tab/></w:r>"
+        f"{tabs_verso_valore}"
         f"{val_runs}</w:p>"
     )
 
@@ -3211,7 +3231,14 @@ def genera_documento_export_data(
             if isinstance(valore, list):
                 body.append(_docx_riga_elenco(etichetta, valore, tab_value_pos))
             else:
-                body.append(_docx_riga_campo(etichetta, valore, tab_value_pos))
+                extra_tabs = (
+                    DOCX_NOTE_VALORE_TABS_EXTRA if etichetta == "Note" else 0
+                )
+                body.append(
+                    _docx_riga_campo(
+                        etichetta, valore, tab_value_pos, valore_extra_tabs=extra_tabs
+                    )
+                )
         body.append(_docx_paragrafo(""))
 
     document_xml = (
