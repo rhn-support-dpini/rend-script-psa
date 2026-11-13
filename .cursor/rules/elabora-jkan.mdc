@@ -16,7 +16,7 @@ Il nome file input deve contenere una data `yyyy-mm-dd` o `yyyy/mm/dd`.
 
 ## Output Excel
 
-Fogli: `data-all` (principale), `exportData` (Title, Status + date/conteggi + col. `*` Timeout; senza TAG Temporali né bordi rossi), `data-export`. **`.docx`**: titolo **Title** «Innalzamento baseline JBoss-JBoss - \<data produzione\>»; acronimo **Heading 1**; righe in ordine **Status**, **Inizio Attivita'**, **Done/Rilascio**, **Note:** (Title data-all senza acronimo; valore Note con **2 tab** extra a destra rispetto agli altri campi). Nessun altro campo exportData nel docx. `time-Waiting`, `stat`, `email-mittenti` (grafici Excel email/settimana per acronimo, 2026-W12 … corrente, esclusi mittenti `ignora.addr`/`other.addr`), `storico` (tabella `dbJKAN.csv`).
+Fogli: `data-all` (principale), `exportData` (Title, Status + date/conteggi + col. `*` Timeout; senza TAG Temporali né bordi rossi), `data-export`. **`.docx`**: titolo **Title** «Innalzamento baseline JBoss-JBoss - \<data produzione\>»; acronimo **Heading 1**; righe in ordine **Status**, **Inizio Attivita'**, **Rilascio per test** (vuoto per ora), **Done/Rilascio**, **Produzione**, **Note:** (a capo dopo l’etichetta; ogni riga note con **2 tab** in testa, testo da Title data-all). Nessun altro campo exportData nel docx. `time-Waiting`, `stat`, `email-mittenti` (grafici Excel email/settimana per acronimo, 2026-W12 … corrente, esclusi mittenti `ignora.addr`/`other.addr`), `storico` (tabella `dbJKAN.csv`).
 
 ### Colonne foglio `data-all`
 
