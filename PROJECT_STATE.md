@@ -43,8 +43,8 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 
 ### Sessione 2026-11-13 — `elabora_JKAN.py` (docx Note e ordine campi)
 
-- **.docx** riga **Note:** testo da Title `data-all` (senza acronimo/riga vuota sotto); etichetta poi a capo, ogni riga del testo con **2 tab** in testa; omessa se vuota.
-- **.docx** sotto ogni Heading1: **Status**, **Inizio Attivita'**, **Rilascio per test** (sempre, non valorizzato), **Done/Rilascio**, **Produzione**, **Note**.
+- **.docx** riga **Note:** testo da Title `data-all`; a capo dopo l’etichetta, ogni riga con **4 tab** in testa; omessa se vuota.
+- **.docx** sotto ogni Heading1: **Status**, **Inizio Attivita'**, **Rilascio per test** (sempre vuoto), **Done/Rilascio**, **Produzione** (sempre, anche vuota), **Note**.
 
 ### Sessione 2026-11-11 — `elabora_JKAN.py` (exportData allineamento)
 

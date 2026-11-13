@@ -211,6 +211,7 @@ EXPORT_DATA_FIRST_ROW = 2
 DOCX_TAB_INDENT_DXA = 567
 DOCX_TAB_VALUE_DXA = 4800
 DOCX_TAB_STEP_DXA = 720
+DOCX_NOTE_RIGHE_TABS = 4
 DATA_EXPORT_SHEET = "data-export"
 TIME_WAITING_SHEET = "time-Waiting"
 STATUS_ORDINE_DATA_ALL = [
@@ -360,7 +361,9 @@ EXPORT_DATA_COL_INIZIO_ATTIVITA = "Inizio Attivita'"
 EXPORT_DATA_COL_DONE_RILASCIO = "Done/Rilascio"
 EXPORT_DATA_COL_PRODUZIONE = "Produzione"
 DOCX_CAMPO_RILASCIO_PER_TEST = "Rilascio per test"
-DOCX_CAMPI_SEMPRE_DOC = frozenset({DOCX_CAMPO_RILASCIO_PER_TEST})
+DOCX_CAMPI_SEMPRE_DOC = frozenset(
+    {DOCX_CAMPO_RILASCIO_PER_TEST, EXPORT_DATA_COL_PRODUZIONE}
+)
 DOCX_CAMPI_ORDINE_DOC = (
     "Status",
     EXPORT_DATA_COL_INIZIO_ATTIVITA,
@@ -3143,20 +3146,20 @@ def _docx_riga_campo(etichetta, valore, tab_value_pos, valore_extra_tabs=0):
 
 
 def _docx_riga_note(note_text):
-    """Riga Note: etichetta, a capo, ogni riga del testo con due tab iniziali."""
-    pos_tab2 = DOCX_TAB_INDENT_DXA + DOCX_TAB_STEP_DXA
-    tabs = (
-        f'<w:tab w:val="left" w:pos="{DOCX_TAB_INDENT_DXA}"/>'
-        f'<w:tab w:val="left" w:pos="{pos_tab2}"/>'
+    """Riga Note: etichetta, a capo, ogni riga del testo con tab iniziali (DOCX_NOTE_RIGHE_TABS)."""
+    tab_stops = "".join(
+        f'<w:tab w:val="left" w:pos="{DOCX_TAB_INDENT_DXA + i * DOCX_TAB_STEP_DXA}"/>'
+        for i in range(DOCX_NOTE_RIGHE_TABS)
     )
+    tab_righe = "".join("<w:r><w:tab/></w:r>" for _ in range(DOCX_NOTE_RIGHE_TABS))
     parts = [
-        f'<w:p><w:pPr><w:tabs>{tabs}</w:tabs></w:pPr>',
+        f'<w:p><w:pPr><w:tabs>{tab_stops}</w:tabs></w:pPr>',
         '<w:r><w:tab/></w:r>',
         '<w:r><w:t xml:space="preserve">Note:</w:t></w:r>',
     ]
     for linea in str(note_text or "").splitlines():
         parts.append("<w:r><w:br/></w:r>")
-        parts.append("<w:r><w:tab/></w:r><w:r><w:tab/></w:r>")
+        parts.append(tab_righe)
         parts.append(
             f'<w:r><w:t xml:space="preserve">{xml_escape(linea)}</w:t></w:r>'
         )
