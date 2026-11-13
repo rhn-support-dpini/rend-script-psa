@@ -2945,29 +2945,6 @@ def applica_colonna_asterisco_timeout_export_data(ws, gruppi, ws_src, gruppi_src
             cella.value = EXPORT_DATA_ASTERISCO_TIMEOUT
 
 
-def _colonna_asterisco_timeout_export(ws):
-    """Indice colonna exportData senza titolo (asterisco Timeout)."""
-    col_fix = None
-    for col in range(1, ws.max_column + 1):
-        if normalizza_testo(ws.cell(row=DATA_HEADER_ROW, column=col).value) == EXPORT_DATA_COL_FIX:
-            col_fix = col
-            break
-    if col_fix is not None and col_fix < ws.max_column:
-        return col_fix + 1
-    for col in range(1, ws.max_column + 1):
-        if not normalizza_testo(ws.cell(row=DATA_HEADER_ROW, column=col).value):
-            return col
-    return None
-
-
-def _riga_export_ha_asterisco_timeout(ws, row):
-    col = _colonna_asterisco_timeout_export(ws)
-    if not col:
-        return False
-    val = ws.cell(row=row, column=col).value
-    return normalizza_testo(val) == EXPORT_DATA_ASTERISCO_TIMEOUT
-
-
 def rimuovi_colonna_tag_export_data(ws):
     """Elimina col. TAG Temporali dal foglio exportData."""
     col = colonna_export_data(COL_TAG)
@@ -3006,6 +2983,8 @@ def _sezione_acronimo_documento_export(ws, start, end):
         nome = normalizza_testo(ws.cell(row=DATA_HEADER_ROW, column=col).value)
         if not nome:
             continue
+        if nome in (EXPORT_DATA_COL_REWORK, EXPORT_DATA_COL_FIX):
+            continue
         if col_tag and col == col_tag:
             righe_tag = []
             for row in range(start, end + 1):
@@ -3017,14 +2996,10 @@ def _sezione_acronimo_documento_export(ws, start, end):
             continue
         val = ws.cell(row=start, column=col).value
         if val is None or str(val).strip() == "":
-            if nome.lower() != "status" or not _riga_export_ha_asterisco_timeout(ws, start):
-                continue
-            val = ""
+            continue
         if isinstance(val, float) and val == int(val):
             val = int(val)
         testo = str(val).strip()
-        if nome.lower() == "status" and _riga_export_ha_asterisco_timeout(ws, start):
-            testo = f"{testo} *"
         campi.append((nome, testo))
     return acronimo, campi
 
