@@ -211,7 +211,7 @@ EXPORT_DATA_FIRST_ROW = 2
 DOCX_TAB_INDENT_DXA = 567
 DOCX_TAB_VALUE_DXA = 4800
 DOCX_TAB_STEP_DXA = 720
-DOCX_NOTE_RIGHE_TABS = 4
+DOCX_NOTE_RIGHE_TABS = 6
 DATA_EXPORT_SHEET = "data-export"
 TIME_WAITING_SHEET = "time-Waiting"
 STATUS_ORDINE_DATA_ALL = [
@@ -344,7 +344,9 @@ EXPORT_STATUS_FILLS = {
     "backlog": PASTEL_BLUE_FILL,
     "acronimi done": EXPORT_BRIGHT_GREEN_FILL,
 }
-DATE_IN_TAG_RE = re.compile(r"(\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2})")
+DATE_IN_TAG_RE = re.compile(
+    r"(\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}-\d{1,2}-\d{2,4})"
+)
 ESTIMATE_TAG_RE = re.compile(
     r"^#\s*Estimate\s*[:-]?\s*([\d.,]+)",
     re.IGNORECASE,
@@ -357,17 +359,19 @@ PRODUCTION_TAG_RE = re.compile(
     r"^#\s*(?:Production|Produzione)\s*-\s*",
     re.IGNORECASE,
 )
+RILASCIO_TAG_RE = re.compile(r"^#\s*Rilascio\s*-\s*", re.IGNORECASE)
 EXPORT_DATA_COL_INIZIO_ATTIVITA = "Inizio Attivita'"
+EXPORT_DATA_COL_RILASCIO = "Rilascio"
 EXPORT_DATA_COL_DONE_RILASCIO = "Done/Rilascio"
 EXPORT_DATA_COL_PRODUZIONE = "Produzione"
-DOCX_CAMPO_RILASCIO_PER_TEST = "Rilascio per test"
-DOCX_CAMPI_SEMPRE_DOC = frozenset(
-    {DOCX_CAMPO_RILASCIO_PER_TEST, EXPORT_DATA_COL_PRODUZIONE}
+DOCX_CAMPI_SEMPRE_RIGA = frozenset(
+    {EXPORT_DATA_COL_RILASCIO, EXPORT_DATA_COL_PRODUZIONE}
 )
+DOCX_CAMPI_VALORE_VUOTO_DOC = frozenset()
 DOCX_CAMPI_ORDINE_DOC = (
     "Status",
     EXPORT_DATA_COL_INIZIO_ATTIVITA,
-    DOCX_CAMPO_RILASCIO_PER_TEST,
+    EXPORT_DATA_COL_RILASCIO,
     EXPORT_DATA_COL_DONE_RILASCIO,
     EXPORT_DATA_COL_PRODUZIONE,
     "Note",
@@ -569,6 +573,12 @@ def is_tag_production(tag):
     if not tag:
         return False
     return bool(PRODUCTION_TAG_RE.match(str(tag).strip()))
+
+
+def is_tag_rilascio(tag):
+    if not tag:
+        return False
+    return bool(RILASCIO_TAG_RE.match(str(tag).strip()))
 
 
 def is_tag_done_temporale(tag):
@@ -1009,7 +1019,7 @@ def prima_riga_colonna(valore):
 
 
 def _note_da_title_excel(valore):
-    """Title senza prima riga (acronimo) e senza seconda riga vuota, se presente."""
+    """Title senza acronimo, riga vuota iniziale e righe il cui primo carattere è «#»."""
     if valore is None:
         return ""
     linee = str(valore).splitlines()
@@ -1018,6 +1028,7 @@ def _note_da_title_excel(valore):
     rest = linee[1:]
     if rest and not rest[0].strip():
         rest = rest[1:]
+    rest = [r for r in rest if not r.lstrip().startswith("#")]
     return "\n".join(rest).strip()
 
 
@@ -1097,7 +1108,7 @@ def parse_data(valore):
     if iso:
         return datetime(int(iso.group(1)), int(iso.group(2)), int(iso.group(3))).date()
 
-    for fmt in ("%d/%m/%Y", "%d/%m/%y"):
+    for fmt in ("%d/%m/%Y", "%d/%m/%y", "%d-%m-%Y", "%d-%m-%y"):
         try:
             return datetime.strptime(testo, fmt).date()
         except ValueError:
@@ -1410,6 +1421,7 @@ def espandi_card_con_tag(card):
                 or is_tag_nota(tag)
                 or is_tag_notab(tag)
                 or is_tag_production(tag)
+                or is_tag_rilascio(tag)
                 or is_tag_inizio_attivita(tag)
                 or is_tag_done_temporale(tag)
             ):
@@ -2647,6 +2659,14 @@ def riga_tag_production_export(ws, row):
     return is_tag_production(ws.cell(row=row, column=col_tag).value)
 
 
+def riga_tag_rilascio_export(ws, row):
+    """True se la riga exportData ha '# Rilascio' in TAG Temporali."""
+    col_tag = colonna_export_data(COL_TAG)
+    if not col_tag:
+        return False
+    return is_tag_rilascio(ws.cell(row=row, column=col_tag).value)
+
+
 def ripristina_title_gruppi_export_data(ws, gruppi):
     """
     Reimposta Title (col. A) su tutte le righe di ogni gruppo data-all,
@@ -2729,7 +2749,7 @@ def consolida_gruppo_export_su_inizio_attivita(ws, gruppi):
     """
     exportData: per ogni acronimo, copia A–V e Z–AA dal gruppo sulla riga
     # Inizio Attività; rimuove le altre righe del gruppo (stesso Title),
-    salvo '# Done' e '# Production' in TAG Temporali.
+    salvo '# Done', '# Production' e '# Rilascio' in TAG Temporali.
     """
     righe_da_cancellare = []
     for start, end in gruppi:
@@ -2751,6 +2771,8 @@ def consolida_gruppo_export_su_inizio_attivita(ws, gruppi):
             if riga_tag_done_export(ws, row):
                 continue
             if riga_tag_production_export(ws, row):
+                continue
+            if riga_tag_rilascio_export(ws, row):
                 continue
             righe_da_cancellare.append(row)
     for row in sorted(set(righe_da_cancellare), reverse=True):
@@ -2803,6 +2825,16 @@ def _data_produzione_da_tag_righe(tag_righe):
     """Prima data da tag # Production / # Produzione tra i TAG Temporali."""
     for tag in tag_righe:
         if is_tag_production(tag):
+            data = _data_prima_in_tag_temporale(tag)
+            if data:
+                return data
+    return None
+
+
+def _data_rilascio_da_tag_righe(tag_righe):
+    """Prima data da tag '# Rilascio - <data>' tra i TAG Temporali."""
+    for tag in tag_righe:
+        if is_tag_rilascio(tag):
             data = _data_prima_in_tag_temporale(tag)
             if data:
                 return data
@@ -2877,15 +2909,17 @@ def applica_colonne_inizio_done_export_data(ws, gruppi, ws_src=None, gruppi_src=
     if not col_base:
         return
     col_inizio = col_base + 1
-    col_done = col_base + 2
-    col_prod = col_base + 3
-    col_rework = col_base + 4
-    col_fix = col_base + 5
+    col_rilascio = col_base + 2
+    col_done = col_base + 3
+    col_prod = col_base + 4
+    col_rework = col_base + 5
+    col_fix = col_base + 6
     col_tag = colonna_export_data(COL_TAG)
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
     header_extra = (
         (col_inizio, EXPORT_DATA_COL_INIZIO_ATTIVITA),
+        (col_rilascio, EXPORT_DATA_COL_RILASCIO),
         (col_done, EXPORT_DATA_COL_DONE_RILASCIO),
         (col_prod, EXPORT_DATA_COL_PRODUZIONE),
         (col_rework, EXPORT_DATA_COL_REWORK),
@@ -2919,10 +2953,14 @@ def applica_colonne_inizio_done_export_data(ws, gruppi, ws_src=None, gruppi_src=
                 n_rework = _conta_tag_gruppo_data_all(ws_src, s_src, e_src, is_tag_rework)
                 n_fix = _conta_tag_gruppo_data_all(ws_src, s_src, e_src, is_tag_fix)
         inizio, done = _finestra_attivita_da_tag_righe(tag_righe)
+        rilascio = _data_rilascio_da_tag_righe(tag_righe)
         produzione = _data_produzione_da_tag_righe(tag_righe)
 
         ws.cell(row=start, column=col_inizio).value = (
             formatta_data_gg_mm_aaaa(inizio) if inizio else None
+        )
+        ws.cell(row=start, column=col_rilascio).value = (
+            formatta_data_gg_mm_aaaa(rilascio) if rilascio else None
         )
         ws.cell(row=start, column=col_done).value = (
             formatta_data_gg_mm_aaaa(done) if done else None
@@ -2945,7 +2983,7 @@ def applica_colonna_asterisco_timeout_export_data(ws, gruppi, ws_src, gruppi_src
     col_base = colonna_export_data(EXPORT_DATA_COL_ANCHOR_FOGLIO)
     if not col_base:
         return
-    col_asterisco = col_base + 6
+    col_asterisco = col_base + 7
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
     ws.cell(row=DATA_HEADER_ROW, column=col_asterisco).value = None
 
@@ -3028,8 +3066,12 @@ def _sezione_acronimo_documento_export(ws, start, end, note=None):
             if note:
                 campi.append(("Note", note))
             continue
-        if nome in DOCX_CAMPI_SEMPRE_DOC:
-            campi.append((nome, ""))
+        if nome in DOCX_CAMPI_SEMPRE_RIGA:
+            if nome in DOCX_CAMPI_VALORE_VUOTO_DOC:
+                val = ""
+            else:
+                val = _testo_cella_export_per_intestazione(ws, start, nome) or ""
+            campi.append((nome, val))
             continue
         testo = _testo_cella_export_per_intestazione(ws, start, nome)
         if testo:
