@@ -15,7 +15,8 @@ Parametri:
 
 Output:
     File .xlsx con stesso nome e percorso del CSV di input.
-    <input>.docx — documento Word/Google per acronimo (dati exportData).
+    <input>.docx e <input>-Barison.docx — documento Word/Google per acronimo (dati exportData;
+        la variante -Barison omesso il campo Inizio Attivita').
     Fogli: data-all, exportData (colonne ridotte; esclusi Status Abandoned / new - to be verified / POC 10 / delayed to 2027;
         col. A = solo nome acronimo;
         tag Inizio Attività, Production/Produzione, Done in TAG Temporali; svuota e rimuove
@@ -376,6 +377,10 @@ DOCX_CAMPI_ORDINE_DOC = (
     EXPORT_DATA_COL_PRODUZIONE,
     "Note",
 )
+DOCX_CAMPI_ORDINE_DOC_BARISON = tuple(
+    c for c in DOCX_CAMPI_ORDINE_DOC if c != EXPORT_DATA_COL_INIZIO_ATTIVITA
+)
+EXPORT_DATA_DOC_SUFFIX_BARISON = "-Barison"
 EXPORT_DATA_COL_REWORK = "Rework"
 EXPORT_DATA_COL_FIX = "Fix"
 EXPORT_DATA_ASTERISCO_TIMEOUT = "*"
@@ -489,6 +494,12 @@ def percorso_export_data_doc_da_xlsx(xlsx_path):
     """Documento Word/Google (import) omonimo dell'Excel (.xlsx → .docx)."""
     base, _ = os.path.splitext(xlsx_path)
     return base + EXPORT_DATA_DOC_EXT
+
+
+def percorso_export_data_doc_barison_da_xlsx(xlsx_path):
+    """Variante -Barison del documento exportData (.xlsx → <base>-Barison.docx)."""
+    base, _ = os.path.splitext(xlsx_path)
+    return base + EXPORT_DATA_DOC_SUFFIX_BARISON + EXPORT_DATA_DOC_EXT
 
 
 def normalizza_testo(valore, compatta_spazi=False):
@@ -3061,11 +3072,13 @@ def _testo_cella_export_per_intestazione(ws, row, nome_intestazione):
     return None
 
 
-def _sezione_acronimo_documento_export(ws, start, end, note=None):
-    """Campi docx per acronimo (ordine DOCX_CAMPI_ORDINE_DOC)."""
+def _sezione_acronimo_documento_export(
+    ws, start, end, note=None, campi_ordine=DOCX_CAMPI_ORDINE_DOC
+):
+    """Campi docx per acronimo (ordine campi_ordine, default DOCX_CAMPI_ORDINE_DOC)."""
     acronimo = normalizza_testo(ws.cell(row=start, column=1).value) or "(senza title)"
     campi = []
-    for nome in DOCX_CAMPI_ORDINE_DOC:
+    for nome in campi_ordine:
         if nome == "Note":
             if note:
                 campi.append(("Note", note))
@@ -3269,7 +3282,12 @@ def _mappa_note_title_data_all(ws_src, gruppi_src):
 
 
 def genera_documento_export_data(
-    doc_path, ws_export, titolo_report=None, ws_src=None, gruppi_src=None
+    doc_path,
+    ws_export,
+    titolo_report=None,
+    ws_src=None,
+    gruppi_src=None,
+    campi_ordine=DOCX_CAMPI_ORDINE_DOC,
 ):
     """
     Scrive un .docx (importabile in Google Docs) con una sezione per acronimo
@@ -3285,7 +3303,11 @@ def genera_documento_export_data(
     for s, e in gruppi:
         acr = normalizza_testo(ws_export.cell(row=s, column=1).value) or ""
         note = note_per_acronimo.get(acr.lower())
-        sezioni.append(_sezione_acronimo_documento_export(ws_export, s, e, note=note))
+        sezioni.append(
+            _sezione_acronimo_documento_export(
+                ws_export, s, e, note=note, campi_ordine=campi_ordine
+            )
+        )
     titolo_report = normalizza_testo(titolo_report) or titolo_documento_export_data()
     tab_value_pos = _docx_tab_value_pos_da_etichette(sezioni)
 
@@ -3410,13 +3432,23 @@ def scrivi_excel(card, output_path, df_storico=None, riepilogo_acronimi=None):
     ws_data = wb[OUTPUT_SHEET]
     gruppi = formatta_foglio_dati(ws_data)
     crea_foglio_export_data(wb, ws_data, gruppi)
+    titolo_doc = titolo_documento_export_data()
     doc_export_path = percorso_export_data_doc_da_xlsx(output_path)
     genera_documento_export_data(
         doc_export_path,
         wb[EXPORT_DATA_SHEET],
-        titolo_report=titolo_documento_export_data(),
+        titolo_report=titolo_doc,
         ws_src=ws_data,
         gruppi_src=gruppi,
+    )
+    doc_barison_path = percorso_export_data_doc_barison_da_xlsx(output_path)
+    genera_documento_export_data(
+        doc_barison_path,
+        wb[EXPORT_DATA_SHEET],
+        titolo_report=titolo_doc,
+        ws_src=ws_data,
+        gruppi_src=gruppi,
+        campi_ordine=DOCX_CAMPI_ORDINE_DOC_BARISON,
     )
     formatta_foglio_export(wb[DATA_EXPORT_SHEET])
     crea_foglio_time_waiting(wb, ws_data, gruppi)
@@ -5789,7 +5821,7 @@ Parametri:
               Default: 2026-06-06-WIP.csv nella cartella dello script.
 
 Output:
-  <input>.xlsx, <input>.html e <input>.docx (exportData per acronimo) — cartella del CSV.
+  <input>.xlsx, <input>.html, <input>.docx e <input>-Barison.docx (exportData per acronimo) — cartella del CSV.
   dbJKAN.csv   — storico snapshot (cartella dello script).
 """
     parser = argparse.ArgumentParser(

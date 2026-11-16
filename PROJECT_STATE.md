@@ -1,6 +1,6 @@
 # PROJECT_STATE — rend-script-psa
 
-Ultimo aggiornamento: 2026-11-13 (docx ordine campi e indent Note).
+Ultimo aggiornamento: 2026-11-16 (docx variante -Barison senza Inizio Attivita').
 
 Documento di handoff per sessioni successive: cosa c’è nel repo, come funziona, cosa è stato toccato di recente, e cosa evitare.
 
@@ -40,6 +40,11 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 - Colonna **senza titolo** dopo Fix: `*` centrato se Timeout (gg) su data-all è in fascia rossa (`>55` gg o valore errore). Solo su **exportData** Excel (non replicato nel **.docx**).
 - **.docx** indice sotto il titolo (righe vuote prima/dopo): elenco acronimi con link interni ai rispettivi Heading1 (bookmark).
 - **.docx** `_sezione_acronimo_documento_export`: niente campi Rework/Fix; Status senza suffisso ` *` per timeout oltre soglia.
+
+### Sessione 2026-11-16 — `elabora_JKAN.py` (docx -Barison)
+
+- Secondo **`.docx`** `<input>-Barison.docx`: stesso contenuto del report standard ma **senza** la riga **Inizio Attivita'** per acronimo (`DOCX_CAMPI_ORDINE_DOC_BARISON`).
+- **`goAll`**: copia su Drive anche il file `-Barison.docx`.
 
 ### Sessione 2026-11-13 — `elabora_JKAN.py` (docx Note e ordine campi)
 
