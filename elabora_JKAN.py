@@ -20,7 +20,7 @@ Output:
     Fogli: data-all, exportData (colonne ridotte; esclusi Status Abandoned / new - to be verified / POC 10 / delayed to 2027;
         col. A = solo nome acronimo;
         tag Inizio Attività, Production/Produzione, Done in TAG Temporali; svuota e rimuove
-        righe tag Waiting/Assignee/Working/Fix/Timeout/Rework/Nota/NotaB — totali Rework/Fix
+        righe tag Waiting/Assignee/Working/Fix/Timeout-done/prod/Rework/Nota/NotaB — totali Rework/Fix
         restano sulle colonne consolidate; in fondo Inizio Attivita', Done/Rilascio, Produzione,
         Rework e Fix), data-export,
         time-Waiting, stat, email-mittenti (grafici
@@ -30,7 +30,7 @@ Output:
         grafici email per acronimo/settimana e, prima dello storico, un grafico per
         acronimo con email per settimana ISO (2026-W12 … corrente; esclusi mittenti
         in ignora.addr / other.addr, senza indirizzi in grafico).
-    Le righe Description con prefisso "#" generano sotto-righe da colonna W (TAG Temporali);
+    Le righe Description con prefisso "#" generano sotto-righe da colonna X (TAG Temporali);
     A–R (+ Description in AA) sono merge verticali per Title, con bordo rosso pastello per card.
     K (InizioLavorazione(gg)): giorni dal tag "# Inizio Attivita'" a oggi, se presente.
     K–R: coppie (gg)/(hh) per Waiting, Working, Rework e Fix — prima giorni, poi ore; valori calcolati (niente formule Excel).
@@ -41,14 +41,15 @@ Output:
     S (% Stimato / Lavorato (gg)): (Totale Lavorate (hh) / Ore Stimate) × 100; fasce colore.
     T (Totale Lavorate (gg)): ore lavorate totali / 8 (merge per card).
     U (Totale Lavorate (hh)): somma Working + Rework + Fix (hh); acqua marina.
-    V (Timeout (gg)): giorni solari dal tag "# Timeout - <data>" a oggi; errori → 999999; colori soglia.
-    W (TAG Temporali): testo del tag per riga (# Timeout, # Nota e # NotaB inclusi, senza ore in col. Y);
+    V (Timeout Done (gg)): giorni solari dal tag "# Timeout-done …" a oggi; errori → 999999; colori soglia.
+    W (Timeout Prod (gg)): come V ma dal tag "# Timeout-prod …".
+    X (TAG Temporali): testo del tag per riga (# Timeout-done/prod, # Nota e # NotaB inclusi, senza ore in col. Z);
         giallo pastello per '# Nota - <data> -'; rosso pastello per '# NotaB - <data> -' o segnalato nel log.
-    X (Delta Giorni): Delta ore (Y) / 8 per riga tag (valore, non formula).
-    Y (Delta ore): ore per riga tag (# Waiting/Working/Fix/Rework);
+    Y (Delta Giorni): Delta ore (Z) / 8 per riga tag (valore, non formula).
+    Z (Delta ore): ore per riga tag (# Waiting/Working/Fix/Rework);
         sfondo rosso pastello se ultimo tag operativo è # Waiting e ore ≥ 56 (# Nota/# NotaB finali escluse).
-    Z (Delta Giorni): Delta ore (card) / 8, solo se Status è Acronimi Done.
-    AA (Delta ore): Ore Stimate (G) − Totale Lavorate (hh) (U), solo se Status è Acronimi Done.
+    AA (Delta Giorni): Delta ore (card) / 8, solo se Status è Acronimi Done.
+    AB (Delta ore): Ore Stimate (G) − Totale Lavorate (hh) (U), solo se Status è Acronimi Done.
     G (Giornate Stimate): valore numerico dal tag "# Estimate" in Description; sfondo grigio leggibile.
     H (Ore Stimate): Giornate Stimate (col. G) × 8; sfondo acqua marina pastello.
     Colonna W (Totale Lavorate (hh)): sfondo acqua marina pastello.
@@ -175,7 +176,9 @@ FIX_TIME_GG_COL = "Fix Time (gg)"
 GIORNATE_STIMATE_COL = "Giornate Stimate"
 ORE_STIMATE_COL = "Ore Stimate"
 PERCENT_STIMATO_LAVORATO_COL = "% Stimato / Lavorato (gg)"
-TIMEOUT_COL = "Timeout (gg)"
+TIMEOUT_COL = "Timeout Done (gg)"
+TIMEOUT_PROD_COL = "Timeout Prod (gg)"
+LEGENDA_TIMEOUT_GIORNI = "Dal Timeout ad oggi"
 TIMEOUT_VALORE_ERRATO = 999999
 ORE_WAITING_EVIDENZIA_MIN = 56
 TOTALE_LAVORATE_GG_COL = "Totale Lavorate (gg)"
@@ -255,10 +258,11 @@ CENTER_COLS = {
     20,
     21,
     22,
-    24,
+    23,
     25,
     26,
     27,
+    28,
 }
 COL_STATUS = 2  # B — Status MIRO
 COL_GIORNATE_STIMATE = 6  # F — giorni da tag # Estimate
@@ -282,14 +286,15 @@ COL_PERCENT_STIMATO_LAVORATO = 19  # S
 COL_CARD_END = 18  # A–R: dati card (merge verticali per Title; Description in fondo)
 COL_GIORNI = 20  # T — Totale Lavorate (gg)
 COL_TOTALE_ORE = 21  # U — Totale Lavorate (hh)
-COL_TIMEOUT = 22  # V — Timeout (gg)
-COL_TAG = 23  # W — TAG Temporali
-COL_DELTA_GIORNI_TAG = 24  # X — Delta Giorni (Delta ore / 8) per riga tag
-COL_ORE = 25  # Y — Delta ore (ore per riga tag)
-COL_DELTA_GIORNI = 26  # Z — Delta Giorni (card, Acronimi Done)
-COL_DELTA_ORE = 27  # AA — Delta ore (card, Acronimi Done)
-COL_DESCRIPTION = 28  # AB — Description (ultima colonna)
-COL_LAST = 28
+COL_TIMEOUT = 22  # V — Timeout Done (gg)
+COL_TIMEOUT_PROD = 23  # W — Timeout Prod (gg)
+COL_TAG = 24  # X — TAG Temporali
+COL_DELTA_GIORNI_TAG = 25  # Y — Delta Giorni (Delta ore / 8) per riga tag
+COL_ORE = 26  # Z — Delta ore (ore per riga tag)
+COL_DELTA_GIORNI = 27  # AA — Delta Giorni (card, Acronimi Done)
+COL_DELTA_ORE = 28  # AB — Delta ore (card, Acronimi Done)
+COL_DESCRIPTION = 29  # AC — Description (ultima colonna)
+COL_LAST = 29
 # Colonne omesse in exportData (decrescente per delete_cols su copia data-all)
 EXPORT_DATA_COL_ESCLUSE_SET = frozenset(
     {
@@ -313,6 +318,7 @@ EXPORT_DATA_COL_ESCLUSE_SET = frozenset(
         COL_GIORNI,
         COL_TOTALE_ORE,
         COL_TIMEOUT,
+        COL_TIMEOUT_PROD,
         COL_DELTA_GIORNI_TAG,
         COL_ORE,
         COL_DELTA_GIORNI,
@@ -401,8 +407,12 @@ REWORK_TAG_RE = re.compile(
     r"^#\s*Rework\b",
     re.IGNORECASE,
 )
-TIMEOUT_TAG_RE = re.compile(
-    r"^#\s*Timeout\s*-\s*",
+TIMEOUT_DONE_TAG_RE = re.compile(
+    r"^#\s*Timeout-done\b",
+    re.IGNORECASE,
+)
+TIMEOUT_PROD_TAG_RE = re.compile(
+    r"^#\s*Timeout-prod\b",
     re.IGNORECASE,
 )
 TAG_DUE_DATE_PREFIXES = ("Working", "Waiting", "Assignee")
@@ -752,10 +762,21 @@ def giorni_da_inizio_attivita(description, data_oggi=None):
     return None
 
 
-def is_tag_timeout(tag):
+def is_tag_timeout_done(tag):
     if not tag:
         return False
-    return bool(TIMEOUT_TAG_RE.match(str(tag).strip()))
+    return bool(TIMEOUT_DONE_TAG_RE.match(str(tag).strip()))
+
+
+def is_tag_timeout_prod(tag):
+    if not tag:
+        return False
+    return bool(TIMEOUT_PROD_TAG_RE.match(str(tag).strip()))
+
+
+def is_tag_timeout_operativo(tag):
+    """Tag # Timeout-done / # Timeout-prod (esclusi da ore riga e da exportData TAG)."""
+    return is_tag_timeout_done(tag) or is_tag_timeout_prod(tag)
 
 
 def is_tag_nota(tag):
@@ -810,28 +831,35 @@ def valore_cella_tag_notab(tag):
     return valore_cella_tag_annotazione(tag, NOTAB_TAG_RE)
 
 
-def estrai_tag_timeout(description):
-    """Primo tag '# Timeout -' nella Description, se presente."""
+def _estrai_primo_tag_timeout(description, pred_tag):
     for tag in estrai_tag_temporali(description):
-        if is_tag_timeout(tag):
+        if pred_tag(tag):
             return tag
     return None
 
 
-def valore_timeout(description, data_oggi=None):
+def valore_giorni_da_tag_timeout(description, pred_tag, data_oggi=None):
     """
-    Giorni solari tra la data nel tag '# Timeout - <data>' e oggi.
+    Giorni solari tra la data nel primo tag che passa pred_tag e oggi.
     Nessun tag → None; tag presente ma data non valida → TIMEOUT_VALORE_ERRATO.
     """
     if data_oggi is None:
         data_oggi = datetime.now().date()
-    tag = estrai_tag_timeout(description)
+    tag = _estrai_primo_tag_timeout(description, pred_tag)
     if tag is None:
         return None
     date = estrai_date_da_tag(tag)
     if not date:
         return TIMEOUT_VALORE_ERRATO
     return (data_oggi - date[0]).days
+
+
+def valore_timeout_done(description, data_oggi=None):
+    return valore_giorni_da_tag_timeout(description, is_tag_timeout_done, data_oggi)
+
+
+def valore_timeout_prod(description, data_oggi=None):
+    return valore_giorni_da_tag_timeout(description, is_tag_timeout_prod, data_oggi)
 
 
 def applica_colore_timeout(cella, giorni):
@@ -852,7 +880,7 @@ def applica_colore_timeout(cella, giorni):
 
 
 def timeout_gg_richiede_asterisco_export(giorni):
-    """True se Timeout (gg) su data-all avrebbe sfondo rosso (pastello o acceso)."""
+    """True se Timeout Done (gg) su data-all avrebbe sfondo rosso (pastello o acceso)."""
     n = parse_numero(giorni)
     if n is None:
         return False
@@ -1385,7 +1413,8 @@ def espandi_card_con_tag(card):
         nuova_base[INIZIO_LAVORAZIONE_COL] = giorni_da_inizio_attivita(
             record.get("Description", "")
         )
-        nuova_base[TIMEOUT_COL] = valore_timeout(record.get("Description", ""))
+        nuova_base[TIMEOUT_COL] = valore_timeout_done(record.get("Description", ""))
+        nuova_base[TIMEOUT_PROD_COL] = valore_timeout_prod(record.get("Description", ""))
 
         tag_list = [
             tag
@@ -1432,7 +1461,7 @@ def espandi_card_con_tag(card):
             nuova[TOTALE_LAVORATE_HH_COL] = None
             nuova[DELTA_GIORNI_RIGA_COL] = None
             if (
-                is_tag_timeout(tag)
+                is_tag_timeout_operativo(tag)
                 or is_tag_nota(tag)
                 or is_tag_notab(tag)
                 or is_tag_production(tag)
@@ -1477,6 +1506,7 @@ def colonne_output():
         TOTALE_LAVORATE_GG_COL,
         TOTALE_LAVORATE_HH_COL,
         TIMEOUT_COL,
+        TIMEOUT_PROD_COL,
         TAG_TEMPORALI_COL,
         DELTA_GIORNI_RIGA_COL,
         ORE_COL,
@@ -1751,6 +1781,11 @@ def applica_totali_gruppo(ws, start, end):
     cella_timeout = ws.cell(row=start, column=COL_TIMEOUT)
     cella_timeout.alignment = center
     applica_colore_timeout(cella_timeout, parse_numero(cella_timeout.value))
+    cella_timeout_prod = ws.cell(row=start, column=COL_TIMEOUT_PROD)
+    cella_timeout_prod.alignment = center
+    applica_colore_timeout(
+        cella_timeout_prod, parse_numero(cella_timeout_prod.value)
+    )
 
 
 def gruppi_righe_per_title(ws):
@@ -1885,6 +1920,14 @@ def formatta_foglio_card(ws):
             )
             merged_timeout = ws.cell(row=start, column=COL_TIMEOUT)
             merged_timeout.alignment = center
+            ws.merge_cells(
+                start_row=start,
+                start_column=COL_TIMEOUT_PROD,
+                end_row=end,
+                end_column=COL_TIMEOUT_PROD,
+            )
+            merged_timeout_prod = ws.cell(row=start, column=COL_TIMEOUT_PROD)
+            merged_timeout_prod.alignment = center
             ws.merge_cells(
                 start_row=start,
                 start_column=COL_DELTA_ORE,
@@ -2276,7 +2319,8 @@ def legenda_colonne_data_all():
         COL_PERCENT_STIMATO_LAVORATO: "",
         COL_GIORNI: "Lavorati + Rework + Fix (gg)",
         COL_TOTALE_ORE: "Lavorati + Rework + Fix (hh)",
-        COL_TIMEOUT: "Dal Timeout ad oggi",
+        COL_TIMEOUT: LEGENDA_TIMEOUT_GIORNI,
+        COL_TIMEOUT_PROD: LEGENDA_TIMEOUT_GIORNI,
         COL_TAG: "Testo del tag # della riga",
         COL_DELTA_GIORNI_TAG: "Delta gg riga",
         COL_ORE: "Delta hh riga",
@@ -2324,6 +2368,7 @@ def formatta_foglio_dati(ws):
     ws.cell(row=DATA_HEADER_ROW, column=COL_GIORNI).value = TOTALE_LAVORATE_GG_COL
     ws.cell(row=DATA_HEADER_ROW, column=COL_TOTALE_ORE).value = TOTALE_LAVORATE_HH_COL
     ws.cell(row=DATA_HEADER_ROW, column=COL_TIMEOUT).value = TIMEOUT_COL
+    ws.cell(row=DATA_HEADER_ROW, column=COL_TIMEOUT_PROD).value = TIMEOUT_PROD_COL
     ws.cell(row=DATA_HEADER_ROW, column=COL_TAG).value = TAG_TEMPORALI_COL
     ws.cell(row=DATA_HEADER_ROW, column=COL_DELTA_GIORNI_TAG).value = (
         DELTA_GIORNI_TAG_HEADER
@@ -2493,7 +2538,7 @@ def is_tag_escluso_da_export_data(tag):
         or is_tag_assignee(tag)
         or is_tag_working(tag)
         or is_tag_fix(tag)
-        or is_tag_timeout(tag)
+        or is_tag_timeout_operativo(tag)
         or is_tag_rework(tag)
         or is_tag_nota(tag)
         or is_tag_notab(tag)
@@ -2528,7 +2573,7 @@ def preserva_valori_av_export_per_riga(ws, row, start, end):
     se la destinazione è vuota (evita perdita dati card quando si pulisce il TAG).
     """
     dest = _riga_destinazione_card_export(row, start, end)
-    for col_orig in range(1, COL_TIMEOUT + 1):
+    for col_orig in range(1, COL_TIMEOUT_PROD + 1):
         col = colonna_export_data(col_orig)
         if not col:
             continue
@@ -2993,7 +3038,7 @@ def applica_colonne_inizio_done_export_data(ws, gruppi, ws_src=None, gruppi_src=
 
 def applica_colonna_asterisco_timeout_export_data(ws, gruppi, ws_src, gruppi_src):
     """
-    exportData: colonna senza intestazione; '*' centrato se Timeout (gg) su data-all è in fascia rossa.
+    exportData: colonna senza intestazione; '*' centrato se Timeout Done (gg) su data-all è in fascia rossa.
     """
     col_base = colonna_export_data(EXPORT_DATA_COL_ANCHOR_FOGLIO)
     if not col_base:

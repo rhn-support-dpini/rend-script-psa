@@ -16,7 +16,7 @@ Il nome file input deve contenere una data `yyyy-mm-dd` o `yyyy/mm/dd`.
 
 ## Output Excel
 
-Fogli: `data-all` (principale), `exportData` (Title, Status + date/conteggi + col. `*` Timeout; senza TAG Temporali né bordi rossi), `data-export`. **`.docx`** (e **`<input>-Barison.docx`** uguale ma senza riga **Inizio Attivita'**): titolo **Title** «Innalzamento baseline JBoss-JBoss - \<data produzione\>»; acronimo **Heading 1**; righe in ordine **Status**, **Inizio Attivita'**, **Rilascio** (tag `# Rilascio - <data>`), **Done/Rilascio**, **Produzione** (`# Production -` / `# Produzione -`, riga anche se vuota), **Note:** (da Title data-all, escluse righe che iniziano con `#` o `-`; a capo dopo l’etichetta; **5 tab** in testa per riga). Nessun altro campo exportData nel docx. `time-Waiting`, `stat`, `email-mittenti` (grafici Excel email/settimana per acronimo, 2026-W12 … corrente, esclusi mittenti `ignora.addr`/`other.addr`), `storico` (tabella `dbJKAN.csv`).
+Fogli: `data-all` (principale), `exportData` (Title, Status + date/conteggi + col. `*` Timeout Done; senza TAG Temporali né bordi rossi), `data-export`. **`.docx`** (e **`<input>-Barison.docx`** uguale ma senza riga **Inizio Attivita'**): titolo **Title** «Innalzamento baseline JBoss-JBoss - \<data produzione\>»; acronimo **Heading 1**; righe in ordine **Status**, **Inizio Attivita'**, **Rilascio** (tag `# Rilascio - <data>`), **Done/Rilascio**, **Produzione** (`# Production -` / `# Produzione -`, riga anche se vuota), **Note:** (da Title data-all, escluse righe che iniziano con `#` o `-`; a capo dopo l’etichetta; **5 tab** in testa per riga). Nessun altro campo exportData nel docx. `time-Waiting`, `stat`, `email-mittenti` (grafici Excel email/settimana per acronimo, 2026-W12 … corrente, esclusi mittenti `ignora.addr`/`other.addr`), `storico` (tabella `dbJKAN.csv`).
 
 ### Colonne foglio `data-all`
 
@@ -24,18 +24,19 @@ Fogli: `data-all` (principale), `exportData` (Title, Status + date/conteggi + co
 |-----|--------|--------|
 | A | Title | merge verticali per Title |
 | B–I | Status … Tags (no Description) | merge verticali per Title |
-| AB | Description | ultima colonna; merge verticali per Title |
+| AC | Description | ultima colonna; merge verticali per Title |
 | J | InizioLavorazione(gg) | giornate lavorative (lun-ven) dal tag `# Inizio Attivita' - <data>` a oggi |
 | K–R | Waiting/Working/Rework/Fix | coppie (gg) poi (hh); **valori calcolati**, niente formule Excel |
 | S | % Stimato / Lavorato (gg) | (Totale Lavorate (hh) / Ore Stimate) × 100 |
 | T | Totale Lavorate (gg) | ore lavorate totali / 8 (merge card) |
 | U | Totale Lavorate (hh) | somma Working + Rework + Fix (hh) |
-| V | Timeout (gg) | giornate da oggi al tag `# Timeout -` |
-| W | TAG Temporali | testo del tag `#` della riga; giallo pastello `# Nota - <data> -`; rosso pastello `# NotaB - <data> -` |
-| X | Delta Giorni | Delta ore (Y) / 8 per riga tag (valore) |
-| Y | Delta ore | ore per riga tag; rosso pastello se ultimo tag operativo (# Nota/# NotaB finali escluse) è # Waiting e ore ≥ 56 |
-| Z | Giorni Stimate − Lavorate | delta giorni card, solo Acronimi Done |
-| AA | Ore Stimate − Lavorate | delta ore card, solo Acronimi Done |
+| V | Timeout Done (gg) | giornate solari da oggi alla data nel tag `# Timeout-done` |
+| W | Timeout Prod (gg) | come V per `# Timeout-prod` (stessa legenda riga 2) |
+| X | TAG Temporali | testo del tag `#` della riga; giallo pastello `# Nota - <data> -`; rosso pastello `# NotaB - <data> -` |
+| Y | Delta Giorni | Delta ore (Z) / 8 per riga tag (valore) |
+| Z | Delta ore | ore per riga tag; rosso pastello se ultimo tag operativo (# Nota/# NotaB finali escluse) è # Waiting e ore ≥ 56 |
+| AA | Giorni Stimate − Lavorate | delta giorni card, solo Acronimi Done |
+| AB | Ore Stimate − Lavorate | delta ore card, solo Acronimi Done |
 
 Righe `#` in Description → sotto-righe col. TAG Temporali; totali hh/gg in `applica_totali_gruppo` per card (merge A–R + AA, bordo rosso pastello).
 

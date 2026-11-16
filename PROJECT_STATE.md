@@ -1,6 +1,6 @@
 # PROJECT_STATE — rend-script-psa
 
-Ultimo aggiornamento: 2026-11-16 (docx variante -Barison senza Inizio Attivita').
+Ultimo aggiornamento: 2026-11-16 (Timeout-done/prod colonne data-all).
 
 Documento di handoff per sessioni successive: cosa c’è nel repo, come funziona, cosa è stato toccato di recente, e cosa evitare.
 
@@ -40,6 +40,10 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 - Colonna **senza titolo** dopo Fix: `*` centrato se Timeout (gg) su data-all è in fascia rossa (`>55` gg o valore errore). Solo su **exportData** Excel (non replicato nel **.docx**).
 - **.docx** indice sotto il titolo (righe vuote prima/dopo): elenco acronimi con link interni ai rispettivi Heading1 (bookmark).
 - **.docx** `_sezione_acronimo_documento_export`: niente campi Rework/Fix; Status senza suffisso ` *` per timeout oltre soglia.
+
+### Sessione 2026-11-16 — `elabora_JKAN.py` (Timeout-done / Timeout Prod)
+
+- **data-all**: tag `# Timeout-done` (ex `# Timeout -`) → col. **Timeout Done (gg)**; nuova col. **Timeout Prod (gg)** da `# Timeout-prod` (stessa legenda riga 2 «Dal Timeout ad oggi»); `COL_LAST` = 29 (Description in AC).
 
 ### Sessione 2026-11-16 — `elabora_JKAN.py` (docx -Barison)
 
