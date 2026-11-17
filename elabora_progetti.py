@@ -51,7 +51,6 @@ Configurazione (cartella dello script):
 import argparse
 import csv
 import glob
-import shutil
 import pandas as pd
 import numpy as np
 import os
@@ -746,21 +745,51 @@ def df_per_detrazione_giornate(df, col_role_name):
     return df.loc[mask]
 
 
-_RESULT_PSA_OUTPUT_RE = re.compile(r'-Result-PSA\.xlsx$', re.IGNORECASE)
+_RESULT_PSA_OUTPUT_PLAIN_RE = re.compile(r'-Result-PSA\.xlsx$', re.IGNORECASE)
+_RESULT_PSA_OUTPUT_STAMP_RE = re.compile(
+    r'-Result-PSA-\d{2}-\d{2}-\d{2}\.xlsx$', re.IGNORECASE,
+)
 
 
-def scrivi_copia_result_psa_con_ora(file_output):
-    """Duplica l'output ``…-Result-PSA.xlsx`` come ``…-Result-PSA-HH-MM-SS.xlsx``.
-
-    Returns:
-        Percorso della copia, o ``None`` se il nome output non è un Result-PSA standard.
-    """
-    if not _RESULT_PSA_OUTPUT_RE.search(file_output):
-        return None
+def percorso_output_result_psa_timestamp(file_output, quando=None):
+    """Da ``…-Result-PSA.xlsx`` produce ``…-Result-PSA-HH-MM-SS.xlsx`` (unico output)."""
+    quando = quando or datetime.now()
+    if _RESULT_PSA_OUTPUT_STAMP_RE.search(file_output):
+        return file_output
+    if not _RESULT_PSA_OUTPUT_PLAIN_RE.search(file_output):
+        return file_output
     root, _ = os.path.splitext(file_output)
-    stamped = f"{root}-{datetime.now().strftime('%H-%M-%S')}.xlsx"
-    shutil.copy2(file_output, stamped)
-    return stamped
+    return f"{root}-{quando.strftime('%H-%M-%S')}.xlsx"
+
+
+def _risolvi_output_finale_psa(file_output):
+    """Output Result-PSA solo con suffisso orario (``…-Result-PSA-HH-MM-SS.xlsx``)."""
+    plain = file_output
+    finale = percorso_output_result_psa_timestamp(file_output)
+    if finale != plain:
+        log.info("Output report (solo con timestamp): %s", finale)
+    return finale
+
+
+def rimuovi_result_psa_senza_timestamp_in_cartella(file_output_salvato):
+    """Elimina ``*-Result-PSA.xlsx`` (senza HH-MM-SS) nella cartella dell'output."""
+    out_dir = os.path.dirname(os.path.abspath(file_output_salvato))
+    if not out_dir or not os.path.isdir(out_dir):
+        return
+    salvato = os.path.abspath(file_output_salvato)
+    for nome in os.listdir(out_dir):
+        if not _RESULT_PSA_OUTPUT_PLAIN_RE.search(nome):
+            continue
+        path = os.path.abspath(os.path.join(out_dir, nome))
+        if path == salvato:
+            continue
+        if not os.path.isfile(path):
+            continue
+        try:
+            os.remove(path)
+            log.info("Rimosso output senza timestamp: %s", path)
+        except OSError as exc:
+            log.warning("Impossibile rimuovere %s: %s", path, exc)
 
 
 # --- CARICAMENTO E PREPARAZIONE DATI ---
@@ -4115,7 +4144,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
     """
     try:
         file_excel_input = risolvi_percorso_input(file_excel_input)
-        file_output = risolvi_percorso_output(file_output)
+        file_output = _risolvi_output_finale_psa(risolvi_percorso_output(file_output))
         path_script_cfg = risolvi_config('script.config')
         path_cust_cfg = risolvi_config(file_cust_config)
         if not os.path.isfile(path_cust_cfg):
@@ -4318,9 +4347,7 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
             autofit_columns(wb[sheet_name])
 
         wb.save(file_output)
-        stamped = scrivi_copia_result_psa_con_ora(file_output)
-        if stamped:
-            log.info("Copia oraria report: %s", stamped)
+        rimuovi_result_psa_senza_timestamp_in_cartella(file_output)
         log.info("SUCCESSO: File generato con tutte le intestazioni e dati codice interno.")
 
     except Exception as e:

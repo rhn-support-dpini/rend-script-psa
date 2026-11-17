@@ -238,9 +238,14 @@ for FILEPATH in "$TARGET_DIR"/$PATTERN_PSA; do
         cd "$SCRIPT_DIR"
         "$PYTHON" elabora_progetti.py "$CLIENTE" "$FILEPATH" "$TARGET_DIR/${DATA_FILE}-Result-PSA.xlsx"
     ); then
-        RESULT_PSA="$TARGET_DIR/${DATA_FILE}-Result-PSA.xlsx"
-        echo "Output report: $RESULT_PSA"
-        copia_risultato_su_drive "$RESULT_PSA" "$DRIVE_DIR_PSA" "PSA" || true
+        rm -f "$TARGET_DIR/${DATA_FILE}-Result-PSA.xlsx"
+        RESULT_PSA=$(ls -1t "$TARGET_DIR/${DATA_FILE}"-Result-PSA-*.xlsx 2>/dev/null | head -1)
+        if [ -n "$RESULT_PSA" ] && [ -f "$RESULT_PSA" ]; then
+            echo "Output report: $RESULT_PSA"
+            copia_risultato_su_drive "$RESULT_PSA" "$DRIVE_DIR_PSA" "PSA" || true
+        else
+            echo "Attenzione: nessun ${DATA_FILE}-Result-PSA-HH-MM-SS.xlsx trovato in $TARGET_DIR"
+        fi
         NUOVO_NOME=$(nome_elaborato_psa "$FILENAME")
         echo "Rinomino il file in: $NUOVO_NOME"
         mv "$FILEPATH" "$TARGET_DIR/$NUOVO_NOME"

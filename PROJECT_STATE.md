@@ -31,9 +31,9 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 
 ## Implementato / modificato (cronologia recente)
 
-### Sessione 2026-11-17 — `elabora_progetti.py` (copia Result-PSA oraria)
+### Sessione 2026-11-17 — `elabora_progetti.py` / `goAll` (Result-PSA solo con timestamp)
 
-- Oltre a `YYYY-MM-DD-Result-PSA.xlsx`, viene scritta una copia `YYYY-MM-DD-Result-PSA-HH-MM-SS.xlsx` (ora di salvataggio, stessa cartella).
+- Output PSA unico: `YYYY-MM-DD-Result-PSA-HH-MM-SS.xlsx`; il file senza suffisso orario non viene mantenuto (locale né Drive). `goAll` sincronizza su Drive solo la versione timestamp.
 
 ### Sessione 2026-11-17 — `elabora_progetti.py` (validazione sorgente PSA)
 
@@ -213,7 +213,7 @@ Commits: `025ef4e`, `64041d9`.
 ### elabora_progetti.py
 
 - Filtro cliente default `Intesa`; input Excel/CSV PSA.
-- Output tipico: `YYYY-MM-DD-Result-PSA.xlsx` + HTML.
+- Output tipico: `YYYY-MM-DD-Result-PSA-HH-MM-SS.xlsx` + HTML (stesso stem).
 - `.prjIgnore` → solo esclusione visiva/export tabella codice interno; **non** alterare pivot e totali.
 - Assegnazioni: conformità controllata con evidenziazione nel foglio `dati`.
 
