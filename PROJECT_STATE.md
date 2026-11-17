@@ -31,6 +31,10 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 
 ## Implementato / modificato (cronologia recente)
 
+### Sessione 2026-11-17 — `elabora_progetti.py` (copia Result-PSA oraria)
+
+- Oltre a `YYYY-MM-DD-Result-PSA.xlsx`, viene scritta una copia `YYYY-MM-DD-Result-PSA-HH-MM-SS.xlsx` (ora di salvataggio, stessa cartella).
+
 ### Sessione 2026-11-17 — `elabora_progetti.py` (validazione sorgente PSA)
 
 - Caricamento input: schema fisso **17 colonne** (`PSA_INTESTAZIONI_ATTESE`, separatore CSV `;`). Righe non conformi → **`.RecordError`** accanto al file sorgente (sovrascritto a ogni run).

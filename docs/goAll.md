@@ -10,6 +10,7 @@ Script bash che orchestra la copia incrementale degli export **PSA** e **MIRO** 
 Google Drive                          rend-script-psa/venv/Data/
 ├── DvPFilter-RHCC-All-Assignments-Full/   ──copia──►  DvPFilter-…  ──elabora_progetti.py──►  RHCC-…
 │                                                        └──►  YYYY-MM-DD-Result-PSA.xlsx
+│                                                             + YYYY-MM-DD-Result-PSA-HH-MM-SS.xlsx
 └── Miro/                                  ──copia──►  YYYY-MM-DD-Intesa-JBOSS.csv
     └── *-Intesa-JBOSS.csv                               ──elabora_JKAN.py──►  x-YYYY-MM-DD-Intesa-JBOSS.csv
                                                          └──►  .xlsx, .html, .docx, dbJKAN.csv
@@ -134,7 +135,8 @@ Al secondo lancio di `goAll` i file già gestiti non vengono ricopiati né rigen
 
 | File | Contenuto |
 |------|-----------|
-| `YYYY-MM-DD-Result-PSA.xlsx` | **Report generato** — contiene il foglio `Tabella di Export` |
+| `YYYY-MM-DD-Result-PSA.xlsx` | **Report generato** — contiene il foglio `Tabella di Export` (sovrascritto a ogni run sulla stessa data sorgente) |
+| `YYYY-MM-DD-Result-PSA-HH-MM-SS.xlsx` | Copia del report con ora di produzione (conservata come storico) |
 | `RHCC-All-Assignments-Full-….xlsx` | **Export grezzo PSA** (input rinominato) — **non** contiene la tabella di export |
 
 Dopo `goAll`, aprire sempre il file `*-Result-PSA.xlsx`, non il file `RHCC-…`.

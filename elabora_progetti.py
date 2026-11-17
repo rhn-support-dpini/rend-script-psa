@@ -50,6 +50,7 @@ Configurazione (cartella dello script):
 
 import argparse
 import csv
+import shutil
 import pandas as pd
 import numpy as np
 import os
@@ -743,6 +744,24 @@ def df_per_detrazione_giornate(df, col_role_name):
     mask = ~df[col_role_name].apply(is_milestone_non_billable_labor)
     return df.loc[mask]
 
+
+_RESULT_PSA_OUTPUT_RE = re.compile(r'-Result-PSA\.xlsx$', re.IGNORECASE)
+
+
+def scrivi_copia_result_psa_con_ora(file_output):
+    """Duplica l'output ``…-Result-PSA.xlsx`` come ``…-Result-PSA-HH-MM-SS.xlsx``.
+
+    Returns:
+        Percorso della copia, o ``None`` se il nome output non è un Result-PSA standard.
+    """
+    if not _RESULT_PSA_OUTPUT_RE.search(file_output):
+        return None
+    root, _ = os.path.splitext(file_output)
+    stamped = f"{root}-{datetime.now().strftime('%H-%M-%S')}.xlsx"
+    shutil.copy2(file_output, stamped)
+    return stamped
+
+
 # --- CARICAMENTO E PREPARAZIONE DATI ---
 
 PSA_SEPARATORE_RECORD = ';'
@@ -788,6 +807,50 @@ def _percorso_file_record_error(input_path, nome_file):
     return os.path.join(os.path.dirname(os.path.abspath(input_path)), nome_file)
 
 
+def _normalizza_campi_record_psa(row):
+    fields = list(row)
+    if len(fields) < PSA_NUM_COLONNE:
+        fields.extend([''] * (PSA_NUM_COLONNE - len(fields)))
+    elif len(fields) > PSA_NUM_COLONNE:
+        fields = fields[:PSA_NUM_COLONNE]
+    return fields
+
+
+def _motivo_intestazione_non_conforme(intestazioni):
+    """Testo debug per intestazione file PSA non conforme."""
+    n = len(intestazioni)
+    if n != PSA_NUM_COLONNE:
+        return (
+            f"Intestazione non conforme: {n} colonne invece di {PSA_NUM_COLONNE} "
+            f"(schema PSA standard)"
+        )
+    for i, (exp, got) in enumerate(zip(PSA_INTESTAZIONI_ATTESE, intestazioni)):
+        if _norm_intestazione_psa(exp) != _norm_intestazione_psa(got):
+            return (
+                f"Intestazione non conforme alla colonna {i + 1}: "
+                f"atteso {exp!r}, trovato {got!r}"
+            )
+    return "Intestazione non conforme allo schema PSA standard"
+
+
+def _motivo_errore_struttura_riga(fields, *, header_ok, motivo_intestazione=''):
+    if not header_ok:
+        if motivo_intestazione:
+            return (
+                f"Record scartato perché l'intestazione del file non è valida "
+                f"({motivo_intestazione})"
+            )
+        return "Record scartato perché l'intestazione del file non è valida"
+    if not fields:
+        return "Riga non parsabile come record CSV (delimitatore ;)"
+    if _riga_sorgente_vuota(fields):
+        return "Riga dati vuota (tutti i campi assenti o solo spazi)"
+    n = len(fields)
+    if n != PSA_NUM_COLONNE:
+        return f"Numero campi nella riga: {n} invece di {PSA_NUM_COLONNE}"
+    return "Record fuori standard (controllo struttura)"
+
+
 def _scrivi_file_record_error(path, righe):
     """Sovrascrive il file con intestazione PSA e le righe errate (17 campi per riga)."""
     parent = os.path.dirname(path)
@@ -797,12 +860,24 @@ def _scrivi_file_record_error(path, righe):
         writer = csv.writer(fh, delimiter=PSA_SEPARATORE_RECORD)
         writer.writerow(PSA_INTESTAZIONI_ATTESE)
         for row in righe:
-            fields = list(row)
-            if len(fields) < PSA_NUM_COLONNE:
-                fields.extend([''] * (PSA_NUM_COLONNE - len(fields)))
-            elif len(fields) > PSA_NUM_COLONNE:
-                fields = fields[:PSA_NUM_COLONNE]
-            writer.writerow(fields)
+            writer.writerow(_normalizza_campi_record_psa(row))
+
+
+def _scrivi_file_record_error_con_debug(path, entries):
+    """Scrive ``.RecordError``: per ogni voce, riga # DEBUG, record, due righe bianche."""
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    blank = [''] * PSA_NUM_COLONNE
+    with open(path, 'w', encoding='utf-8', newline='') as fh:
+        writer = csv.writer(fh, delimiter=PSA_SEPARATORE_RECORD)
+        writer.writerow(PSA_INTESTAZIONI_ATTESE)
+        for motivo, row in entries:
+            debug_row = [f"# DEBUG: {motivo}"] + [''] * (PSA_NUM_COLONNE - 1)
+            writer.writerow(debug_row)
+            writer.writerow(_normalizza_campi_record_psa(row))
+            writer.writerow(blank)
+            writer.writerow(blank)
 
 
 def _riga_sorgente_vuota(fields):
@@ -836,9 +911,10 @@ def _carica_csv_psa_validato(path):
     if not lines:
         raise ValueError(f"CSV vuoto: {path}")
 
-    struct_error_rows = []
+    struct_error_entries = []
     header_fields = next(csv.reader([lines[0].rstrip('\r\n')], delimiter=PSA_SEPARATORE_RECORD), [])
     header_ok = intestazione_psa_conforme(header_fields)
+    motivo_header = '' if header_ok else _motivo_intestazione_non_conforme(header_fields)
 
     data_lines = lines[1:]
     valid_field_rows = []
@@ -848,7 +924,11 @@ def _carica_csv_psa_validato(path):
             continue
         fields = next(csv.reader([raw], delimiter=PSA_SEPARATORE_RECORD), [])
         if not header_ok or len(fields) != PSA_NUM_COLONNE or _riga_sorgente_vuota(fields):
-            struct_error_rows.append(fields if fields else [raw])
+            payload = fields if fields else [raw]
+            motivo = _motivo_errore_struttura_riga(
+                payload, header_ok=header_ok, motivo_intestazione=motivo_header,
+            )
+            struct_error_entries.append((motivo, payload))
             continue
         valid_field_rows.append(fields)
 
@@ -856,39 +936,51 @@ def _carica_csv_psa_validato(path):
         df = pd.DataFrame(valid_field_rows, columns=PSA_INTESTAZIONI_ATTESE)
     else:
         df = pd.DataFrame(columns=PSA_INTESTAZIONI_ATTESE)
-    return df, struct_error_rows
+    return df, struct_error_entries
 
 
 def _carica_excel_psa_validato(path):
     """Legge Excel; richiede 17 colonne e intestazioni conformi."""
     df_raw = pd.read_excel(path)
-    struct_error_rows = []
-    if not intestazione_psa_conforme(list(df_raw.columns)):
+    struct_error_entries = []
+    colonne_file = list(df_raw.columns)
+    if not intestazione_psa_conforme(colonne_file):
+        motivo_header = _motivo_intestazione_non_conforme(colonne_file)
         for _, row in df_raw.iterrows():
             fields = _df_riga_a_campi(row.tolist())
             if _riga_sorgente_vuota(fields):
                 continue
-            struct_error_rows.append(fields)
-        return pd.DataFrame(columns=PSA_INTESTAZIONI_ATTESE), struct_error_rows
+            motivo = _motivo_errore_struttura_riga(
+                fields, header_ok=False, motivo_intestazione=motivo_header,
+            )
+            struct_error_entries.append((motivo, fields))
+        return pd.DataFrame(columns=PSA_INTESTAZIONI_ATTESE), struct_error_entries
 
-    if len(df_raw.columns) != PSA_NUM_COLONNE:
+    if len(colonne_file) != PSA_NUM_COLONNE:
+        motivo_file = (
+            f"File Excel con {len(colonne_file)} colonne invece di {PSA_NUM_COLONNE}"
+        )
         for _, row in df_raw.iterrows():
             fields = _df_riga_a_campi(row.tolist())
             if _riga_sorgente_vuota(fields):
                 continue
-            struct_error_rows.append(fields)
-        return pd.DataFrame(columns=PSA_INTESTAZIONI_ATTESE), struct_error_rows
+            struct_error_entries.append((
+                f"Record scartato: {motivo_file}",
+                fields,
+            ))
+        return pd.DataFrame(columns=PSA_INTESTAZIONI_ATTESE), struct_error_entries
 
     keep_idx = []
     for idx, row in df_raw.iterrows():
         fields = _df_riga_a_campi(row.tolist())
         if _riga_sorgente_vuota(fields):
-            struct_error_rows.append(fields)
+            motivo = _motivo_errore_struttura_riga(fields, header_ok=True)
+            struct_error_entries.append((motivo, fields))
             continue
         keep_idx.append(idx)
     df = df_raw.loc[keep_idx].copy()
     df.columns = list(PSA_INTESTAZIONI_ATTESE)
-    return df, struct_error_rows
+    return df, struct_error_entries
 
 
 def assignment_name_conforme(val):
@@ -933,14 +1025,14 @@ def carica_e_valida_sorgente(input_path):
     """
     ext = os.path.splitext(input_path)[1].lower()
     if ext == '.csv':
-        df, struct_error_rows = _carica_csv_psa_validato(input_path)
+        df, struct_error_entries = _carica_csv_psa_validato(input_path)
     else:
-        df, struct_error_rows = _carica_excel_psa_validato(input_path)
+        df, struct_error_entries = _carica_excel_psa_validato(input_path)
 
     path_struct = _percorso_file_record_error(input_path, FILE_RECORD_ERROR)
-    _scrivi_file_record_error(path_struct, struct_error_rows)
+    _scrivi_file_record_error_con_debug(path_struct, struct_error_entries)
 
-    n_struct = len(struct_error_rows)
+    n_struct = len(struct_error_entries)
     n_before_assign = len(df)
     df = filtra_assegnazioni_e_scrivi_errori(df, input_path)
     n_assign = n_before_assign - len(df)
@@ -4068,6 +4160,9 @@ def elabora_dati(file_excel_input, file_cust_config, file_output, cliente_filter
             autofit_columns(wb[sheet_name])
 
         wb.save(file_output)
+        stamped = scrivi_copia_result_psa_con_ora(file_output)
+        if stamped:
+            log.info("Copia oraria report: %s", stamped)
         log.info("SUCCESSO: File generato con tutte le intestazioni e dati codice interno.")
 
     except Exception as e:
