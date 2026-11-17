@@ -218,8 +218,8 @@ Non entrano invece nel calcolo dei **giorni disponibili / rimanenti**:
 
 Alla lettura del file PSA (CSV con `;` o Excel), ogni esecuzione:
 
-1. **Sintassi record** — intestazione esattamente 17 colonne (`Nome Progetto`, `OPA`, `Assignment Name`, … `Opportunity Owner`); ogni riga dati con 17 campi. Le righe fuori standard sono scritte in **`.RecordError`** (nella stessa cartella del sorgente, file sovrascritto): per ciascuna, una riga `# DEBUG: …` con il motivo, il record, poi **due righe vuote**.
-2. **Assignment Name** — esattamente **6** campi separati da `|` (primo non vuoto). Le righe residue non conformi in **`.RecordErrorAssignment`** (stesso percorso, sovrascritto).
+1. **Sintassi record** — intestazione da file **`DvP*`** nella cartella del sorgente; cache **`.psaIntestazioneRiferimento`** se il DvP non c'è più, altrimenti intestazione del file in elaborazione. Scarti in **`.RecordError`**: `# DEBUG`, record, **due righe vuote**.
+2. **Assignment Name** — esattamente **6** campi `|` (primo non vuoto). Se **&lt; 6** (o ≠ 6) → **`.RecordErrorAssignment`**.
 3. Solo i record che superano entrambi i controlli alimentano calcoli e foglio **`dati`**.
 
 Dopo il filtro, lo script espande la **colonna assegnazione** (indice 2, colonna C del sorgente PSA) in campi derivati (pipe `|` + ref-key nel 5° segmento).

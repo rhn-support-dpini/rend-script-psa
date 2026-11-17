@@ -37,8 +37,8 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 
 ### Sessione 2026-11-17 — `elabora_progetti.py` (validazione sorgente PSA)
 
-- Caricamento input: schema fisso **17 colonne** (`PSA_INTESTAZIONI_ATTESE`, separatore CSV `;`). Righe non conformi → **`.RecordError`** accanto al file sorgente (sovrascritto a ogni run).
-- Secondo filtro: **Assignment Name** con esattamente **6** campi `|` → scarto in **`.RecordErrorAssignment`**; solo i record validi in tab **`dati`** e nei calcoli downstream.
+- Intestazione PSA da **file `DvP*`**; persistita in **`.psaIntestazioneRiferimento`** (cartella sorgente) se il DvP viene rimosso; fallback intestazione del file in elaborazione.
+- Assignment Name: **6** segmenti `|` obbligatori; &lt; 6 (o ≠ 6) → **`.RecordErrorAssignment`**.
 - `assegnazione_conforme` allineato a 6 segmenti (primo non vuoto).
 
 ### Sessione 2026-11-10 — `elabora_progetti.py` (Dettaglio Ruoli)
