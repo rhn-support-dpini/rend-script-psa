@@ -1,6 +1,6 @@
 # PROJECT_STATE — rend-script-psa
 
-Ultimo aggiornamento: 2026-11-16 (Timeout-done/prod colonne data-all).
+Ultimo aggiornamento: 2026-11-17 (validazione input PSA .RecordError).
 
 Documento di handoff per sessioni successive: cosa c’è nel repo, come funziona, cosa è stato toccato di recente, e cosa evitare.
 
@@ -30,6 +30,12 @@ Automazione per elaborare export **PSA** (assegnazioni / pianificazione) e **MIR
 ---
 
 ## Implementato / modificato (cronologia recente)
+
+### Sessione 2026-11-17 — `elabora_progetti.py` (validazione sorgente PSA)
+
+- Caricamento input: schema fisso **17 colonne** (`PSA_INTESTAZIONI_ATTESE`, separatore CSV `;`). Righe non conformi → **`.RecordError`** accanto al file sorgente (sovrascritto a ogni run).
+- Secondo filtro: **Assignment Name** con esattamente **6** campi `|` → scarto in **`.RecordErrorAssignment`**; solo i record validi in tab **`dati`** e nei calcoli downstream.
+- `assegnazione_conforme` allineato a 6 segmenti (primo non vuoto).
 
 ### Sessione 2026-11-10 — `elabora_progetti.py` (Dettaglio Ruoli)
 

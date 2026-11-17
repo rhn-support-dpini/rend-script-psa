@@ -42,12 +42,14 @@ Configurazione (cartella dello script):
     .prjIgnore      Voci omesse solo in stampa tab progetti / Tabella di Export (e HTML):
                      - nome progetto PSA (Project: Project Name) → tab progetti;
                      - codice interno (colonna A, Tabella di Export) → tab Export/HTML.
-                     I calcoli e il foglio dati includono sempre tutte le righe sorgente.
+                     I calcoli e il foglio dati usano solo record PSA conformi
+                     (vedi validazione in caricamento → .RecordError / .RecordErrorAssignment).
     .prjDB.json     Per Project Name (cwd): Opportunity, End Date, days_redempted_*;
                      display=y (o assente) → riga RHProj; display=n → riga omessa.
 """
 
 import argparse
+import csv
 import pandas as pd
 import numpy as np
 import os
@@ -571,22 +573,8 @@ FILLS_GRIGIO_PRJ_IGNORE = FILLS_GRIGIO_ASSEGNAZIONE
 
 
 def assegnazione_conforme(val):
-    """True se il campo assegnazione rispetta il formato a 6 sottocampi pipe-separated.
-
-    Formato atteso: Nome risorsa | RifInterno PSA | Cliente | Sottoprogetto |
-    ref-key | Commento (quest'ultimo opzionale → almeno 5 segmenti).
-    """
-    if pd.isna(val):
-        return False
-    s = str(val).strip()
-    if not s:
-        return False
-    parti = [p.strip() for p in s.split('|')]
-    if len(parti) < 5:
-        return False
-    if not parti[0]:
-        return False
-    return True
+    """Alias di ``assignment_name_conforme`` (6 campi ``|`` nell'Assignment Name)."""
+    return assignment_name_conforme(val)
 
 
 def _to_int_riferimento_tabella(s):
@@ -757,27 +745,223 @@ def df_per_detrazione_giornate(df, col_role_name):
 
 # --- CARICAMENTO E PREPARAZIONE DATI ---
 
-def leggi_file_input(path):
-    """Legge il sorgente PSA da Excel (.xlsx/.xlsm/.xls) o CSV (.csv)."""
-    ext = os.path.splitext(path)[1].lower()
-    if ext != '.csv':
-        return pd.read_excel(path)
+PSA_SEPARATORE_RECORD = ';'
+PSA_NUM_COLONNE = 17
+PSA_INTESTAZIONI_ATTESE = (
+    'Nome Progetto',
+    'OPA',
+    'Assignment Name',
+    'Full Name',
+    'Assignment Milestone',
+    'OPA Task Number',
+    'Planned Hours',
+    'Estimated Hours',
+    'Actual Hours',
+    'Time Perio Name',
+    'Assignment Status',
+    'Assignment Forecast',
+    'Assignment Description',
+    'Default Bill Rate',
+    'Cost Rate',
+    'Account Name',
+    'Opportunity Owner',
+)
+PSA_IDX_ASSIGNMENT_NAME = 2
+FILE_RECORD_ERROR = '.RecordError'
+FILE_RECORD_ERROR_ASSIGNMENT = '.RecordErrorAssignment'
+
+
+def _norm_intestazione_psa(h):
+    return str(h).strip().casefold()
+
+
+def intestazione_psa_conforme(intestazioni):
+    """True se la riga di intestazione coincide con ``PSA_INTESTAZIONI_ATTESE`` (17 colonne)."""
+    if len(intestazioni) != PSA_NUM_COLONNE:
+        return False
+    attese = [_norm_intestazione_psa(h) for h in PSA_INTESTAZIONI_ATTESE]
+    lette = [_norm_intestazione_psa(h) for h in intestazioni]
+    return attese == lette
+
+
+def _percorso_file_record_error(input_path, nome_file):
+    return os.path.join(os.path.dirname(os.path.abspath(input_path)), nome_file)
+
+
+def _scrivi_file_record_error(path, righe):
+    """Sovrascrive il file con intestazione PSA e le righe errate (17 campi per riga)."""
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(path, 'w', encoding='utf-8', newline='') as fh:
+        writer = csv.writer(fh, delimiter=PSA_SEPARATORE_RECORD)
+        writer.writerow(PSA_INTESTAZIONI_ATTESE)
+        for row in righe:
+            fields = list(row)
+            if len(fields) < PSA_NUM_COLONNE:
+                fields.extend([''] * (PSA_NUM_COLONNE - len(fields)))
+            elif len(fields) > PSA_NUM_COLONNE:
+                fields = fields[:PSA_NUM_COLONNE]
+            writer.writerow(fields)
+
+
+def _riga_sorgente_vuota(fields):
+    return not any(str(v).strip() for v in fields if v is not None and not (isinstance(v, float) and pd.isna(v)))
+
+
+def _df_riga_a_campi(row):
+    out = []
+    for v in row:
+        if pd.isna(v):
+            out.append('')
+        else:
+            out.append(str(v))
+    return out
+
+
+def _carica_csv_psa_validato(path):
+    """Legge CSV PSA; righe con numero campi ≠ 17 o intestazione non conforme → errori."""
+    last_err = None
     for enc in ('utf-8-sig', 'utf-8', 'latin-1'):
         try:
-            df = pd.read_csv(path, sep=None, engine='python', encoding=enc)
-            if len(df.columns) > 1:
-                return df
-        except Exception:
+            with open(path, encoding=enc, newline='') as fh:
+                lines = fh.readlines()
+            break
+        except Exception as exc:
+            last_err = exc
+            lines = None
+    if lines is None:
+        raise ValueError(f"Impossibile leggere il CSV: {path}") from last_err
+
+    if not lines:
+        raise ValueError(f"CSV vuoto: {path}")
+
+    struct_error_rows = []
+    header_fields = next(csv.reader([lines[0].rstrip('\r\n')], delimiter=PSA_SEPARATORE_RECORD), [])
+    header_ok = intestazione_psa_conforme(header_fields)
+
+    data_lines = lines[1:]
+    valid_field_rows = []
+    for line in data_lines:
+        raw = line.rstrip('\r\n')
+        if not raw.strip():
             continue
-    for sep in (';', ','):
-        for enc in ('utf-8-sig', 'latin-1'):
-            try:
-                df = pd.read_csv(path, sep=sep, encoding=enc)
-                if len(df.columns) > 1:
-                    return df
-            except Exception:
+        fields = next(csv.reader([raw], delimiter=PSA_SEPARATORE_RECORD), [])
+        if not header_ok or len(fields) != PSA_NUM_COLONNE or _riga_sorgente_vuota(fields):
+            struct_error_rows.append(fields if fields else [raw])
+            continue
+        valid_field_rows.append(fields)
+
+    if valid_field_rows:
+        df = pd.DataFrame(valid_field_rows, columns=PSA_INTESTAZIONI_ATTESE)
+    else:
+        df = pd.DataFrame(columns=PSA_INTESTAZIONI_ATTESE)
+    return df, struct_error_rows
+
+
+def _carica_excel_psa_validato(path):
+    """Legge Excel; richiede 17 colonne e intestazioni conformi."""
+    df_raw = pd.read_excel(path)
+    struct_error_rows = []
+    if not intestazione_psa_conforme(list(df_raw.columns)):
+        for _, row in df_raw.iterrows():
+            fields = _df_riga_a_campi(row.tolist())
+            if _riga_sorgente_vuota(fields):
                 continue
-    raise ValueError(f"Impossibile leggere il CSV: {path}")
+            struct_error_rows.append(fields)
+        return pd.DataFrame(columns=PSA_INTESTAZIONI_ATTESE), struct_error_rows
+
+    if len(df_raw.columns) != PSA_NUM_COLONNE:
+        for _, row in df_raw.iterrows():
+            fields = _df_riga_a_campi(row.tolist())
+            if _riga_sorgente_vuota(fields):
+                continue
+            struct_error_rows.append(fields)
+        return pd.DataFrame(columns=PSA_INTESTAZIONI_ATTESE), struct_error_rows
+
+    keep_idx = []
+    for idx, row in df_raw.iterrows():
+        fields = _df_riga_a_campi(row.tolist())
+        if _riga_sorgente_vuota(fields):
+            struct_error_rows.append(fields)
+            continue
+        keep_idx.append(idx)
+    df = df_raw.loc[keep_idx].copy()
+    df.columns = list(PSA_INTESTAZIONI_ATTESE)
+    return df, struct_error_rows
+
+
+def assignment_name_conforme(val):
+    """True se Assignment Name ha esattamente 6 sottocampi pipe-separated (primo non vuoto)."""
+    if pd.isna(val):
+        return False
+    s = str(val).strip()
+    if not s:
+        return False
+    parti = [p.strip() for p in s.split('|')]
+    if len(parti) != 6:
+        return False
+    return bool(parti[0])
+
+
+def filtra_assegnazioni_e_scrivi_errori(df, input_path):
+    """Esclude righe con Assignment Name non conforme; scrive ``.RecordErrorAssignment``."""
+    if df.empty:
+        path_err = _percorso_file_record_error(input_path, FILE_RECORD_ERROR_ASSIGNMENT)
+        _scrivi_file_record_error(path_err, [])
+        return df
+
+    col_assign = df.columns[PSA_IDX_ASSIGNMENT_NAME]
+    assign_ok = df[col_assign].apply(assignment_name_conforme)
+    err_rows = [_df_riga_a_campi(row) for _, row in df.loc[~assign_ok].iterrows()]
+    df_ok = df.loc[assign_ok].reset_index(drop=True)
+
+    path_err = _percorso_file_record_error(input_path, FILE_RECORD_ERROR_ASSIGNMENT)
+    _scrivi_file_record_error(path_err, err_rows)
+    return df_ok
+
+
+def carica_e_valida_sorgente(input_path):
+    """Carica il sorgente PSA applicando validazione strutturale e su Assignment Name.
+
+    Scrive (sovrascrivendo) accanto al file di input:
+    - ``.RecordError`` per record con sintassi colonne non conforme;
+    - ``.RecordErrorAssignment`` per record con Assignment Name ≠ 6 campi ``|``.
+
+    Returns:
+        Tuple (df_valido, n_errori_struttura, n_errori_assegnazione).
+    """
+    ext = os.path.splitext(input_path)[1].lower()
+    if ext == '.csv':
+        df, struct_error_rows = _carica_csv_psa_validato(input_path)
+    else:
+        df, struct_error_rows = _carica_excel_psa_validato(input_path)
+
+    path_struct = _percorso_file_record_error(input_path, FILE_RECORD_ERROR)
+    _scrivi_file_record_error(path_struct, struct_error_rows)
+
+    n_struct = len(struct_error_rows)
+    n_before_assign = len(df)
+    df = filtra_assegnazioni_e_scrivi_errori(df, input_path)
+    n_assign = n_before_assign - len(df)
+
+    return df, n_struct, n_assign
+
+
+def leggi_file_input(path):
+    """Legge il sorgente PSA validato (solo record conformi alle due sintassi)."""
+    df, n_struct, n_assign = carica_e_valida_sorgente(path)
+    if n_struct or n_assign:
+        log.info(
+            "   Validazione input: %d record struttura errata → %s; "
+            "%d Assignment Name non conformi → %s; %d record nel tab dati.",
+            n_struct,
+            FILE_RECORD_ERROR,
+            n_assign,
+            FILE_RECORD_ERROR_ASSIGNMENT,
+            len(df),
+        )
+    return df
 
 
 def carica_dati(file_excel_input, config):

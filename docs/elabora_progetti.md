@@ -216,7 +216,13 @@ Non entrano invece nel calcolo dei **giorni disponibili / rimanenti**:
 
 ## Elaborazione dati sorgente
 
-Dopo la lettura dell'Excel, lo script espande la **colonna assegnazione** (indice 2, colonna C del sorgente PSA) in campi derivati (pipe `|` + ref-key nel 5° segmento).
+Alla lettura del file PSA (CSV con `;` o Excel), ogni esecuzione:
+
+1. **Sintassi record** — intestazione esattamente 17 colonne (`Nome Progetto`, `OPA`, `Assignment Name`, … `Opportunity Owner`); ogni riga dati con 17 campi. Le righe fuori standard sono scritte in **`.RecordError`** (nella stessa cartella del sorgente, file sovrascritto).
+2. **Assignment Name** — esattamente **6** campi separati da `|` (primo non vuoto). Le righe residue non conformi in **`.RecordErrorAssignment`** (stesso percorso, sovrascritto).
+3. Solo i record che superano entrambi i controlli alimentano calcoli e foglio **`dati`**.
+
+Dopo il filtro, lo script espande la **colonna assegnazione** (indice 2, colonna C del sorgente PSA) in campi derivati (pipe `|` + ref-key nel 5° segmento).
 
 | Campo derivato | Contenuto |
 |----------------|-----------|
